@@ -14,7 +14,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: pip install -e .
-      - run: python -m compileall -q cajeer_bots bots modules plugins
-      - run: test -s README.md && test -s .env.example && test -x scripts/run.sh
-      - run: EVENT_SIGNING_SECRET=ci-secret python -m cajeer_bots doctor --offline
-      - run: python -m cajeer_bots adapters && python -m cajeer_bots modules && python -m cajeer_bots plugins
+      - run: python -m compileall -q core bots modules plugins
+      - run: test -s README.md && test -s .env.example && test -d core && test -d bots
+      - run: EVENT_SIGNING_SECRET=ci-secret python -m core doctor --offline
+      - run: python -m core adapters && python -m core modules && python -m core plugins
