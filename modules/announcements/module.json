@@ -1,0 +1,14 @@
+{
+  "id": "announcements",
+  "name": "Объявления",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Создание и доставка объявлений в разные каналы.",
+  "requires": [],
+  "adapters": [
+    "telegram",
+    "discord",
+    "vkontakte"
+  ],
+  "enabled_by_default": false
+}
