@@ -1,0 +1,14 @@
+{
+  "id": "identity",
+  "name": "Идентификация",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Единая модель пользователей и связей между внешними аккаунтами.",
+  "requires": [],
+  "adapters": [
+    "telegram",
+    "discord",
+    "vkontakte"
+  ],
+  "enabled_by_default": true
+}
