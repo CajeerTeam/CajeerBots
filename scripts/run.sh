@@ -2,4 +2,4 @@
 set -euo pipefail
 MODE="${1:-all}"
 [ ! -d .venv ] || . .venv/bin/activate
-exec python -m cajeer_bots run "$MODE"
+exec python -m core run "$MODE"

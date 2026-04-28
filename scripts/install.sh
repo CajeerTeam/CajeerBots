@@ -5,4 +5,4 @@ python3 -m venv .venv
 pip install --upgrade pip
 pip install -e '.[api,adapters]'
 [ -f .env ] || cp .env.example .env
-echo "Cajeer Bots installed. Edit .env before production launch."
+echo "Cajeer Bots установлен. Перед боевым запуском заполните .env."
