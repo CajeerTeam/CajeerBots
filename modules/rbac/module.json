@@ -1,0 +1,14 @@
+{
+  "id": "rbac",
+  "name": "Права доступа",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Роли, разрешения и проверки доступа для платформы.",
+  "requires": [],
+  "adapters": [
+    "telegram",
+    "discord",
+    "vkontakte"
+  ],
+  "enabled_by_default": true
+}
