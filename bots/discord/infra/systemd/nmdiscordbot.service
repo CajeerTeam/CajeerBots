@@ -1,1 +1,31 @@
+[Unit]
+Description=NMDiscordBot service
+After=network-online.target
+Wants=network-online.target
 
+[Service]
+Type=simple
+User=nmdiscordbot
+Group=nmdiscordbot
+WorkingDirectory=/opt/nmdiscordbot
+EnvironmentFile=/opt/nmdiscordbot/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/opt/nmdiscordbot/.venv/bin/python -m nmbot.main --preflight
+ExecStartPre=/opt/nmdiscordbot/.venv/bin/python -m nmbot.main --self-test
+ExecStartPre=/opt/nmdiscordbot/.venv/bin/python -m nmbot.main --migrate-only
+ExecStart=/opt/nmdiscordbot/.venv/bin/python -m nmbot.main
+ExecReload=/opt/nmdiscordbot/.venv/bin/python -m nmbot.main --preflight
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/nmdiscordbot/data /opt/nmdiscordbot/logs
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
