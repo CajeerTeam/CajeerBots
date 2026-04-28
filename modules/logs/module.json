@@ -1,0 +1,14 @@
+{
+  "id": "logs",
+  "name": "Журналы",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Единый слой журналирования и отправки событий в удалённые хранилища.",
+  "requires": [],
+  "adapters": [
+    "telegram",
+    "discord",
+    "vkontakte"
+  ],
+  "enabled_by_default": true
+}
