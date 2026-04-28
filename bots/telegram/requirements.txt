@@ -1,0 +1,2 @@
+# Deployment/install entrypoint. Source of truth: requirements.lock
+-r requirements.lock

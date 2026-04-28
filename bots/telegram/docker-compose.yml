@@ -1,0 +1,123 @@
+services:
+  redis:
+    profiles: ["redis", "polling-redis", "webhook-redis", "pg-redis"]
+    image: redis:7-alpine
+    container_name: nmtelegrambot-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  postgres:
+    profiles: ["postgres", "pg-redis"]
+    image: postgres:16-alpine
+    container_name: nmtelegrambot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nmtelegrambot}
+      POSTGRES_USER: ${POSTGRES_USER:-nmtelegrambot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nmtelegrambot}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  nmtelegrambot-polling:
+    profiles: ["polling"]
+    build: .
+    container_name: nmtelegrambot-polling
+    restart: unless-stopped
+    env_file: [.env]
+    volumes: ["./data:/app/data", "./templates:/app/templates:ro", "./shared:/app/shared:ro"]
+
+  nmtelegrambot-polling-redis:
+    profiles: ["polling-redis"]
+    build: .
+    container_name: nmtelegrambot-polling-redis
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes: ["./data:/app/data", "./templates:/app/templates:ro", "./shared:/app/shared:ro"]
+
+  nmtelegrambot-webhook:
+    profiles: ["webhook"]
+    build: .
+    container_name: nmtelegrambot-webhook
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      PUBLIC_HTTP_SERVER_URL: ${PUBLIC_HTTP_SERVER_URL:-https://nmtelegrambot.bothost.ru/}
+      WEBHOOK_URL: ${WEBHOOK_URL:-https://nmtelegrambot.bothost.ru/}
+      WEBHOOK_LISTEN: ${WEBHOOK_LISTEN:-0.0.0.0}
+      WEBHOOK_PORT: ${WEBHOOK_PORT:-8080}
+      PORT: ${PORT:-8080}
+      HEALTH_HTTP_PORT: ${HEALTH_HTTP_PORT:-0}
+      DATA_DIR: ${DATA_DIR:-/app/data}
+      SHARED_DIR: ${SHARED_DIR:-/app/shared}
+      NMBOT_RUNTIME_DIR: ${NMBOT_RUNTIME_DIR:-/app/data}
+    ports: ["127.0.0.1:${PORT:-8080}:8080"]
+    volumes: ["./data:/app/data", "./templates:/app/templates:ro", "./shared:/app/shared:ro"]
+
+  nmtelegrambot-webhook-redis:
+    profiles: ["webhook-redis"]
+    build: .
+    container_name: nmtelegrambot-webhook-redis
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      PUBLIC_HTTP_SERVER_URL: ${PUBLIC_HTTP_SERVER_URL:-https://nmtelegrambot.bothost.ru/}
+      WEBHOOK_URL: ${WEBHOOK_URL:-https://nmtelegrambot.bothost.ru/}
+      WEBHOOK_LISTEN: ${WEBHOOK_LISTEN:-0.0.0.0}
+      WEBHOOK_PORT: ${WEBHOOK_PORT:-8080}
+      PORT: ${PORT:-8080}
+      HEALTH_HTTP_PORT: ${HEALTH_HTTP_PORT:-0}
+      DATA_DIR: ${DATA_DIR:-/app/data}
+      SHARED_DIR: ${SHARED_DIR:-/app/shared}
+      NMBOT_RUNTIME_DIR: ${NMBOT_RUNTIME_DIR:-/app/data}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports: ["127.0.0.1:8080:8080"]
+    volumes: ["./data:/app/data", "./templates:/app/templates:ro", "./shared:/app/shared:ro"]
+
+  nmtelegrambot-postgres:
+    profiles: ["postgres"]
+    build: .
+    container_name: nmtelegrambot-postgres
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://nmtelegrambot:nmtelegrambot@postgres:5432/nmtelegrambot}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes: ["./data:/app/data", "./templates:/app/templates:ro", "./shared:/app/shared:ro"]
+
+  nmtelegrambot-pg-redis:
+    profiles: ["pg-redis"]
+    build: .
+    container_name: nmtelegrambot-pg-redis
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://nmtelegrambot:nmtelegrambot@postgres:5432/nmtelegrambot}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes: ["./data:/app/data", "./templates:/app/templates:ro", "./shared:/app/shared:ro"]

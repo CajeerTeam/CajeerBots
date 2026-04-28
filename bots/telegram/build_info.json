@@ -1,0 +1,138 @@
+{
+  "version": "2.2.0",
+  "build": "2026-04-18T23:59:00Z",
+  "storage_backend": "sqlite|postgresql",
+  "schema_version": 10,
+  "features": [
+    "anti-replay",
+    "approval-workflows",
+    "community-core-bridges",
+    "compatibility-manifest",
+    "delivery-dry-run",
+    "delivery-ledger",
+    "external-admin-control-surface",
+    "feature-flags",
+    "grafana-dashboard",
+    "health-http",
+    "incident-snapshot",
+    "linking",
+    "maintenance-mode",
+    "metrics",
+    "mode-switch-assistant",
+    "onboarding-wizard",
+    "operator-alert-lifecycle",
+    "prometheus-alert-rules",
+    "push-ingest-endpoints",
+    "quiet-hours",
+    "rbac-overrides",
+    "release-checksums-manifest",
+    "release-pipeline",
+    "repair-reconcile-jobs",
+    "rollback-aware-migrations",
+    "russian-only",
+    "security-api-hooks",
+    "security-push-challenges",
+    "sqlite-export-bundle-tooling",
+    "telegram-runtime",
+    "user-notification-prefs",
+    "user-self-service",
+    "russian-only-runtime",
+    "release-modes",
+    "redis-compose-profile",
+    "restore-drill",
+    "artifact-manifest-signature",
+    "postgresql-native-runtime",
+    "native-postgresql-multi-instance",
+    "release-modes-operational",
+    "stable-event-contracts",
+    "runtime-housekeeping",
+    "redis-turnkey-deploy",
+    "manifest-verify",
+    "postgresql-live-smoke",
+    "sqlite-to-postgresql-cutover",
+    "runtime-backend-observability",
+    "external-admin-strict-contract",
+    "restore-runtime-verify",
+    "operational-modes",
+    "discord-bridge-ingress",
+    "discord-bridge-outbound",
+    "telegram-discord-hmac-transport",
+    "discord-event-renderer"
+  ],
+  "compatibility": {
+    "required_schema_version": 10,
+    "storage": [
+      "sqlite",
+      "postgresql"
+    ],
+    "template_schema_version": 2,
+    "security_api": [
+      "SECURITY_STATUS_URL",
+      "SECURITY_CHALLENGES_URL",
+      "SECURITY_2FA_ACTION_URL",
+      "SECURITY_RECOVERY_URL",
+      "SECURITY_SESSIONS_URL",
+      "SECURITY_SESSION_ACTION_URL"
+    ],
+    "minimum_nm_auth_api_version": "1",
+    "language": "ru-only",
+    "community_core": [
+      "COMMUNITY_CORE_EVENT_URL",
+      "DISCORD_BRIDGE_URL",
+      "VK_BRIDGE_URL",
+      "EXTERNAL_ADMIN_API_URL",
+      "DISCORD_BRIDGE_URL",
+      "DISCORD_BRIDGE_HMAC_SECRET",
+      "BRIDGE_INBOUND_HMAC_SECRET"
+    ],
+    "community_core_contract_version": "1",
+    "external_admin_contract_version": "2",
+    "multi_instance_backends": [
+      "postgresql",
+      "redis"
+    ],
+    "discord_bot_bridge_contract_version": "5"
+  },
+  "feature_matrix": {
+    "stable": [
+      "delivery-ledger",
+      "health-http",
+      "metrics",
+      "postgresql-native-runtime",
+      "release-pipeline",
+      "repair-reconcile-jobs",
+      "runtime-housekeeping",
+      "stable-event-contracts",
+      "telegram-runtime",
+      "runtime-backend-observability",
+      "manifest-verify",
+      "restore-runtime-verify",
+      "postgresql-runtime-verified-tooling",
+      "cutover-verify-tooling",
+      "ru-only-runtime-cleanup"
+    ],
+    "experimental": [
+      "redis-rate-limits",
+      "external-admin-control-surface"
+    ],
+    "requires_external_api": [
+      "security-api-hooks",
+      "community-core-bridges",
+      "push-ingest-endpoints"
+    ],
+    "requires_redis": [
+      "redis-rate-limits"
+    ],
+    "requires_nm_auth": [
+      "security-api-hooks",
+      "compatibility-manifest"
+    ],
+    "requires_operator_chat": [
+      "operator-alert-lifecycle",
+      "approval-workflows"
+    ],
+    "requires_postgresql": [
+      "postgresql-native-runtime"
+    ]
+  }
+}
