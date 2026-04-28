@@ -1,9 +1,9 @@
 {
   "id": "telegram",
-  "name": "Telegram Adapter",
+  "name": "Telegram",
   "version": "1.0.0",
   "type": "adapter",
-  "description": "Telegram transport adapter for Cajeer Bots Platform",
+  "description": "Адаптер Telegram для Cajeer Bots",
   "capabilities": [
     "messages.receive",
     "messages.send",

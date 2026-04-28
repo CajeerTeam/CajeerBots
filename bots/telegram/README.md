@@ -1,9 +1,9 @@
-# Telegram Adapter
+# Telegram
 
-Standalone wrapper:
+Standalone-обёртка адаптера.
 
 ```bash
-python -m cajeer_bots run telegram
+python -m core run telegram
 python bots/telegram/main.py
-python -m nmbot.main  # when cwd is bots/telegram
+python -m bot.main  # если текущий каталог: bots/telegram
 ```
