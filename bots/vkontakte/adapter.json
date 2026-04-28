@@ -1,9 +1,9 @@
 {
   "id": "vkontakte",
-  "name": "VKontakte Adapter",
+  "name": "ВКонтакте",
   "version": "1.0.0",
   "type": "adapter",
-  "description": "VKontakte transport adapter for Cajeer Bots Platform",
+  "description": "Адаптер ВКонтакте для Cajeer Bots",
   "capabilities": [
     "messages.receive",
     "messages.send",

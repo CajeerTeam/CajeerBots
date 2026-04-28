@@ -1,9 +1,9 @@
-# VKontakte Adapter
+# ВКонтакте
 
-Standalone wrapper:
+Standalone-обёртка адаптера.
 
 ```bash
-python -m cajeer_bots run vkontakte
+python -m core run vkontakte
 python bots/vkontakte/main.py
-python -m nmbot.main  # when cwd is bots/vkontakte
+python -m bot.main  # если текущий каталог: bots/vkontakte
 ```
