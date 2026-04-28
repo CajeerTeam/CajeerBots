@@ -1,0 +1,55 @@
+services:
+  nmdiscordbot:
+    build: .
+    container_name: nmdiscordbot
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./shared:/app/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-m", "nmbot.healthcheck", "--mode", "readiness"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: nmdiscordbot-postgres
+    profiles: ["postgres", "full"]
+    environment:
+      POSTGRES_DB: nmdiscordbot
+      POSTGRES_USER: nmdiscordbot
+      POSTGRES_PASSWORD: nmdiscordbot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: nmdiscordbot-redis
+    profiles: ["redis", "full"]
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
