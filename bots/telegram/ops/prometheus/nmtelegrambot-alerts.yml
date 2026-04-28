@@ -1,1 +1,17 @@
-
+groups:
+  - name: nmtelegrambot
+    rules:
+      - alert: NMTelegramBotDeadLettersGrowing
+        expr: nmtelegrambot_open_operator_alerts > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: NMTelegramBot reports open operator alerts
+      - alert: NMTelegramBotFeedBacklog
+        expr: nmtelegrambot_feed_backlog > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Feed backlog is high
