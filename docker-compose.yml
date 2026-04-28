@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: cajeerbots
+      POSTGRES_USER: cajeerbots
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - cajeer_bots_pg:/var/lib/postgresql/data
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cajeerbots -d cajeerbots"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    profiles: ["api", "all"]
+    env_file: .env
+    command: ["python", "-m", "cajeer_bots", "run", "api"]
+    ports: ["8088:8088"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build: .
+    profiles: ["worker", "all"]
+    env_file: .env
+    command: ["python", "-m", "cajeer_bots", "run", "worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  telegram:
+    build: .
+    profiles: ["telegram", "all"]
+    env_file: .env
+    command: ["python", "-m", "cajeer_bots", "run", "telegram"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  discord:
+    build: .
+    profiles: ["discord", "all"]
+    env_file: .env
+    command: ["python", "-m", "cajeer_bots", "run", "discord"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  vkontakte:
+    build: .
+    profiles: ["vkontakte", "vk", "all"]
+    env_file: .env
+    command: ["python", "-m", "cajeer_bots", "run", "vkontakte"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  cajeer_bots_pg:

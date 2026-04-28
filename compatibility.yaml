@@ -1,0 +1,21 @@
+platform: 0.9.0
+event_contract: 1
+db_contract: 1
+python: ">=3.11"
+adapters:
+  telegram: {min: 1.0.0, max: 1.x}
+  discord: {min: 1.0.0, max: 1.x}
+  vkontakte: {min: 1.0.0, max: 1.x}
+modules:
+  identity: ">=1.0.0"
+  rbac: ">=1.0.0"
+  logs: ">=1.0.0"
+  bridge: ">=1.0.0"
+  support: ">=1.0.0"
+  announcements: ">=1.0.0"
+  scheduler: ">=1.0.0"
+plugins:
+  nevermine_status: ">=1.0.0"
+  cajeer_workspace_sync: ">=1.0.0"
+  github_release_notifier: ">=1.0.0"
+  server_monitoring: ">=1.0.0"
