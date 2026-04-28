@@ -1,0 +1,4 @@
+<b>NeverMine Telegram</b>
+Добро пожаловать в Telegram runtime проекта NeverMine.
+
+Используйте кнопки ниже или /help для списка команд.
