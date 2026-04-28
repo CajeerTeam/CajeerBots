@@ -1,6 +1,6 @@
-platform: 0.9.0
+platform: 0.9.1
 event_contract: 1
-db_contract: 1
+db_contract: external
 python: ">=3.11"
 adapters:
   telegram: {min: 1.0.0, max: 1.x}
@@ -14,8 +14,6 @@ modules:
   support: ">=1.0.0"
   announcements: ">=1.0.0"
   scheduler: ">=1.0.0"
+  moderation: ">=1.0.0"
 plugins:
-  nevermine_status: ">=1.0.0"
-  cajeer_workspace_sync: ">=1.0.0"
-  github_release_notifier: ">=1.0.0"
-  server_monitoring: ">=1.0.0"
+  example_plugin: ">=1.0.0"
