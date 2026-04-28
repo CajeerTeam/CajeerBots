@@ -1,0 +1,16 @@
+{
+  "id": "example_plugin",
+  "name": "Пример плагина",
+  "version": "1.0.0",
+  "type": "plugin",
+  "description": "Минимальный пример расширения платформы без привязки к конкретному проекту.",
+  "requires": [
+    "bridge"
+  ],
+  "adapters": [
+    "telegram",
+    "discord",
+    "vkontakte"
+  ],
+  "enabled_by_default": false
+}
