@@ -1,1 +1,1443 @@
-
+{
+  "meta": {
+    "layout_schema_version": 3,
+    "name": "NeverMine Discord Layout",
+    "managed_by": "NMDiscordBot",
+    "alias_binding_version": 1,
+    "permission_matrix_version": 1
+  },
+  "roles": [
+    {
+      "alias": "founder",
+      "name": "Founder",
+      "color": "#6FE3FF",
+      "position": 220,
+      "managed": true,
+      "permissions": [
+        "administrator"
+      ]
+    },
+    {
+      "alias": "cajeer_team",
+      "name": "Cajeer Team",
+      "color": "#7C5CFF",
+      "position": 210,
+      "managed": true
+    },
+    {
+      "alias": "deeplayer_team",
+      "name": "DeepLayer Team",
+      "color": "#4CCBFF",
+      "position": 205,
+      "managed": true
+    },
+    {
+      "alias": "administrator",
+      "name": "Administrator",
+      "color": "#FF5C8A",
+      "position": 200,
+      "managed": true,
+      "permissions": [
+        "administrator"
+      ]
+    },
+    {
+      "alias": "lead_moderator",
+      "name": "Lead Moderator",
+      "color": "#FF8A4C",
+      "position": 190,
+      "managed": true,
+      "permissions": [
+        "kick_members",
+        "ban_members",
+        "moderate_members",
+        "manage_messages",
+        "manage_threads",
+        "move_members",
+        "mute_members",
+        "deafen_members",
+        "view_audit_log"
+      ]
+    },
+    {
+      "alias": "moderator",
+      "name": "Moderator",
+      "color": "#FFB14C",
+      "position": 180,
+      "managed": true,
+      "permissions": [
+        "kick_members",
+        "moderate_members",
+        "manage_messages",
+        "manage_threads",
+        "move_members",
+        "mute_members",
+        "deafen_members"
+      ]
+    },
+    {
+      "alias": "community_manager",
+      "name": "Community Manager",
+      "color": "#3FD3B3",
+      "position": 170,
+      "managed": true,
+      "permissions": [
+        "manage_messages",
+        "manage_threads",
+        "manage_events",
+        "mention_everyone"
+      ]
+    },
+    {
+      "alias": "support",
+      "name": "Support",
+      "color": "#57C7FF",
+      "position": 165,
+      "managed": true,
+      "permissions": [
+        "manage_threads"
+      ]
+    },
+    {
+      "alias": "lore_content",
+      "name": "Lore / Content",
+      "color": "#A98BFF",
+      "position": 160,
+      "managed": true,
+      "permissions": [
+        "manage_threads",
+        "manage_messages"
+      ]
+    },
+    {
+      "alias": "event_team",
+      "name": "Event Team",
+      "color": "#2ED6FF",
+      "position": 155,
+      "managed": true,
+      "permissions": [
+        "manage_events",
+        "move_members",
+        "mute_members",
+        "deafen_members"
+      ]
+    },
+    {
+      "alias": "creator_media",
+      "name": "Creator / Media",
+      "color": "#F062FF",
+      "position": 150,
+      "managed": true
+    },
+    {
+      "alias": "guild_leader",
+      "name": "Guild Leader",
+      "color": "#7BE07B",
+      "position": 145,
+      "managed": true
+    },
+    {
+      "alias": "tester",
+      "name": "Tester",
+      "color": "#9FC7FF",
+      "position": 140,
+      "managed": true
+    },
+    {
+      "alias": "booster",
+      "name": "Booster",
+      "color": "#FF73FA",
+      "position": 135,
+      "managed": true
+    },
+    {
+      "alias": "member",
+      "name": "Member",
+      "color": "#C7D2E0",
+      "position": 130,
+      "managed": true
+    },
+    {
+      "alias": "visitor",
+      "name": "Visitor",
+      "color": "#8A97A8",
+      "position": 125,
+      "managed": true
+    },
+    {
+      "alias": "muted",
+      "name": "Muted",
+      "color": "#5E6673",
+      "position": 120,
+      "managed": true
+    },
+    {
+      "alias": "bot",
+      "name": "Bot",
+      "color": "#8899AA",
+      "position": 115,
+      "managed": true,
+      "permissions": [
+        "manage_messages",
+        "manage_threads",
+        "manage_events"
+      ]
+    },
+    {
+      "alias": "news",
+      "name": "News",
+      "color": "#66D9FF",
+      "position": 110,
+      "managed": true
+    },
+    {
+      "alias": "lore",
+      "name": "Lore",
+      "color": "#9B86FF",
+      "position": 109,
+      "managed": true
+    },
+    {
+      "alias": "gameplay",
+      "name": "Gameplay",
+      "color": "#58C1FF",
+      "position": 108,
+      "managed": true
+    },
+    {
+      "alias": "events",
+      "name": "Events",
+      "color": "#41E0C2",
+      "position": 107,
+      "managed": true
+    },
+    {
+      "alias": "guilds",
+      "name": "Guilds",
+      "color": "#7FDB7F",
+      "position": 106,
+      "managed": true
+    },
+    {
+      "alias": "media",
+      "name": "Media",
+      "color": "#FF7AE6",
+      "position": 105,
+      "managed": true
+    },
+    {
+      "alias": "devlogs",
+      "name": "Devlogs",
+      "color": "#8CC8FF",
+      "position": 104,
+      "managed": true
+    }
+  ],
+  "categories": [
+    {
+      "alias": "start",
+      "name": "Начало пути",
+      "public_visibility": "visitor",
+      "channels": [
+        {
+          "alias": "start_here",
+          "name": "start-here",
+          "type": "text",
+          "read_only_public": true,
+          "public_visibility": "visitor",
+          "permission_overrides": [
+            {
+              "subject": "everyone",
+              "allow": [
+                "view_channel"
+              ],
+              "deny": [
+                "send_messages"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "rules",
+          "name": "rules",
+          "type": "text",
+          "read_only_public": true,
+          "public_visibility": "visitor",
+          "permission_overrides": [
+            {
+              "subject": "everyone",
+              "allow": [
+                "view_channel"
+              ],
+              "deny": [
+                "send_messages"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "announcements",
+          "name": "announcements",
+          "type": "text",
+          "read_only_public": true,
+          "public_visibility": "visitor",
+          "permission_overrides": [
+            {
+              "subject": "everyone",
+              "allow": [
+                "view_channel"
+              ],
+              "deny": [
+                "send_messages"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "devlog",
+          "name": "devlog",
+          "type": "text",
+          "read_only_public": true,
+          "public_visibility": "visitor",
+          "permission_overrides": [
+            {
+              "subject": "everyone",
+              "allow": [
+                "view_channel"
+              ],
+              "deny": [
+                "send_messages"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "roles_and_access",
+          "name": "roles-and-access",
+          "type": "text",
+          "read_only_public": true,
+          "public_visibility": "visitor",
+          "permission_overrides": [
+            {
+              "subject": "everyone",
+              "allow": [
+                "view_channel"
+              ],
+              "deny": [
+                "send_messages"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "faq_discord",
+          "name": "faq-discord",
+          "type": "text",
+          "read_only_public": true,
+          "public_visibility": "visitor",
+          "permission_overrides": [
+            {
+              "subject": "everyone",
+              "allow": [
+                "view_channel"
+              ],
+              "deny": [
+                "send_messages"
+              ]
+            }
+          ]
+        }
+      ],
+      "permission_overrides": [
+        {
+          "subject": "everyone",
+          "allow": [
+            "view_channel"
+          ],
+          "deny": [
+            "send_messages",
+            "send_messages_in_threads",
+            "create_public_threads"
+          ]
+        }
+      ]
+    },
+    {
+      "alias": "world",
+      "name": "Мир NeverMine",
+      "public_visibility": "member",
+      "channels": [
+        {
+          "alias": "world_overview",
+          "name": "world-overview",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "chronicle_forum",
+          "name": "forum-chronicle",
+          "type": "forum",
+          "topic_kind": "chronicle",
+          "public_visibility": "member",
+          "forum_tags": [
+            "хроника",
+            "официально",
+            "открыто",
+            "закрыто"
+          ],
+          "permission_overrides": [
+            {
+              "subject": "everyone",
+              "deny": [
+                "create_public_threads"
+              ]
+            },
+            {
+              "subject": "member",
+              "allow": [
+                "view_channel",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads",
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "cajeer_team",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads",
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "deeplayer_team",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads",
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "community_manager",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads",
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "lore_content",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads",
+                "manage_threads"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "lore_discussion_forum",
+          "name": "forum-lore-discussion",
+          "type": "forum",
+          "topic_kind": "lore_discussion",
+          "public_visibility": "member",
+          "forum_tags": [
+            "лор",
+            "обсуждение",
+            "открыто",
+            "закрыто"
+          ],
+          "permission_overrides": [
+            {
+              "subject": "member",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "cajeer_team",
+              "allow": [
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "deeplayer_team",
+              "allow": [
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "community_manager",
+              "allow": [
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "lore_content",
+              "allow": [
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "moderator",
+              "allow": [
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "lead_moderator",
+              "allow": [
+                "manage_threads"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "factions",
+          "name": "factions",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "hidden_systems",
+          "name": "hidden-systems",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "world_signals",
+          "name": "world-signals",
+          "type": "text",
+          "read_only_public": true,
+          "public_visibility": "member",
+          "permission_overrides": [
+            {
+              "subject": "everyone",
+              "deny": [
+                "send_messages"
+              ]
+            },
+            {
+              "subject": "member",
+              "allow": [
+                "view_channel"
+              ]
+            },
+            {
+              "subject": "visitor",
+              "deny": [
+                "view_channel"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "view_channel",
+                "send_messages"
+              ]
+            },
+            {
+              "subject": "cajeer_team",
+              "allow": [
+                "view_channel",
+                "send_messages"
+              ]
+            },
+            {
+              "subject": "deeplayer_team",
+              "allow": [
+                "view_channel",
+                "send_messages"
+              ]
+            },
+            {
+              "subject": "community_manager",
+              "allow": [
+                "view_channel",
+                "send_messages"
+              ]
+            },
+            {
+              "subject": "lore_content",
+              "allow": [
+                "view_channel",
+                "send_messages"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "alias": "systems",
+      "name": "Игровые системы",
+      "public_visibility": "member",
+      "channels": [
+        {
+          "alias": "gameplay",
+          "name": "gameplay",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "progression",
+          "name": "progression",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "guilds_text",
+          "name": "guilds",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "economy",
+          "name": "economy",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "events_and_seasons",
+          "name": "events-and-seasons",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "suggestions_forum",
+          "name": "forum-suggestions",
+          "type": "forum",
+          "topic_kind": "suggestion",
+          "public_visibility": "member",
+          "permission_overrides": [
+            {
+              "subject": "member",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "support",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "lead_moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "administrator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "bug_reports_forum",
+          "name": "forum-bug-reports",
+          "type": "forum",
+          "topic_kind": "bug",
+          "public_visibility": "member",
+          "permission_overrides": [
+            {
+              "subject": "member",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "support",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "lead_moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "administrator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "alias": "community",
+      "name": "Сообщество",
+      "public_visibility": "member",
+      "channels": [
+        {
+          "alias": "general",
+          "name": "general",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "introductions",
+          "name": "introductions",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "screenshots_and_art",
+          "name": "screenshots-and-art",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "clips_and_media",
+          "name": "clips-and-media",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "guild_recruitment_forum",
+          "name": "forum-guild-recruitment",
+          "type": "forum",
+          "topic_kind": "guild_recruitment",
+          "public_visibility": "member",
+          "permission_overrides": [
+            {
+              "subject": "everyone",
+              "deny": [
+                "create_public_threads"
+              ]
+            },
+            {
+              "subject": "member",
+              "allow": [
+                "view_channel",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "guild_leader",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads",
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads",
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "administrator",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads",
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "lead_moderator",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads",
+                "manage_threads"
+              ]
+            },
+            {
+              "subject": "moderator",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads",
+                "manage_threads"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "looking_for_party",
+          "name": "looking-for-party",
+          "type": "text",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "offtopic",
+          "name": "offtopic",
+          "type": "text",
+          "public_visibility": "member"
+        }
+      ]
+    },
+    {
+      "alias": "voice",
+      "name": "Голос и события",
+      "public_visibility": "member",
+      "channels": [
+        {
+          "alias": "voice_general",
+          "name": "General",
+          "type": "voice",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "voice_party_1",
+          "name": "Party 1",
+          "type": "voice",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "voice_party_2",
+          "name": "Party 2",
+          "type": "voice",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "voice_guild_room",
+          "name": "Guild Room",
+          "type": "voice",
+          "public_visibility": "member"
+        },
+        {
+          "alias": "stage_nevermine",
+          "name": "Stage: NeverMine",
+          "type": "stage",
+          "public_visibility": "member",
+          "speaker_roles": [
+            "founder",
+            "administrator",
+            "cajeer_team",
+            "deeplayer_team",
+            "community_manager",
+            "event_team",
+            "lead_moderator"
+          ],
+          "permission_overrides": [
+            {
+              "subject": "member",
+              "allow": [
+                "view_channel",
+                "connect"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "administrator",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "cajeer_team",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "deeplayer_team",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "community_manager",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "event_team",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "lead_moderator",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            }
+          ]
+        }
+      ],
+      "permission_overrides": [
+        {
+          "subject": "member",
+          "allow": [
+            "view_channel",
+            "connect"
+          ]
+        }
+      ]
+    },
+    {
+      "alias": "support",
+      "name": "Поддержка",
+      "public_visibility": "member",
+      "channels": [
+        {
+          "alias": "help_forum",
+          "name": "forum-help",
+          "type": "forum",
+          "topic_kind": "support",
+          "public_visibility": "member",
+          "permission_overrides": [
+            {
+              "subject": "member",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "support",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "lead_moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "administrator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "launcher_tech_forum",
+          "name": "forum-launcher-and-tech",
+          "type": "forum",
+          "topic_kind": "support",
+          "public_visibility": "member",
+          "permission_overrides": [
+            {
+              "subject": "member",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "support",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "lead_moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "administrator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "account_help_forum",
+          "name": "forum-account-help",
+          "type": "forum",
+          "topic_kind": "support",
+          "public_visibility": "member",
+          "permission_overrides": [
+            {
+              "subject": "member",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "support",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "lead_moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "administrator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "appeals_forum",
+          "name": "forum-appeals",
+          "type": "forum",
+          "topic_kind": "appeal",
+          "public_visibility": "member",
+          "permission_overrides": [
+            {
+              "subject": "member",
+              "allow": [
+                "view_channel",
+                "create_public_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "support",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "lead_moderator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "administrator",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "view_channel",
+                "manage_threads",
+                "send_messages_in_threads"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "alias": "team",
+      "name": "Команда",
+      "public_visibility": "staff",
+      "staff_only": true,
+      "channels": [
+        {
+          "alias": "staff_briefing",
+          "name": "staff-briefing",
+          "type": "text",
+          "staff_only": true
+        },
+        {
+          "alias": "mod_chat",
+          "name": "mod-chat",
+          "type": "text",
+          "staff_only": true
+        },
+        {
+          "alias": "reports",
+          "name": "reports",
+          "type": "text",
+          "staff_only": true
+        },
+        {
+          "alias": "event_ops",
+          "name": "event-ops",
+          "type": "text",
+          "staff_only": true
+        },
+        {
+          "alias": "content_ops",
+          "name": "content-ops",
+          "type": "text",
+          "staff_only": true
+        },
+        {
+          "alias": "bot_logs",
+          "name": "bot-logs",
+          "type": "text",
+          "staff_only": true,
+          "permission_overrides": [
+            {
+              "subject": "bot",
+              "allow": [
+                "view_channel",
+                "send_messages"
+              ]
+            }
+          ]
+        },
+        {
+          "alias": "staff_voice",
+          "name": "Staff Voice",
+          "type": "voice",
+          "staff_only": true,
+          "permission_overrides": [
+            {
+              "subject": "everyone",
+              "deny": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "founder",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "administrator",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "cajeer_team",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "deeplayer_team",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "lead_moderator",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "moderator",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "community_manager",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "support",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "lore_content",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "event_team",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            },
+            {
+              "subject": "bot",
+              "allow": [
+                "view_channel",
+                "connect",
+                "speak"
+              ]
+            }
+          ]
+        }
+      ],
+      "permission_overrides": [
+        {
+          "subject": "everyone",
+          "deny": [
+            "view_channel",
+            "connect",
+            "speak",
+            "send_messages",
+            "send_messages_in_threads",
+            "create_public_threads"
+          ]
+        },
+        {
+          "subject": "founder",
+          "allow": [
+            "view_channel"
+          ]
+        },
+        {
+          "subject": "administrator",
+          "allow": [
+            "view_channel"
+          ]
+        },
+        {
+          "subject": "cajeer_team",
+          "allow": [
+            "view_channel"
+          ]
+        },
+        {
+          "subject": "deeplayer_team",
+          "allow": [
+            "view_channel"
+          ]
+        },
+        {
+          "subject": "lead_moderator",
+          "allow": [
+            "view_channel"
+          ]
+        },
+        {
+          "subject": "moderator",
+          "allow": [
+            "view_channel"
+          ]
+        },
+        {
+          "subject": "community_manager",
+          "allow": [
+            "view_channel"
+          ]
+        },
+        {
+          "subject": "support",
+          "allow": [
+            "view_channel"
+          ]
+        },
+        {
+          "subject": "lore_content",
+          "allow": [
+            "view_channel"
+          ]
+        },
+        {
+          "subject": "event_team",
+          "allow": [
+            "view_channel"
+          ]
+        },
+        {
+          "subject": "bot",
+          "allow": [
+            "view_channel"
+          ]
+        }
+      ]
+    }
+  ]
+}
