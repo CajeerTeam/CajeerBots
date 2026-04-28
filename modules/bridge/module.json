@@ -1,0 +1,14 @@
+{
+  "id": "bridge",
+  "name": "Шина событий",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Связь адаптеров, модулей и плагинов через общий контракт событий.",
+  "requires": [],
+  "adapters": [
+    "telegram",
+    "discord",
+    "vkontakte"
+  ],
+  "enabled_by_default": true
+}
