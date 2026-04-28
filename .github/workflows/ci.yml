@@ -1,1 +1,20 @@
+name: ci
 
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e .
+      - run: python -m compileall -q cajeer_bots bots modules plugins
+      - run: test -s README.md && test -s .env.example && test -x scripts/run.sh
+      - run: EVENT_SIGNING_SECRET=ci-secret python -m cajeer_bots doctor --offline
+      - run: python -m cajeer_bots adapters && python -m cajeer_bots modules && python -m cajeer_bots plugins
