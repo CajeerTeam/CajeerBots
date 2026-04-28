@@ -1,3 +1,0 @@
-<b>NeverMine Feed</b>
-{tag_block}
-{text}

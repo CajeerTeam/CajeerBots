@@ -1,8 +1,0 @@
-{
-  "title": "NMTelegramBot",
-  "panels": [
-    {"title": "Open Alerts", "type": "stat", "targets": [{"expr": "nmtelegrambot_open_operator_alerts"}]},
-    {"title": "Feed Backlog", "type": "stat", "targets": [{"expr": "nmtelegrambot_feed_backlog"}]},
-    {"title": "Broadcast Backlog", "type": "stat", "targets": [{"expr": "nmtelegrambot_broadcast_backlog"}]}
-  ]
-}

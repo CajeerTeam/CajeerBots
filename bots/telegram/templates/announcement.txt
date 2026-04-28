@@ -1,4 +1,0 @@
-<b>NeverMine Announcement</b>
-От: <b>{author}</b>
-{tag_block}
-{text}

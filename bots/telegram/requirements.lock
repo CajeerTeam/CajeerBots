@@ -1,9 +1,0 @@
-# Pinned deployment baseline for production installs.
-# Update deliberately after compatibility checks.
-python-telegram-bot[webhooks]==21.11.1
-python-dotenv==1.2.2
-httpx==0.28.1
-tornado==6.4.1
-redis==5.2.1
-pytest==8.3.5
-psycopg[binary]==3.2.9
