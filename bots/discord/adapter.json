@@ -1,9 +1,9 @@
 {
   "id": "discord",
-  "name": "Discord Adapter",
+  "name": "Discord",
   "version": "1.0.0",
   "type": "adapter",
-  "description": "Discord transport adapter for Cajeer Bots Platform",
+  "description": "Адаптер Discord для Cajeer Bots",
   "capabilities": [
     "messages.receive",
     "messages.send",
