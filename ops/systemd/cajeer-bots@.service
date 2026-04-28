@@ -1,5 +1,5 @@
 [Unit]
-Description=Cajeer Bots Platform mode %i
+Description=Cajeer Bots — режим %i
 After=network-online.target postgresql.service
 Wants=network-online.target
 
@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/cajeer-bots
 EnvironmentFile=/opt/cajeer-bots/.env
-ExecStart=/opt/cajeer-bots/.venv/bin/python -m cajeer_bots run %i
+ExecStart=/opt/cajeer-bots/.venv/bin/python -m core run %i
 Restart=always
 RestartSec=5
 User=cajeerbots
