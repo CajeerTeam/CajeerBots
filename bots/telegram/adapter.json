@@ -1,0 +1,14 @@
+{
+  "id": "telegram",
+  "name": "Telegram Adapter",
+  "version": "1.0.0",
+  "type": "adapter",
+  "description": "Telegram transport adapter for Cajeer Bots Platform",
+  "capabilities": [
+    "messages.receive",
+    "messages.send",
+    "health",
+    "events.publish"
+  ],
+  "enabled_by_default": true
+}
