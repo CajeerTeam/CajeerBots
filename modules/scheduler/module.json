@@ -1,0 +1,14 @@
+{
+  "id": "scheduler",
+  "name": "Планировщик",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Фоновые задачи и отложенные действия платформы.",
+  "requires": [],
+  "adapters": [
+    "telegram",
+    "discord",
+    "vkontakte"
+  ],
+  "enabled_by_default": false
+}
