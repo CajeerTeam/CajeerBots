@@ -1,0 +1,14 @@
+{
+  "id": "discord",
+  "name": "Discord Adapter",
+  "version": "1.0.0",
+  "type": "adapter",
+  "description": "Discord transport adapter for Cajeer Bots Platform",
+  "capabilities": [
+    "messages.receive",
+    "messages.send",
+    "health",
+    "events.publish"
+  ],
+  "enabled_by_default": true
+}
