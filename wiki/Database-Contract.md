@@ -41,3 +41,26 @@ last_error
 ## Проверка эксплуатации
 
 `doctor` должен проверять подключение к PostgreSQL, но не должен создавать таблицы. Внешний эксплуатационный слой отвечает за создание и обновление схемы.
+
+
+## Контракт `shared.event_bus` для backend `postgres`
+
+Минимальный набор полей для `EVENT_BUS_BACKEND=postgres`:
+
+```text
+event_id      уникальный идентификатор события
+trace_id      идентификатор трассировки
+source        источник события: telegram, discord, vkontakte, system, module, plugin
+event_type    тип события, например adapter.started
+payload       JSONB-представление CajeerEvent
+status        состояние доставки: new, processing, done, failed
+created_at    время создания записи
+processed_at  время обработки, если применимо
+last_error    последняя ошибка обработки, если применимо
+```
+
+Индексы и блокировки выбираются эксплуатационным слоем. Платформа не создаёт таблицы автоматически.
+
+## Redis Streams
+
+Для `EVENT_BUS_BACKEND=redis` используется stream `cajeer-bots:events`. Поле `payload` содержит JSON-представление `CajeerEvent`.

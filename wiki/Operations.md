@@ -1,41 +1,37 @@
 # Эксплуатация
 
-## Проверка платформы
+## Проверка
 
 ```bash
 cajeer-bots doctor --offline
-cajeer-bots doctor
 ```
 
-Проверка без `--offline` обращается к PostgreSQL и проверяет токены включённых адаптеров.
+Проверка контролирует структуру проекта, manifest-файлы, compatibility matrix, исполняемые права скриптов, отсутствие устаревших имён пакетов и демонстрационных секретов.
 
-## Release preflight
+## API
 
-Перед сборкой релиза `scripts/release.sh` выполняет:
+Публичные без токена:
 
-- проверку запрещённых проектных и устаревших терминов;
-- проверку executable-bit у shell-скриптов;
-- компиляцию Python-файлов;
-- `doctor --offline`;
-- проверку registry для адаптеров, модулей, плагинов и команд.
+- `GET /healthz`
+- `GET /readyz`
+- `GET /metrics`
 
-## HTTP API
-
-```bash
-cajeer-bots run api
-```
-
-Маршруты:
+Остальные маршруты требуют заголовок:
 
 ```text
-/healthz
-/readyz
-/version
-/adapters
-/modules
-/plugins
-/events
-/commands
-/config/summary
-/adapter-status
+Authorization: Bearer <API_TOKEN>
 ```
+
+## Метрики
+
+`GET /metrics` возвращает Prometheus-compatible текст со счётчиками runtime, событий, registry и dead letters.
+
+## systemd
+
+Production unit использует console script:
+
+```text
+/opt/cajeer-bots/.venv/bin/cajeer-bots run all
+```
+
+`python -m core` остаётся допустимым режимом разработки.

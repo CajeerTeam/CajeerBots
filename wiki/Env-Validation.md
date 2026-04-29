@@ -1,29 +1,18 @@
 # Проверка переменных окружения
 
-## Обязательные переменные для боевого запуска
+`core.config.Settings` проверяет типы и допустимые значения основных переменных окружения до запуска runtime.
 
-| Переменная | Обязательность | Секрет | Назначение |
-|---|---:|---:|---|
-| `DATABASE_URL` | да | да | подключение к PostgreSQL |
-| `EVENT_SIGNING_SECRET` | да | да | подпись внутренних событий |
-| `API_TOKEN` | да | да | доступ к административному API |
+| Переменная | Проверка |
+|---|---|
+| `API_PORT` | целое число от 1 до 65535 |
+| `TELEGRAM_MODE` | `polling` или `webhook` |
+| `CAJEER_BOTS_MODE` | `all`, `telegram`, `discord`, `vkontakte`, `worker`, `api`, `bridge` |
+| `DATABASE_SSLMODE` | `disable`, `allow`, `prefer`, `require`, `verify-ca`, `verify-full` |
+| `EVENT_BUS_BACKEND` | `memory`, `postgres`, `redis` |
+| `CAJEER_BOTS_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 
-## Переменные адаптеров
-
-| Переменная | Когда нужна | Назначение |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | если `TELEGRAM_ENABLED=true` | токен Telegram-бота |
-| `DISCORD_TOKEN` | если `DISCORD_ENABLED=true` | токен Discord-бота |
-| `VK_GROUP_TOKEN` | если `VKONTAKTE_ENABLED=true` | токен группы ВКонтакте |
-
-## Демонстрационные значения
-
-Значения вида `change-me`, `change-me-admin-token` и `change-me-long-random-secret` допустимы только для локального каркаса. `doctor` считает их проблемой.
-
-## Безопасная проверка
+Секреты `EVENT_SIGNING_SECRET` и `API_TOKEN` не должны использовать демонстрационные значения `change-me*` в боевом окружении. Это проверяется командой:
 
 ```bash
 cajeer-bots doctor --offline
 ```
-
-Проверка без `--offline` дополнительно обращается к PostgreSQL и проверяет токены включённых адаптеров.
