@@ -60,6 +60,9 @@ class GitHubReleaseSource:
         for artifact in manifest.artifacts:
             asset = by_name.get(artifact.name, {})
             patched.append(ReleaseArtifact(artifact.name, artifact.url or str(asset.get("browser_download_url") or ""), artifact.sha256, artifact.size or asset.get("size")))
+            sig_asset = by_name.get(artifact.name + ".sig")
+            if sig_asset and not any(item.name == artifact.name + ".sig" for item in patched):
+                patched.append(ReleaseArtifact(artifact.name + ".sig", str(sig_asset.get("browser_download_url") or ""), "", sig_asset.get("size")))
         return ReleaseManifest(manifest.name, manifest.version, manifest.channel, manifest.python, manifest.db_contract, manifest.event_contract, manifest.requires_migration, patched)
 
     def download_artifact(self, artifact: ReleaseArtifact, target_dir: Path) -> Path:
