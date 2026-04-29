@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Связь адаптеров, модулей и плагинов через общий контракт событий.",
-  "requires": [],
+  "requires": [
+    "module:logs"
+  ],
   "adapters": [
     "telegram",
     "discord",
