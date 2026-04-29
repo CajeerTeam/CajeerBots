@@ -4,7 +4,12 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Единая система обращений пользователей для всех адаптеров.",
-  "requires": [],
+  "requires": [
+    "module:identity",
+    "module:rbac",
+    "module:logs",
+    "module:bridge"
+  ],
   "adapters": [
     "telegram",
     "discord",
