@@ -23,12 +23,29 @@ class Actor:
     identity_id: str | None = None
     display_name: str | None = None
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Actor":
+        return cls(
+            platform=str(data.get("platform", "")),
+            platform_user_id=str(data.get("platform_user_id", "")),
+            identity_id=data.get("identity_id"),
+            display_name=data.get("display_name"),
+        )
+
 
 @dataclass(frozen=True)
 class ChatRef:
     platform: str
     platform_chat_id: str
     type: str = "unknown"
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ChatRef":
+        return cls(
+            platform=str(data.get("platform", "")),
+            platform_chat_id=str(data.get("platform_chat_id", "")),
+            type=str(data.get("type", "unknown")),
+        )
 
 
 @dataclass(frozen=True)
@@ -70,6 +87,24 @@ class CajeerEvent:
             utcnow().isoformat(),
             module_id,
             plugin_id,
+        )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CajeerEvent":
+        actor = data.get("actor")
+        chat = data.get("chat")
+        return cls(
+            event_id=str(data["event_id"]),
+            contract_version=int(data["contract_version"]),
+            source=data["source"],
+            type=str(data["type"]),
+            actor=Actor.from_dict(actor) if isinstance(actor, dict) else None,
+            chat=ChatRef.from_dict(chat) if isinstance(chat, dict) else None,
+            payload=dict(data.get("payload") or {}),
+            trace_id=str(data["trace_id"]),
+            created_at=str(data["created_at"]),
+            module_id=data.get("module_id"),
+            plugin_id=data.get("plugin_id"),
         )
 
     def to_dict(self) -> dict[str, Any]:

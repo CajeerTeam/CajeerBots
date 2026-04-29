@@ -20,6 +20,25 @@ KNOWN_CAPABILITIES = {
     "events.publish",
 }
 
+DEPENDENCY_TYPES = {"module", "plugin", "adapter"}
+
+
+@dataclass(frozen=True)
+class Dependency:
+    type: str
+    id: str
+
+    @classmethod
+    def parse(cls, raw: str) -> "Dependency":
+        if ":" not in raw:
+            # Совместимость со старыми manifest: bridge == module:bridge.
+            return cls("module", raw)
+        kind, component_id = raw.split(":", 1)
+        return cls(kind.strip(), component_id.strip())
+
+    def normalized(self) -> str:
+        return f"{self.type}:{self.id}"
+
 
 @dataclass(frozen=True)
 class Manifest:
@@ -34,6 +53,9 @@ class Manifest:
     capabilities: tuple[str, ...] = ()
     enabled_by_default: bool = False
     settings_schema: dict[str, object] | None = None
+
+    def dependencies(self) -> list[Dependency]:
+        return [Dependency.parse(item) for item in self.requires]
 
     def to_dict(self) -> dict[str, object]:
         data = asdict(self)
@@ -82,7 +104,7 @@ class Registry:
         adapters = {manifest.id: manifest for manifest in manifests if manifest.type == "adapter"}
         modules = {manifest.id: manifest for manifest in manifests if manifest.type == "module"}
         plugins = {manifest.id: manifest for manifest in manifests if manifest.type == "plugin"}
-        all_ids = {manifest.id for manifest in manifests}
+        by_type = {"adapter": adapters, "module": modules, "plugin": plugins}
         seen: set[str] = set()
 
         for manifest in manifests:
@@ -90,9 +112,11 @@ class Registry:
             if key in seen:
                 errors.append(f"дублирующийся идентификатор manifest: {key}")
             seen.add(key)
+            if manifest.type not in {"module", "plugin", "adapter"}:
+                errors.append(f"неизвестный тип manifest у {manifest.id}: {manifest.type}")
             if not manifest.version:
                 errors.append(f"у manifest {key} пустая версия")
-            if manifest.type in {"module", "plugin", "adapter"} and not manifest.name:
+            if not manifest.name:
                 errors.append(f"у manifest {key} пустое название")
             if manifest.type == "adapter":
                 unknown_capabilities = sorted(set(manifest.capabilities) - KNOWN_CAPABILITIES)
@@ -102,9 +126,14 @@ class Registry:
                 for adapter_id in manifest.adapters:
                     if adapter_id not in adapters:
                         errors.append(f"{manifest.type} {manifest.id} ссылается на отсутствующий адаптер {adapter_id}")
-                for required in manifest.requires:
-                    if required not in all_ids:
-                        errors.append(f"{manifest.type} {manifest.id} зависит от отсутствующего компонента {required}")
+                for dependency in manifest.dependencies():
+                    if dependency.type not in DEPENDENCY_TYPES:
+                        errors.append(f"{manifest.type} {manifest.id} содержит неизвестный тип зависимости {dependency.type}")
+                        continue
+                    if dependency.id not in by_type[dependency.type]:
+                        errors.append(
+                            f"{manifest.type} {manifest.id} зависит от отсутствующего компонента {dependency.normalized()}"
+                        )
                 if manifest.settings_schema is not None and not isinstance(manifest.settings_schema, dict):
                     errors.append(f"settings_schema у {manifest.type} {manifest.id} должен быть объектом")
 
@@ -115,14 +144,17 @@ class Registry:
             for plugin_id in settings.plugins_enabled:
                 if plugin_id not in plugins:
                     errors.append(f"включённый плагин не найден: {plugin_id}")
-            enabled_ids = set(settings.modules_enabled) | set(settings.plugins_enabled)
-            for component_id in sorted(enabled_ids):
-                manifest = modules.get(component_id) or plugins.get(component_id)
+            enabled_by_type = {
+                "module": set(settings.modules_enabled),
+                "plugin": set(settings.plugins_enabled),
+                "adapter": {name for name, adapter in settings.adapters.items() if adapter.enabled},
+            }
+            for manifest in [*(modules.get(item) for item in settings.modules_enabled), *(plugins.get(item) for item in settings.plugins_enabled)]:
                 if manifest is None:
                     continue
-                for required in manifest.requires:
-                    if required in modules and required not in settings.modules_enabled:
-                        errors.append(f"компонент {component_id} требует включить модуль {required}")
-                    if required in plugins and required not in settings.plugins_enabled:
-                        errors.append(f"компонент {component_id} требует включить плагин {required}")
+                for dependency in manifest.dependencies():
+                    if dependency.id not in enabled_by_type.get(dependency.type, set()):
+                        errors.append(
+                            f"компонент {manifest.type}:{manifest.id} требует включить {dependency.normalized()}"
+                        )
         return errors

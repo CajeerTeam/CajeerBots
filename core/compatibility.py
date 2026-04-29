@@ -69,4 +69,8 @@ def check_compatibility(project_root: Path, platform_version: str) -> Compatibil
     if str(data.get("db_contract", "")).strip() != "external":
         warnings.append("db_contract должен быть external, так как миграции не входят в проект")
 
+    for section_name in ("adapters", "modules", "plugins"):
+        if section_name not in data:
+            errors.append(f"секция {section_name} отсутствует в compatibility.yaml")
+
     return CompatibilityReport(errors, warnings)

@@ -22,23 +22,34 @@ class RouteResult:
 class EventRouter:
     def __init__(self, commands: CommandRegistry | None = None) -> None:
         self.commands = commands or build_default_commands()
+        self.history: list[RouteResult] = []
 
     async def route(self, event: CajeerEvent) -> RouteResult:
         if event.type == "command.received":
             command_name = str(event.payload.get("command", "")).strip().lstrip("/")
             if not command_name:
-                return RouteResult(False, "commands", {"error": "команда не указана"})
-            result = await self.commands.dispatch(command_name, event)
-            return RouteResult(bool(result.get("ok")), "commands", result)
+                result = RouteResult(False, "commands", {"error": "команда не указана"})
+            else:
+                details = await self.commands.dispatch(command_name, event)
+                result = RouteResult(bool(details.get("ok")), "commands", details)
+            return self._remember(result)
 
         if event.type.startswith("adapter."):
             logger.info("служебное событие адаптера: %s", event.type)
-            return RouteResult(True, "system.adapter", {"type": event.type})
+            return self._remember(RouteResult(True, "system.adapter", {"type": event.type}))
 
         if event.type.startswith("message."):
-            return RouteResult(False, "message", {"reason": "для сообщения не назначен модуль-обработчик"})
+            return self._remember(RouteResult(False, "message", {"reason": "для сообщения не назначен модуль-обработчик"}))
 
         if event.type.startswith("plugin."):
-            return RouteResult(False, "plugin", {"reason": "для события плагина не назначен обработчик"})
+            return self._remember(RouteResult(False, "plugin", {"reason": "для события плагина не назначен обработчик"}))
 
-        return RouteResult(False, "unknown", {"type": event.type})
+        return self._remember(RouteResult(False, "unknown", {"type": event.type}))
+
+    def _remember(self, result: RouteResult) -> RouteResult:
+        self.history.append(result)
+        self.history = self.history[-500:]
+        return result
+
+    def snapshot(self) -> list[RouteResult]:
+        return list(self.history)

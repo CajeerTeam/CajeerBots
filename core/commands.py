@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, Awaitable, Callable
+
+Handler = Callable[[Any], Awaitable[dict[str, object]]]
 
 
 @dataclass(frozen=True)
@@ -19,9 +21,9 @@ class CommandDefinition:
 class CommandRegistry:
     def __init__(self) -> None:
         self._commands: dict[str, CommandDefinition] = {}
-        self._handlers: dict[str, Any] = {}
+        self._handlers: dict[str, Handler] = {}
 
-    def register(self, command: CommandDefinition, handler: Any | None = None) -> None:
+    def register(self, command: CommandDefinition, handler: Handler | None = None) -> None:
         if command.name in self._commands:
             raise ValueError(f"команда уже зарегистрирована: {command.name}")
         self._commands[command.name] = command
@@ -48,11 +50,48 @@ class CommandRegistry:
         return await handler(event)
 
 
-def build_default_commands() -> CommandRegistry:
+def build_default_commands(runtime: Any | None = None) -> CommandRegistry:
     registry = CommandRegistry()
-    registry.register(CommandDefinition("help", "Показать список доступных команд.", aliases=("помощь",)))
-    registry.register(CommandDefinition("status", "Показать состояние платформы.", aliases=("статус",)))
-    registry.register(CommandDefinition("support", "Создать или просмотреть обращение в поддержку.", module_id="support"))
-    registry.register(CommandDefinition("announce", "Создать объявление для каналов доставки.", module_id="announcements"))
-    registry.register(CommandDefinition("moderation", "Открыть инструменты модерации.", module_id="moderation"))
+
+    async def help_handler(event: Any) -> dict[str, object]:
+        return {
+            "ok": True,
+            "message": "Доступные команды: " + ", ".join(command.name for command in registry.list()),
+            "commands": [command.to_dict() for command in registry.list()],
+        }
+
+    async def status_handler(event: Any) -> dict[str, object]:
+        if runtime is None:
+            return {"ok": True, "status": "каркас платформы доступен"}
+        return {
+            "ok": True,
+            "status": "работает",
+            "version": runtime.version,
+            "readiness": runtime.readiness_snapshot(),
+            "adapters": [item.to_dict() for item in runtime.adapter_health_snapshot()],
+        }
+
+    async def support_handler(event: Any) -> dict[str, object]:
+        return {"ok": True, "message": "Модуль поддержки подключён. Реальная обработка обращений настраивается модулем support."}
+
+    async def announce_handler(event: Any) -> dict[str, object]:
+        return {"ok": True, "message": "Команда объявлений принята. Доставка выполняется модулем announcements."}
+
+    async def moderation_handler(event: Any) -> dict[str, object]:
+        return {"ok": True, "message": "Инструменты модерации доступны через модуль moderation."}
+
+    registry.register(CommandDefinition("help", "Показать список доступных команд.", aliases=("помощь",)), help_handler)
+    registry.register(CommandDefinition("status", "Показать состояние платформы.", aliases=("статус",)), status_handler)
+    registry.register(
+        CommandDefinition("support", "Создать или просмотреть обращение в поддержку.", module_id="support"),
+        support_handler,
+    )
+    registry.register(
+        CommandDefinition("announce", "Создать объявление для каналов доставки.", module_id="announcements"),
+        announce_handler,
+    )
+    registry.register(
+        CommandDefinition("moderation", "Открыть инструменты модерации.", module_id="moderation"),
+        moderation_handler,
+    )
     return registry

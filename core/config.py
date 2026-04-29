@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Iterable
 
 
+class SettingsError(ValueError):
+    """Ошибка чтения или проверки конфигурации окружения."""
+
+
 def _csv(value: str | None) -> list[str]:
     return [item.strip() for item in (value or "").split(",") if item.strip()]
 
@@ -13,7 +17,36 @@ def _csv(value: str | None) -> list[str]:
 def _bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on", "да", "вкл"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off", "нет", "выкл"}:
+        return False
+    raise SettingsError(f"значение {value!r} должно быть логическим: true/false")
+
+
+def _int(name: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        value = default
+    else:
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise SettingsError(f"{name} должен быть целым числом") from exc
+    if minimum is not None and value < minimum:
+        raise SettingsError(f"{name} должен быть не меньше {minimum}")
+    if maximum is not None and value > maximum:
+        raise SettingsError(f"{name} должен быть не больше {maximum}")
+    return value
+
+
+def _choice(name: str, default: str, choices: set[str]) -> str:
+    value = os.getenv(name, default).strip()
+    if value not in choices:
+        allowed = ", ".join(sorted(choices))
+        raise SettingsError(f"{name} содержит неизвестное значение {value!r}; допустимо: {allowed}")
+    return value
 
 
 @dataclass(frozen=True)
@@ -35,6 +68,7 @@ class Settings:
     database_sslmode: str
     redis_url: str | None
     shared_schema: str
+    event_bus_backend: str
     modules_enabled: list[str]
     plugins_enabled: list[str]
     api_bind: str
@@ -44,17 +78,19 @@ class Settings:
     remote_logs_enabled: bool
     remote_logs_url: str
     remote_logs_token: str
+    worker_tick_seconds: int
     adapters: dict[str, AdapterConfig]
 
     @classmethod
     def from_env(cls) -> "Settings":
+        telegram_mode = _choice("TELEGRAM_MODE", "polling", {"polling", "webhook"})
         adapters = {
             "telegram": AdapterConfig(
                 "telegram",
                 _bool(os.getenv("TELEGRAM_ENABLED"), True),
                 os.getenv("TELEGRAM_BOT_TOKEN", ""),
                 {
-                    "mode": os.getenv("TELEGRAM_MODE", "polling"),
+                    "mode": telegram_mode,
                     "webhook_url": os.getenv("TELEGRAM_WEBHOOK_URL", ""),
                     "webhook_secret": os.getenv("TELEGRAM_WEBHOOK_SECRET", ""),
                 },
@@ -79,24 +115,26 @@ class Settings:
             ),
         }
         return cls(
-            env=os.getenv("CAJEER_BOTS_ENV", "production"),
-            mode=os.getenv("CAJEER_BOTS_MODE", "all"),
+            env=_choice("CAJEER_BOTS_ENV", "production", {"production", "staging", "development", "test"}),
+            mode=_choice("CAJEER_BOTS_MODE", "all", {"all", "telegram", "discord", "vkontakte", "worker", "api", "bridge"}),
             instance_id=os.getenv("CAJEER_BOTS_INSTANCE_ID", "cajeer-bots-local"),
-            log_level=os.getenv("CAJEER_BOTS_LOG_LEVEL", "INFO"),
+            log_level=_choice("CAJEER_BOTS_LOG_LEVEL", "INFO", {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}),
             runtime_dir=Path(os.getenv("CAJEER_BOTS_RUNTIME_DIR", "runtime")),
             database_url=os.getenv("DATABASE_URL", ""),
-            database_sslmode=os.getenv("DATABASE_SSLMODE", "prefer"),
+            database_sslmode=_choice("DATABASE_SSLMODE", "prefer", {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}),
             redis_url=os.getenv("REDIS_URL") or None,
             shared_schema=os.getenv("DATABASE_SCHEMA_SHARED", "shared"),
+            event_bus_backend=_choice("EVENT_BUS_BACKEND", "memory", {"memory", "postgres", "redis"}),
             modules_enabled=_csv(os.getenv("MODULES_ENABLED")),
             plugins_enabled=_csv(os.getenv("PLUGINS_ENABLED")),
             api_bind=os.getenv("API_BIND", "127.0.0.1"),
-            api_port=int(os.getenv("API_PORT", "8088")),
+            api_port=_int("API_PORT", 8088, minimum=1, maximum=65535),
             api_token=os.getenv("API_TOKEN", ""),
             event_signing_secret=os.getenv("EVENT_SIGNING_SECRET", ""),
             remote_logs_enabled=_bool(os.getenv("REMOTE_LOGS_ENABLED"), False),
             remote_logs_url=os.getenv("REMOTE_LOGS_URL", ""),
             remote_logs_token=os.getenv("REMOTE_LOGS_TOKEN", ""),
+            worker_tick_seconds=_int("WORKER_TICK_SECONDS", 30, minimum=1, maximum=3600),
             adapters=adapters,
         )
 
@@ -119,6 +157,7 @@ class Settings:
             "database_url_configured": bool(self.database_url),
             "redis_url_configured": bool(self.redis_url),
             "shared_schema": self.shared_schema,
+            "event_bus_backend": self.event_bus_backend,
             "modules_enabled": self.modules_enabled,
             "plugins_enabled": self.plugins_enabled,
             "api_bind": self.api_bind,
@@ -127,6 +166,7 @@ class Settings:
             "event_signing_secret_configured": bool(self.event_signing_secret),
             "remote_logs_enabled": self.remote_logs_enabled,
             "remote_logs_url_configured": bool(self.remote_logs_url),
+            "worker_tick_seconds": self.worker_tick_seconds,
             "adapters": {
                 name: {
                     "enabled": adapter.enabled,

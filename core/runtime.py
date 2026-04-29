@@ -3,21 +3,27 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import time
 from pathlib import Path
 from typing import Iterable
 
-from core.adapters.base import AdapterHealth, BotAdapter
+from core.adapters.base import AdapterContext, AdapterHealth, BotAdapter
 from core.adapters.discord import DiscordAdapter
 from core.adapters.telegram import TelegramAdapter
 from core.adapters.vkontakte import VkontakteAdapter
+from core.bridge import BridgeService
 from core.commands import CommandRegistry, build_default_commands
 from core.compatibility import check_compatibility
 from core.config import Settings
 from core.db import Database
-from core.event_bus import InMemoryEventBus
+from core.dead_letters import DeadLetterQueue
+from core.delivery import DeliveryService
+from core.event_bus import build_event_bus
 from core.events import EVENT_CONTRACT_VERSION
+from core.idempotency import IdempotencyStore
 from core.registry import Registry
 from core.router import EventRouter
+from core.worker import WorkerService
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +50,18 @@ class Runtime:
         self.project_root = project_root or Path.cwd()
         self.registry = Registry(self.project_root)
         self.adapters: list[BotAdapter] = []
-        self.event_bus = InMemoryEventBus()
-        self.commands: CommandRegistry = build_default_commands()
+        self.event_bus = build_event_bus(settings)
+        self.dead_letters = DeadLetterQueue()
+        self.delivery = DeliveryService()
+        self.idempotency = IdempotencyStore()
+        self.commands: CommandRegistry = build_default_commands(self)
         self.router = EventRouter(self.commands)
+        self.bridge = BridgeService(self)
+        self.worker = WorkerService(self)
         self._stop_event: asyncio.Event | None = None
         self.version = self._read_version()
         self.event_contract_version = EVENT_CONTRACT_VERSION
+        self.started_at = time.time()
 
     def _read_version(self) -> str:
         path = self.project_root / "VERSION"
@@ -58,7 +70,8 @@ class Runtime:
         return "0.0.0"
 
     def build_adapter(self, name: str) -> BotAdapter:
-        return ADAPTER_CLASSES[name](self.settings, self.settings.adapters[name])
+        context = AdapterContext(self.event_bus, self.router, self.dead_letters)
+        return ADAPTER_CLASSES[name](self.settings, self.settings.adapters[name], context=context)
 
     def selected_adapters(self, mode: str) -> list[str]:
         if mode == "all":
@@ -107,7 +120,7 @@ class Runtime:
         tasks = [asyncio.create_task(adapter.start(), name=f"adapter:{adapter.name}") for adapter in adapters]
         stop_task = asyncio.create_task(self._stop_event.wait(), name="runtime:stop")
         try:
-            done, pending = await asyncio.wait([*tasks, stop_task], return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait([*tasks, stop_task], return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 if task is not stop_task:
                     exc = task.exception()
@@ -133,7 +146,6 @@ class Runtime:
             try:
                 loop.add_signal_handler(sig, stop_event.set)
             except (NotImplementedError, RuntimeError):
-                # Windows и некоторые embedded-окружения не поддерживают add_signal_handler.
                 pass
 
     async def run_api(self) -> None:
@@ -150,16 +162,64 @@ class Runtime:
             server.stop()
 
     async def run_worker(self) -> None:
-        logger.info("режим рабочих задач запущен")
         stop_event = asyncio.Event()
         self._install_signal_handlers(stop_event)
-        await stop_event.wait()
+        await self.worker.run(stop_event)
 
     async def run_bridge(self) -> None:
-        logger.info("режим шины событий запущен")
         stop_event = asyncio.Event()
         self._install_signal_handlers(stop_event)
-        await stop_event.wait()
+        await self.bridge.run(stop_event)
+
+    def readiness_snapshot(self) -> dict[str, object]:
+        problems: list[str] = []
+        problems.extend(self.registry.validate(settings=self.settings))
+        compat = check_compatibility(self.project_root, self.version)
+        problems.extend(compat.errors)
+        if self.settings.api_token in PLACEHOLDER_SECRETS:
+            problems.append("API_TOKEN содержит демонстрационное значение")
+        if self.settings.event_signing_secret in PLACEHOLDER_SECRETS:
+            problems.append("EVENT_SIGNING_SECRET содержит демонстрационное значение")
+        return {
+            "ok": not problems,
+            "problems": problems,
+            "event_bus": self.event_bus.metrics().to_dict(),
+            "registry": {
+                "adapters": len(self.registry.adapters()),
+                "modules": len(self.registry.modules()),
+                "plugins": len(self.registry.plugins()),
+            },
+        }
+
+    def metrics_text(self) -> str:
+        metrics = self.event_bus.metrics()
+        uptime = max(0, int(time.time() - self.started_at))
+        lines = [
+            "# HELP cajeerbots_runtime_uptime_seconds Время работы процесса Cajeer Bots.",
+            "# TYPE cajeerbots_runtime_uptime_seconds gauge",
+            f"cajeerbots_runtime_uptime_seconds {uptime}",
+            "# HELP cajeerbots_events_total Количество опубликованных событий.",
+            "# TYPE cajeerbots_events_total counter",
+            f'cajeerbots_events_total{{backend="{metrics.backend}"}} {metrics.published}',
+            "# HELP cajeerbots_events_failed_total Количество ошибок публикации событий.",
+            "# TYPE cajeerbots_events_failed_total counter",
+            f'cajeerbots_events_failed_total{{backend="{metrics.backend}"}} {metrics.failed}',
+            "# HELP cajeerbots_registry_modules_total Количество зарегистрированных модулей.",
+            "# TYPE cajeerbots_registry_modules_total gauge",
+            f"cajeerbots_registry_modules_total {len(self.registry.modules())}",
+            "# HELP cajeerbots_registry_plugins_total Количество зарегистрированных плагинов.",
+            "# TYPE cajeerbots_registry_plugins_total gauge",
+            f"cajeerbots_registry_plugins_total {len(self.registry.plugins())}",
+            "# HELP cajeerbots_dead_letters_total Количество dead letter событий.",
+            "# TYPE cajeerbots_dead_letters_total gauge",
+            f"cajeerbots_dead_letters_total {self.dead_letters.count()}",
+        ]
+        for adapter in self.adapter_health_snapshot():
+            state_value = 1 if adapter.state == "running" else 0
+            lines.append(f'cajeerbots_adapter_state{{adapter="{adapter.name}",state="{adapter.state}"}} {state_value}')
+            lines.append(f'cajeerbots_adapter_events_total{{adapter="{adapter.name}"}} {adapter.processed_events}')
+            lines.append(f'cajeerbots_adapter_events_failed_total{{adapter="{adapter.name}"}} {adapter.failed_events}')
+        return "\n".join(lines) + "\n"
 
     def doctor(self, offline: bool = False) -> list[str]:
         problems: list[str] = []
@@ -174,6 +234,12 @@ class Runtime:
             problems.append("каталог core не найден")
         if not (self.project_root / "bots").is_dir():
             problems.append("каталог bots не найден")
+        if (self.project_root / "migrations").exists():
+            problems.append("каталог migrations не должен входить в проект")
+        if self.settings.event_bus_backend == "postgres" and not self.settings.database_url:
+            problems.append("EVENT_BUS_BACKEND=postgres требует DATABASE_URL")
+        if self.settings.event_bus_backend == "redis" and not self.settings.redis_url:
+            problems.append("EVENT_BUS_BACKEND=redis требует REDIS_URL")
         problems.extend(self.registry.validate(settings=self.settings))
         problems.extend(self._check_executable_bits())
         problems.extend(self._check_forbidden_terms())
