@@ -116,3 +116,38 @@ CajeerBots/
 ## Документация
 
 Основная документация находится в GitHub Wiki. Исходники страниц лежат в каталоге `wiki/`.
+
+## Обновление runtime-архитектуры
+
+Текущий стек платформы:
+
+```text
+Telegram: aiogram
+Discord: discord.py
+ВКонтакте: собственный thin-wrapper поверх vkbottle
+DB: PostgreSQL
+ORM: SQLAlchemy 2.x async
+Миграции: Alembic
+Cache/FSM/queues: Redis
+```
+
+Встроенные `bots`, `modules` и базовые `plugins` входят в Python package. Кастомная бизнес-логика подключается через runtime catalog (`RUNTIME_CATALOG_PATHS`), а для разработки доступен fallback на repo-root (`REGISTRY_REPO_ROOT_FALLBACK=true`).
+
+Новые служебные команды:
+
+```bash
+cajeer-bots init
+cajeer-bots fix-permissions
+cajeer-bots secrets generate
+cajeer-bots db contract
+cajeer-bots db check
+cajeer-bots components
+cajeer-bots run fake
+```
+
+Интеграции:
+
+- Cajeer Workspace: heartbeat и события жизненного цикла сервисов.
+- Cajeer Logs: отправка событий в ingest API `/api/v1/ingest` с HMAC-заголовками.
+- Redis: слой для cache/FSM/queue primitives.
+- Alembic: базовый контракт таблиц `shared.event_bus`, `shared.delivery_queue`, `shared.dead_letters`, `shared.idempotency_keys`, `shared.audit_log`.

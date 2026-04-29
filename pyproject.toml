@@ -10,19 +10,30 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [{name = "TheSkiF4er"}]
-dependencies = ["psycopg[binary]>=3.1.18"]
+dependencies = [
+  "SQLAlchemy[asyncio]>=2.0.30",
+  "alembic>=1.13.2",
+  "asyncpg>=0.29.0",
+  "psycopg[binary]>=3.1.18",
+]
 
 [project.optional-dependencies]
 api = []
-adapters = ["python-telegram-bot>=21.0", "discord.py>=2.3.2", "vk-api>=11.9.9"]
+adapters = ["aiogram>=3.7.0", "discord.py>=2.3.2", "vkbottle>=4.3.12"]
 redis = ["redis>=5.0.0"]
+prod = ["aiogram>=3.7.0", "discord.py>=2.3.2", "vkbottle>=4.3.12", "redis>=5.0.0"]
 dev = ["pytest>=8.0.0", "ruff>=0.4.0", "mypy>=1.9.0"]
 
 [project.scripts]
 cajeer-bots = "core.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["core*", "distributed*"]
+include = ["core*", "distributed*", "bots*", "modules*", "plugins*"]
+
+[tool.setuptools.package-data]
+"bots" = ["*/adapter.json", "*/README.md"]
+"modules" = ["*/module.json", "*/README.md"]
+"plugins" = ["*/plugin.json", "*/README.md"]
 
 [tool.ruff]
 line-length = 120

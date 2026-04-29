@@ -30,6 +30,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+      DATABASE_ASYNC_URL: postgresql+asyncpg://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
       EVENT_BUS_BACKEND: memory
       CAJEER_BOTS_MODE: local
       CAJEER_BOTS_DEFAULT_TARGET: all
@@ -44,6 +45,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+      DATABASE_ASYNC_URL: postgresql+asyncpg://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
       EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
       REDIS_URL: redis://redis:6379/0
     command: ["cajeer-bots", "run", "api"]
@@ -60,6 +62,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+      DATABASE_ASYNC_URL: postgresql+asyncpg://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
       EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
       REDIS_URL: redis://redis:6379/0
       LOCAL_INLINE_ROUTING: "false"
@@ -76,6 +79,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+      DATABASE_ASYNC_URL: postgresql+asyncpg://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
       EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
       REDIS_URL: redis://redis:6379/0
       LOCAL_INLINE_ROUTING: "false"
@@ -92,6 +96,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+      DATABASE_ASYNC_URL: postgresql+asyncpg://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
       EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
       REDIS_URL: redis://redis:6379/0
       LOCAL_INLINE_ROUTING: "false"
@@ -108,6 +113,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+      DATABASE_ASYNC_URL: postgresql+asyncpg://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
       EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
       REDIS_URL: redis://redis:6379/0
       LOCAL_INLINE_ROUTING: "false"
@@ -124,6 +130,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+      DATABASE_ASYNC_URL: postgresql+asyncpg://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
       EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
       REDIS_URL: redis://redis:6379/0
       LOCAL_INLINE_ROUTING: "false"
@@ -133,6 +140,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  fake:
+    build: .
+    profiles: ["fake", "smoke"]
+    env_file: .env
+    environment:
+      EVENT_BUS_BACKEND: memory
+      FAKE_ENABLED: "true"
+      FAKE_SCRIPT: "/status|/help"
+    command: ["cajeer-bots", "run", "fake"]
 
 volumes:
   postgres_data:

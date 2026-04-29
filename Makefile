@@ -65,3 +65,9 @@ release: ## Собрать релизный архив
 
 clean: ## Удалить временные каталоги сборки
 	rm -rf dist build *.egg-info .pytest_cache
+
+smoke:
+	./scripts/smoke.sh
+
+fix-permissions:
+	python -m core fix-permissions
