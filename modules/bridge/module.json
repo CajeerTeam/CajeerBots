@@ -19,5 +19,6 @@
       "default": 300,
       "description": "Срок жизни служебных событий."
     }
-  }
+  },
+  "entrypoint": "modules.bridge.runtime:BridgeModule"
 }
