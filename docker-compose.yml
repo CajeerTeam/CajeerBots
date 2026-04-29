@@ -13,17 +13,45 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  local:
+    build: .
+    profiles: ["local"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+      EVENT_BUS_BACKEND: memory
+      CAJEER_BOTS_MODE: local
+      CAJEER_BOTS_DEFAULT_TARGET: all
+    command: ["cajeer-bots", "run", "all"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build: .
     profiles: ["api", "all"]
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
-      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-memory}
+      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
+      REDIS_URL: redis://redis:6379/0
     command: ["cajeer-bots", "run", "api"]
     ports: ["8088:8088"]
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   worker:
@@ -32,10 +60,14 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
-      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-memory}
+      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
+      REDIS_URL: redis://redis:6379/0
+      LOCAL_INLINE_ROUTING: "false"
     command: ["cajeer-bots", "run", "worker"]
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   bridge:
@@ -44,10 +76,14 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
-      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-memory}
+      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
+      REDIS_URL: redis://redis:6379/0
+      LOCAL_INLINE_ROUTING: "false"
     command: ["cajeer-bots", "run", "bridge"]
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   telegram:
@@ -56,10 +92,14 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
-      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-memory}
+      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
+      REDIS_URL: redis://redis:6379/0
+      LOCAL_INLINE_ROUTING: "false"
     command: ["cajeer-bots", "run", "telegram"]
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   discord:
@@ -68,10 +108,14 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
-      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-memory}
+      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
+      REDIS_URL: redis://redis:6379/0
+      LOCAL_INLINE_ROUTING: "false"
     command: ["cajeer-bots", "run", "discord"]
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   vkontakte:
@@ -80,11 +124,16 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
-      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-memory}
+      EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
+      REDIS_URL: redis://redis:6379/0
+      LOCAL_INLINE_ROUTING: "false"
     command: ["cajeer-bots", "run", "vkontakte"]
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  redis_data:

@@ -6,6 +6,7 @@ COPY core ./core
 COPY bots ./bots
 COPY modules ./modules
 COPY plugins ./plugins
+COPY distributed ./distributed
 COPY scripts ./scripts
-RUN pip install --no-cache-dir --upgrade pip     && pip install --no-cache-dir '.[api,adapters]'     && chmod +x /app/scripts/*.sh
+RUN pip install --no-cache-dir --upgrade pip     && pip install --no-cache-dir '.[api,adapters,redis]'     && chmod +x /app/scripts/*.sh
 CMD ["cajeer-bots", "run", "all"]
