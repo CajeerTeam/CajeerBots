@@ -7,6 +7,10 @@
   "capabilities": [
     "messages.receive",
     "messages.send",
+    "files.receive",
+    "roles",
+    "reactions",
+    "slash_commands",
     "health",
     "events.publish"
   ],
