@@ -21,9 +21,15 @@ class RouteResult:
 
 
 class EventRouter:
-    def __init__(self, commands: CommandRegistry | None = None, idempotency: Any | None = None) -> None:
+    def __init__(
+        self,
+        commands: CommandRegistry | None = None,
+        idempotency: Any | None = None,
+        components: Any | None = None,
+    ) -> None:
         self.commands = commands or build_default_commands()
         self.idempotency = idempotency
+        self.components = components
         self.history: list[RouteResult] = []
 
     async def route(self, event: CajeerEvent) -> RouteResult:
@@ -35,8 +41,14 @@ class EventRouter:
             if not command_name:
                 result = RouteResult(False, "commands", {"error": "команда не указана"})
             else:
-                details = await self.commands.dispatch(command_name, event)
-                result = RouteResult(bool(details.get("ok")), "commands", details)
+                component_result = None
+                if self.components is not None:
+                    component_result = await self.components.route_command(command_name, event)
+                if component_result:
+                    result = RouteResult(True, "component", component_result)
+                else:
+                    details = await self.commands.dispatch(command_name, event)
+                    result = RouteResult(bool(details.get("ok")), "commands", details)
             return self._remember(result)
 
         if event.type.startswith("adapter."):
@@ -44,6 +56,10 @@ class EventRouter:
             return self._remember(RouteResult(True, "system.adapter", {"type": event.type}))
 
         if event.type.startswith("message."):
+            if self.components is not None:
+                component_result = await self.components.route_event(event)
+                if component_result:
+                    return self._remember(RouteResult(True, "component", component_result))
             return self._remember(RouteResult(False, "message", {"reason": "для сообщения не назначен модуль-обработчик"}))
 
         if event.type.startswith("plugin."):

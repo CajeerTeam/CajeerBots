@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import importlib.resources as resources
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Iterable, Literal
 
 from core.config import Settings
 
@@ -52,6 +53,8 @@ class Manifest:
     capabilities: tuple[str, ...] = ()
     enabled_by_default: bool = False
     settings_schema: dict[str, object] | None = None
+    entrypoint: str | None = None
+    catalog: str = "repo"
 
     def dependencies(self) -> list[Dependency]:
         return [Dependency.parse(item) for item in self.requires]
@@ -69,33 +72,104 @@ class Manifest:
 
 
 class Registry:
-    def __init__(self, project_root: Path) -> None:
-        self.project_root = project_root
+    """Registry with package-data catalog, runtime catalog and repo-root fallback.
 
-    def _load(self, path: Path) -> Manifest:
+    B + C model:
+    - built-in bots/modules/core plugins are packaged with the wheel;
+    - business/custom plugins and modules are loaded from runtime catalog paths;
+    - development may still read repo-root folders directly.
+    """
+
+    def __init__(self, project_root: Path, settings: Settings | None = None) -> None:
+        self.project_root = project_root
+        self.settings = settings
+
+    def _load_json(self, path: Path, *, catalog: str) -> Manifest:
         data = json.loads(path.read_text(encoding="utf-8"))
+        return self._manifest_from_data(data, path.parent, catalog=catalog)
+
+    def _manifest_from_data(self, data: dict[str, object], path: Path, *, catalog: str) -> Manifest:
         return Manifest(
-            id=data["id"],
-            name=data.get("name", data["id"]),
-            version=data.get("version", "0.0.0"),
-            type=data.get("type", "module"),
-            path=path.parent,
-            description=data.get("description", ""),
-            requires=tuple(data.get("requires", [])),
-            adapters=tuple(data.get("adapters", [])),
-            capabilities=tuple(data.get("capabilities", [])),
+            id=str(data["id"]),
+            name=str(data.get("name") or data["id"]),
+            version=str(data.get("version") or "0.0.0"),
+            type=data.get("type", "module"),  # type: ignore[arg-type]
+            path=path,
+            description=str(data.get("description") or ""),
+            requires=tuple(str(item) for item in data.get("requires", []) or []),
+            adapters=tuple(str(item) for item in data.get("adapters", []) or []),
+            capabilities=tuple(str(item) for item in data.get("capabilities", []) or []),
             enabled_by_default=bool(data.get("enabled_by_default", False)),
-            settings_schema=data.get("settings_schema"),
+            settings_schema=data.get("settings_schema") if isinstance(data.get("settings_schema"), dict) else None,
+            entrypoint=str(data.get("entrypoint") or "") or None,
+            catalog=catalog,
         )
 
+    def _repo_manifests(self, base: str, pattern: str, *, catalog: str) -> list[Manifest]:
+        folder = self.project_root / base
+        if not folder.exists():
+            return []
+        return [self._load_json(path, catalog=catalog) for path in sorted(folder.glob(pattern))]
+
+    def _package_manifests(self, package: str, marker: str, *, kind: str) -> list[Manifest]:
+        result: list[Manifest] = []
+        try:
+            base = resources.files(package)
+        except ModuleNotFoundError:
+            return result
+        for child in base.iterdir():
+            if not child.is_dir():
+                continue
+            candidate = child / marker
+            if not candidate.is_file():
+                continue
+            data = json.loads(candidate.read_text(encoding="utf-8"))
+            # resources.abc.Traversable may not be pathlib.Path inside zip wheels; use a logical path.
+            result.append(self._manifest_from_data(data, Path(package.replace(".", "/")) / child.name, catalog=kind))
+        return result
+
+    def _runtime_catalog_manifests(self, kind: ManifestKind, marker: str) -> list[Manifest]:
+        settings = self.settings
+        paths = settings.runtime_catalog_paths if settings is not None else [Path("runtime/catalog")]
+        result: list[Manifest] = []
+        for catalog_root in paths:
+            root = catalog_root if catalog_root.is_absolute() else self.project_root / catalog_root
+            for path in sorted((root / f"{kind}s").glob(f"*/{marker}")):
+                result.append(self._load_json(path, catalog="runtime"))
+            # compatibility layout: runtime/catalog/<id>/plugin.json or module.json
+            for path in sorted(root.glob(f"*/{marker}")):
+                result.append(self._load_json(path, catalog="runtime"))
+        return result
+
+    def _dedupe(self, manifests: Iterable[Manifest]) -> list[Manifest]:
+        by_key: dict[str, Manifest] = {}
+        priority = {"package": 0, "repo": 1, "runtime": 2}
+        for manifest in manifests:
+            key = manifest.key()
+            current = by_key.get(key)
+            if current is None or priority.get(manifest.catalog, 0) >= priority.get(current.catalog, 0):
+                by_key[key] = manifest
+        return sorted(by_key.values(), key=lambda item: item.key())
+
     def modules(self) -> list[Manifest]:
-        return [self._load(path) for path in sorted((self.project_root / "modules").glob("*/module.json"))]
+        items = [*self._package_manifests("modules", "module.json", kind="package")]
+        if self.settings is None or self.settings.registry_repo_root_fallback:
+            items.extend(self._repo_manifests("modules", "*/module.json", catalog="repo"))
+        items.extend(self._runtime_catalog_manifests("module", "module.json"))
+        return self._dedupe(items)
 
     def plugins(self) -> list[Manifest]:
-        return [self._load(path) for path in sorted((self.project_root / "plugins").glob("*/plugin.json"))]
+        items = [*self._package_manifests("plugins", "plugin.json", kind="package")]
+        if self.settings is None or self.settings.registry_repo_root_fallback:
+            items.extend(self._repo_manifests("plugins", "*/plugin.json", catalog="repo"))
+        items.extend(self._runtime_catalog_manifests("plugin", "plugin.json"))
+        return self._dedupe(items)
 
     def adapters(self) -> list[Manifest]:
-        return [self._load(path) for path in sorted((self.project_root / "bots").glob("*/adapter.json"))]
+        items = [*self._package_manifests("bots", "adapter.json", kind="package")]
+        if self.settings is None or self.settings.registry_repo_root_fallback:
+            items.extend(self._repo_manifests("bots", "*/adapter.json", catalog="repo"))
+        return self._dedupe(items)
 
     def all(self) -> list[Manifest]:
         return [*self.adapters(), *self.modules(), *self.plugins()]
@@ -110,22 +184,26 @@ class Registry:
 
     def load_order(self) -> list[Manifest]:
         by_type = self._by_type()
-        candidates = {**{f"module:{k}": v for k, v in by_type["module"].items()}, **{f"plugin:{k}": v for k, v in by_type["plugin"].items()}}
+        candidates = {
+            **{f"module:{k}": v for k, v in by_type["module"].items()},
+            **{f"plugin:{k}": v for k, v in by_type["plugin"].items()},
+        }
         result: list[Manifest] = []
         temporary: set[str] = set()
         permanent: set[str] = set()
 
         def visit(key: str) -> None:
-            if key in permanent or key not in candidates:
+            if key in permanent:
                 return
             if key in temporary:
-                raise ValueError(f"циклическая зависимость компонентов: {key}")
+                raise ValueError(f"циклическая зависимость manifest: {key}")
+            manifest = candidates.get(key)
+            if manifest is None:
+                return
             temporary.add(key)
-            manifest = candidates[key]
             for dependency in manifest.dependencies():
-                dep_key = dependency.normalized()
                 if dependency.type in {"module", "plugin"}:
-                    visit(dep_key)
+                    visit(dependency.normalized())
             temporary.remove(key)
             permanent.add(key)
             result.append(manifest)
@@ -175,6 +253,8 @@ class Registry:
                         )
                 if manifest.settings_schema is not None and not isinstance(manifest.settings_schema, dict):
                     errors.append(f"settings_schema у {manifest.type} {manifest.id} должен быть объектом")
+                if manifest.entrypoint is not None and ":" not in manifest.entrypoint:
+                    errors.append(f"entrypoint у {manifest.type}:{manifest.id} должен иметь формат module.path:ClassName")
 
         try:
             self.load_order()

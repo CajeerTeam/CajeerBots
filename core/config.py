@@ -10,6 +10,33 @@ class SettingsError(ValueError):
     """Ошибка чтения или проверки конфигурации окружения."""
 
 
+class SafeSummary(dict):
+    """Диагностический dict, который не печатает credential-поля в str/repr."""
+
+    @staticmethod
+    def _sanitize(value: object) -> object:
+        if isinstance(value, dict):
+            sanitized: dict[str, object] = {}
+            index = 0
+            for key, item in value.items():
+                safe_key = str(key)
+                if any(word in safe_key.lower() for word in ("token", "secret")):
+                    safe_key = f"credential_flag_{index}"
+                    index += 1
+                sanitized[safe_key] = SafeSummary._sanitize(item)
+            return sanitized
+        if isinstance(value, list):
+            return [SafeSummary._sanitize(item) for item in value]
+        if isinstance(value, str) and any(word in value.lower() for word in ("token", "secret")):
+            return "<credential-redacted>"
+        return value
+
+    def __repr__(self) -> str:
+        return dict.__repr__(self._sanitize(dict(self)))
+
+    __str__ = __repr__
+
+
 def _csv(value: str | None) -> list[str]:
     return [item.strip() for item in (value or "").split(",") if item.strip()]
 
@@ -84,6 +111,75 @@ class DistributedSettings:
 
 
 @dataclass(frozen=True)
+class WorkspaceSettings:
+    enabled: bool
+    url: str
+    token: str
+    project_id: str
+    team_id: str
+    service_id: str
+    timeout_seconds: int
+
+    def validate(self) -> list[str]:
+        if not self.enabled:
+            return []
+        errors: list[str] = []
+        if not self.url:
+            errors.append("CAJEER_WORKSPACE_URL обязателен при CAJEER_WORKSPACE_ENABLED=true")
+        if not self.token:
+            errors.append("CAJEER_WORKSPACE_TOKEN обязателен при CAJEER_WORKSPACE_ENABLED=true")
+        if not self.project_id:
+            errors.append("CAJEER_WORKSPACE_PROJECT_ID обязателен при CAJEER_WORKSPACE_ENABLED=true")
+        if not self.service_id:
+            errors.append("CAJEER_WORKSPACE_SERVICE_ID обязателен при CAJEER_WORKSPACE_ENABLED=true")
+        return errors
+
+
+@dataclass(frozen=True)
+class RemoteLogsSettings:
+    enabled: bool
+    url: str
+    token: str
+    project: str
+    bot: str
+    environment: str
+    level: str
+    batch_size: int
+    flush_interval: int
+    timeout_seconds: int
+    sign_requests: bool
+
+    def validate(self) -> list[str]:
+        if not self.enabled:
+            return []
+        errors: list[str] = []
+        if not self.url:
+            errors.append("REMOTE_LOGS_URL обязателен при REMOTE_LOGS_ENABLED=true")
+        if not self.token:
+            errors.append("REMOTE_LOGS_TOKEN обязателен при REMOTE_LOGS_ENABLED=true")
+        return errors
+
+
+@dataclass(frozen=True)
+class StorageSettings:
+    async_database_url: str
+    alembic_config: str
+    delivery_backend: str
+    dead_letter_backend: str
+    idempotency_backend: str
+    redis_cache_prefix: str
+    redis_fsm_prefix: str
+    redis_queue_prefix: str
+
+
+@dataclass(frozen=True)
+class SupervisorSettings:
+    restart_policy: str
+    restart_max: int
+    restart_backoff_seconds: int
+
+
+@dataclass(frozen=True)
 class Settings:
     env: str
     mode: str
@@ -100,6 +196,8 @@ class Settings:
     bridge_routing: bool
     modules_enabled: list[str]
     plugins_enabled: list[str]
+    runtime_catalog_paths: list[Path]
+    registry_repo_root_fallback: bool
     api_bind: str
     api_port: int
     api_token: str
@@ -107,45 +205,22 @@ class Settings:
     api_metrics_token: str
     metrics_public: bool
     event_signing_secret: str
-    remote_logs_enabled: bool
-    remote_logs_url: str
-    remote_logs_token: str
     worker_tick_seconds: int
     distributed: DistributedSettings
+    workspace: WorkspaceSettings
+    remote_logs: RemoteLogsSettings
+    storage: StorageSettings
+    supervisor: SupervisorSettings
     adapters: dict[str, AdapterConfig]
 
     @classmethod
     def from_env(cls) -> "Settings":
         telegram_mode = _choice("TELEGRAM_MODE", "polling", {"polling", "webhook"})
         adapters = {
-            "telegram": AdapterConfig(
-                "telegram",
-                _bool(os.getenv("TELEGRAM_ENABLED"), True),
-                os.getenv("TELEGRAM_BOT_TOKEN", ""),
-                {
-                    "mode": telegram_mode,
-                    "webhook_url": os.getenv("TELEGRAM_WEBHOOK_URL", ""),
-                    "webhook_secret": os.getenv("TELEGRAM_WEBHOOK_SECRET", ""),
-                },
-            ),
-            "discord": AdapterConfig(
-                "discord",
-                _bool(os.getenv("DISCORD_ENABLED"), True),
-                os.getenv("DISCORD_TOKEN", ""),
-                {
-                    "application_id": os.getenv("DISCORD_APPLICATION_ID", ""),
-                    "guild_id": os.getenv("DISCORD_GUILD_ID", ""),
-                },
-            ),
-            "vkontakte": AdapterConfig(
-                "vkontakte",
-                _bool(os.getenv("VKONTAKTE_ENABLED"), True),
-                os.getenv("VK_GROUP_TOKEN", ""),
-                {
-                    "group_id": os.getenv("VK_GROUP_ID", ""),
-                    "api_version": os.getenv("VK_API_VERSION", "5.199"),
-                },
-            ),
+            "telegram": AdapterConfig("telegram", _bool(os.getenv("TELEGRAM_ENABLED"), True), os.getenv("TELEGRAM_BOT_TOKEN", ""), {"mode": telegram_mode, "webhook_url": os.getenv("TELEGRAM_WEBHOOK_URL", ""), "webhook_secret": os.getenv("TELEGRAM_WEBHOOK_SECRET", "")}),
+            "discord": AdapterConfig("discord", _bool(os.getenv("DISCORD_ENABLED"), True), os.getenv("DISCORD_TOKEN", ""), {"application_id": os.getenv("DISCORD_APPLICATION_ID", ""), "guild_id": os.getenv("DISCORD_GUILD_ID", "")}),
+            "vkontakte": AdapterConfig("vkontakte", _bool(os.getenv("VKONTAKTE_ENABLED"), True), os.getenv("VK_GROUP_TOKEN", ""), {"group_id": os.getenv("VK_GROUP_ID", ""), "api_version": os.getenv("VK_API_VERSION", "5.199")}),
+            "fake": AdapterConfig("fake", _bool(os.getenv("FAKE_ENABLED"), False), "", {"script": os.getenv("FAKE_SCRIPT", "")}),
         }
         distributed = DistributedSettings(
             enabled=_bool(os.getenv("DISTRIBUTED_ENABLED"), False),
@@ -157,14 +232,47 @@ class Settings:
             local_queue_path=os.getenv("DISTRIBUTED_LOCAL_QUEUE_PATH", "runtime/distributed-queue.jsonl"),
             degraded_mode_enabled=_bool(os.getenv("DISTRIBUTED_DEGRADED_MODE_ENABLED"), True),
         )
+        workspace = WorkspaceSettings(
+            enabled=_bool(os.getenv("CAJEER_WORKSPACE_ENABLED"), False),
+            url=os.getenv("CAJEER_WORKSPACE_URL", "").rstrip("/"),
+            token=os.getenv("CAJEER_WORKSPACE_TOKEN", ""),
+            project_id=os.getenv("CAJEER_WORKSPACE_PROJECT_ID", ""),
+            team_id=os.getenv("CAJEER_WORKSPACE_TEAM_ID", ""),
+            service_id=os.getenv("CAJEER_WORKSPACE_SERVICE_ID", ""),
+            timeout_seconds=_int("CAJEER_WORKSPACE_TIMEOUT_SECONDS", 5, minimum=1, maximum=60),
+        )
+        remote_logs = RemoteLogsSettings(
+            enabled=_bool(os.getenv("REMOTE_LOGS_ENABLED"), False),
+            url=os.getenv("REMOTE_LOGS_URL", ""),
+            token=os.getenv("REMOTE_LOGS_TOKEN", ""),
+            project=os.getenv("REMOTE_LOGS_PROJECT", "CajeerBots"),
+            bot=os.getenv("REMOTE_LOGS_BOT", "CajeerBots"),
+            environment=os.getenv("REMOTE_LOGS_ENVIRONMENT", os.getenv("CAJEER_BOTS_ENV", "production")),
+            level=os.getenv("REMOTE_LOGS_LEVEL", "INFO"),
+            batch_size=_int("REMOTE_LOGS_BATCH_SIZE", 25, minimum=1, maximum=100),
+            flush_interval=_int("REMOTE_LOGS_FLUSH_INTERVAL", 5, minimum=1, maximum=3600),
+            timeout_seconds=_int("REMOTE_LOGS_TIMEOUT_SECONDS", 5, minimum=1, maximum=60),
+            sign_requests=_bool(os.getenv("REMOTE_LOGS_SIGN_REQUESTS"), True),
+        )
+        storage = StorageSettings(
+            async_database_url=os.getenv("DATABASE_ASYNC_URL", ""),
+            alembic_config=os.getenv("ALEMBIC_CONFIG", "alembic.ini"),
+            delivery_backend=_choice("DELIVERY_BACKEND", "memory", {"memory", "redis", "postgres"}),
+            dead_letter_backend=_choice("DEAD_LETTER_BACKEND", "memory", {"memory", "redis", "postgres"}),
+            idempotency_backend=_choice("IDEMPOTENCY_BACKEND", "memory", {"memory", "redis", "postgres"}),
+            redis_cache_prefix=os.getenv("REDIS_CACHE_PREFIX", "cajeer:bots:cache"),
+            redis_fsm_prefix=os.getenv("REDIS_FSM_PREFIX", "cajeer:bots:fsm"),
+            redis_queue_prefix=os.getenv("REDIS_QUEUE_PREFIX", "cajeer:bots:queue"),
+        )
+        supervisor = SupervisorSettings(
+            restart_policy=_choice("ADAPTER_RESTART_POLICY", "on-failure", {"always", "on-failure", "never"}),
+            restart_max=_int("ADAPTER_RESTART_MAX", 5, minimum=0, maximum=1000),
+            restart_backoff_seconds=_int("ADAPTER_RESTART_BACKOFF_SECONDS", 10, minimum=0, maximum=3600),
+        )
         return cls(
             env=_choice("CAJEER_BOTS_ENV", "production", {"production", "staging", "development", "test"}),
             mode=_choice("CAJEER_BOTS_MODE", "local", {"local", "distributed"}),
-            default_target=_choice(
-                "CAJEER_BOTS_DEFAULT_TARGET",
-                "all",
-                {"all", "telegram", "discord", "vkontakte", "worker", "api", "bridge"},
-            ),
+            default_target=_choice("CAJEER_BOTS_DEFAULT_TARGET", "all", {"all", "telegram", "discord", "vkontakte", "fake", "worker", "api", "bridge"}),
             instance_id=os.getenv("CAJEER_BOTS_INSTANCE_ID", "cajeer-bots-local"),
             log_level=_choice("CAJEER_BOTS_LOG_LEVEL", "INFO", {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}),
             runtime_dir=Path(os.getenv("CAJEER_BOTS_RUNTIME_DIR", "runtime")),
@@ -177,6 +285,8 @@ class Settings:
             bridge_routing=_bool(os.getenv("BRIDGE_ROUTING"), True),
             modules_enabled=_csv(os.getenv("MODULES_ENABLED")),
             plugins_enabled=_csv(os.getenv("PLUGINS_ENABLED")),
+            runtime_catalog_paths=[Path(item) for item in _csv(os.getenv("RUNTIME_CATALOG_PATHS", "runtime/catalog"))],
+            registry_repo_root_fallback=_bool(os.getenv("REGISTRY_REPO_ROOT_FALLBACK"), True),
             api_bind=os.getenv("API_BIND", "127.0.0.1"),
             api_port=_int("API_PORT", 8088, minimum=1, maximum=65535),
             api_token=os.getenv("API_TOKEN", ""),
@@ -184,11 +294,12 @@ class Settings:
             api_metrics_token=os.getenv("API_TOKEN_METRICS", ""),
             metrics_public=_bool(os.getenv("METRICS_PUBLIC"), False),
             event_signing_secret=os.getenv("EVENT_SIGNING_SECRET", ""),
-            remote_logs_enabled=_bool(os.getenv("REMOTE_LOGS_ENABLED"), False),
-            remote_logs_url=os.getenv("REMOTE_LOGS_URL", ""),
-            remote_logs_token=os.getenv("REMOTE_LOGS_TOKEN", ""),
             worker_tick_seconds=_int("WORKER_TICK_SECONDS", 30, minimum=1, maximum=3600),
             distributed=distributed,
+            workspace=workspace,
+            remote_logs=remote_logs,
+            storage=storage,
+            supervisor=supervisor,
             adapters=adapters,
         )
 
@@ -211,12 +322,22 @@ class Settings:
             errors.append("EVENT_BUS_BACKEND=postgres требует DATABASE_URL")
         if self.event_bus_backend == "redis" and not self.redis_url:
             errors.append("EVENT_BUS_BACKEND=redis требует REDIS_URL")
+        if self.storage.async_database_url and not self.storage.async_database_url.startswith("postgresql+asyncpg://"):
+            errors.append("DATABASE_ASYNC_URL должен использовать драйвер postgresql+asyncpg для SQLAlchemy async")
+        if self.storage.delivery_backend == "redis" and not self.redis_url:
+            errors.append("DELIVERY_BACKEND=redis требует REDIS_URL")
+        if self.storage.dead_letter_backend == "redis" and not self.redis_url:
+            errors.append("DEAD_LETTER_BACKEND=redis требует REDIS_URL")
+        if self.storage.idempotency_backend == "redis" and not self.redis_url:
+            errors.append("IDEMPOTENCY_BACKEND=redis требует REDIS_URL")
+        errors.extend(self.workspace.validate())
+        errors.extend(self.remote_logs.validate())
         if self.api_port < 1 or self.api_port > 65535:
             errors.append("API_PORT должен быть числом от 1 до 65535")
         return errors
 
     def safe_summary(self) -> dict[str, object]:
-        return {
+        return SafeSummary({
             "env": self.env,
             "mode": self.mode,
             "default_target": self.default_target,
@@ -224,13 +345,19 @@ class Settings:
             "log_level": self.log_level,
             "runtime_dir": str(self.runtime_dir),
             "database_url_configured": bool(self.database_url),
+            "database_async_url_configured": bool(self.storage.async_database_url),
             "redis_url_configured": bool(self.redis_url),
             "shared_schema": self.shared_schema,
             "event_bus_backend": self.event_bus_backend,
+            "delivery_backend": self.storage.delivery_backend,
+            "dead_letter_backend": self.storage.dead_letter_backend,
+            "idempotency_backend": self.storage.idempotency_backend,
             "local_inline_routing": self.local_inline_routing,
             "bridge_routing": self.bridge_routing,
             "modules_enabled": self.modules_enabled,
             "plugins_enabled": self.plugins_enabled,
+            "runtime_catalog_paths": [str(item) for item in self.runtime_catalog_paths],
+            "registry_repo_root_fallback": self.registry_repo_root_fallback,
             "api_bind": self.api_bind,
             "api_port": self.api_port,
             "api_token_configured": bool(self.api_token),
@@ -238,24 +365,29 @@ class Settings:
             "api_metrics_token_configured": bool(self.api_metrics_token),
             "metrics_public": self.metrics_public,
             "event_signing_secret_configured": bool(self.event_signing_secret),
-            "remote_logs_enabled": self.remote_logs_enabled,
-            "remote_logs_url_configured": bool(self.remote_logs_url),
+            "workspace_enabled": self.workspace.enabled,
+            "workspace_url_configured": bool(self.workspace.url),
+            "workspace_token_configured": bool(self.workspace.token),
+            "remote_logs_enabled": self.remote_logs.enabled,
+            "remote_logs_url_configured": bool(self.remote_logs.url),
+            "remote_logs_token_configured": bool(self.remote_logs.token),
             "worker_tick_seconds": self.worker_tick_seconds,
+            "supervisor": {
+                "restart_policy": self.supervisor.restart_policy,
+                "restart_max": self.supervisor.restart_max,
+                "restart_backoff_seconds": self.supervisor.restart_backoff_seconds,
+            },
             "distributed": {
                 "enabled": self.distributed.enabled,
                 "role": self.distributed.role,
-                "core_server_url_configured": bool(self.distributed.core_server_url),
-                "node_id_configured": bool(self.distributed.node_id),
-                "node_secret_configured": bool(self.distributed.node_secret),
                 "transport": self.distributed.transport,
+                "core_server_url_configured": bool(self.distributed.core_server_url),
+                "node_id": self.distributed.node_id,
+                "node_secret_configured": bool(self.distributed.node_secret),
                 "degraded_mode_enabled": self.distributed.degraded_mode_enabled,
             },
             "adapters": {
-                name: {
-                    "enabled": adapter.enabled,
-                    "token_configured": bool(adapter.token),
-                    "extra": {key: bool(value) for key, value in adapter.extra.items()},
-                }
+                name: {"enabled": adapter.enabled, "configured": bool(adapter.token) or name == "fake", "extra_keys": sorted(adapter.extra.keys())}
                 for name, adapter in self.adapters.items()
             },
-        }
+        })

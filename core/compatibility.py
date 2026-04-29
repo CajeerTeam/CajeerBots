@@ -110,8 +110,8 @@ def check_compatibility(project_root: Path, platform_version: str, registry: Reg
                     f"версия контракта событий {EVENT_CONTRACT_VERSION} не совпадает с compatibility.yaml ({expected_event_contract})"
                 )
 
-    if str(data.get("db_contract", "")).strip() != "external":
-        warnings.append("db_contract должен быть external, так как миграции не входят в проект")
+    if str(data.get("db_contract", "")).strip() not in {"external", "alembic"}:
+        warnings.append("db_contract должен быть external или alembic")
 
     py_spec = str(data.get("python", "")).strip()
     if py_spec.startswith(">=") and _version_tuple(".".join(map(str, sys.version_info[:3]))) < _version_tuple(py_spec[2:]):

@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 import hashlib
 import hmac
@@ -8,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 EVENT_CONTRACT_VERSION = 1
-EventSource = Literal["telegram", "discord", "vkontakte", "system", "module", "plugin"]
+EventSource = Literal["telegram", "discord", "vkontakte", "fake", "system", "module", "plugin", "workspace", "logs"]
 
 
 def utcnow() -> datetime:
@@ -119,6 +120,50 @@ def sign_event(event: CajeerEvent, secret: str) -> str:
 
 def verify_event_signature(event: CajeerEvent, secret: str, signature: str) -> bool:
     return hmac.compare_digest(sign_event(event, secret), signature)
+
+
+def extract_command(text: str, *, bot_username: str | None = None) -> tuple[str, str] | None:
+    text = text.strip()
+    if not text.startswith("/"):
+        return None
+    first, _, rest = text.partition(" ")
+    command = first[1:]
+    if "@" in command:
+        name, _, target_bot = command.partition("@")
+        if bot_username and target_bot.lower() != bot_username.lower().lstrip("@"):
+            return None
+        command = name
+    return command.strip(), rest.strip()
+
+
+def message_event(
+    *,
+    source: EventSource,
+    platform_user_id: str,
+    platform_chat_id: str,
+    text: str,
+    chat_type: str = "unknown",
+    display_name: str | None = None,
+    raw: dict[str, Any] | None = None,
+) -> CajeerEvent:
+    return CajeerEvent.create(
+        source=source,
+        type="message.received",
+        actor=Actor(source, platform_user_id, display_name=display_name),
+        chat=ChatRef(source, platform_chat_id, chat_type),
+        payload={"text": text, "raw": raw or {}},
+    )
+
+
+def command_event_from_message(event: CajeerEvent, command: str, args: str = "") -> CajeerEvent:
+    return CajeerEvent.create(
+        source=event.source,
+        type="command.received",
+        actor=event.actor,
+        chat=event.chat,
+        trace_id=event.trace_id,
+        payload={**event.payload, "command": command, "args": args},
+    )
 
 
 def validate_event(event: CajeerEvent) -> list[str]:

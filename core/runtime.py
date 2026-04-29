@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import signal
 import time
 from pathlib import Path
@@ -10,8 +9,10 @@ from typing import Iterable
 
 from core.adapters.base import AdapterContext, AdapterHealth, BotAdapter
 from core.adapters.discord import DiscordAdapter
+from core.adapters.fake import FakeAdapter
 from core.adapters.telegram import TelegramAdapter
 from core.adapters.vkontakte import VkontakteAdapter
+from core.audit import AuditLog
 from core.bridge import BridgeService
 from core.commands import CommandRegistry, build_default_commands
 from core.compatibility import check_compatibility
@@ -22,6 +23,10 @@ from core.delivery import DeliveryService
 from core.event_bus import build_event_bus
 from core.events import EVENT_CONTRACT_VERSION
 from core.idempotency import IdempotencyStore
+from core.integrations.logs import CajeerLogsClient
+from core.integrations.workspace import WorkspaceClient
+from core.modules.runtime import ComponentManager
+from core.permissions_fix import executable_paths
 from core.registry import Registry
 from core.router import EventRouter
 from core.worker import WorkerService
@@ -32,6 +37,7 @@ ADAPTER_CLASSES: dict[str, type[BotAdapter]] = {
     "telegram": TelegramAdapter,
     "discord": DiscordAdapter,
     "vkontakte": VkontakteAdapter,
+    "fake": FakeAdapter,
 }
 
 PLACEHOLDER_SECRETS = {
@@ -44,26 +50,30 @@ PLACEHOLDER_SECRETS = {
 }
 
 FORBIDDEN_TERMS = ["Never" + "Mine", "cajeer" + "_bots", "cajeer" + "_core", "nm" + "bot"]
-TEXT_EXTENSIONS = {".py", ".md", ".json", ".yaml", ".yml", ".toml", ".sh", ".service", ".conf", ".example"}
+TEXT_EXTENSIONS = {".py", ".md", ".json", ".yaml", ".yml", ".toml", ".sh", ".service", ".conf", ".example", ".ini"}
 
 
 class Runtime:
     def __init__(self, settings: Settings, project_root: Path | None = None) -> None:
         self.settings = settings
         self.project_root = project_root or Path.cwd()
-        self.registry = Registry(self.project_root)
+        self.registry = Registry(self.project_root, settings=settings)
         self.adapters: list[BotAdapter] = []
         self.event_bus = build_event_bus(settings)
         self.dead_letters = DeadLetterQueue()
         self.delivery = DeliveryService()
         self.idempotency = IdempotencyStore()
         self.commands: CommandRegistry = build_default_commands(self)
-        self.router = EventRouter(self.commands, self.idempotency)
+        self.audit = AuditLog()
+        self.components = ComponentManager(self, self.registry)
+        self.router = EventRouter(self.commands, self.idempotency, components=self.components)
         self.bridge = BridgeService(self)
         self.worker = WorkerService(self)
         self._stop_event: asyncio.Event | None = None
         self.version = self._read_version()
         self.event_contract_version = EVENT_CONTRACT_VERSION
+        self.workspace = WorkspaceClient(settings.workspace, settings.instance_id, self.version)
+        self.remote_logs = CajeerLogsClient(settings.remote_logs, settings.instance_id)
         self.started_at = time.time()
 
     def _read_version(self) -> str:
@@ -77,13 +87,17 @@ class Runtime:
             self.event_bus,
             self.router,
             self.dead_letters,
+            delivery=self.delivery,
+            audit=self.audit,
+            workspace=self.workspace,
+            remote_logs=self.remote_logs,
             inline_routing=self.settings.local_inline_routing,
         )
         return ADAPTER_CLASSES[name](self.settings, self.settings.adapters[name], context=context)
 
     def selected_adapters(self, target: str) -> list[str]:
         if target == "all":
-            return [adapter.name for adapter in self.settings.enabled_adapters()]
+            return [adapter.name for adapter in self.settings.enabled_adapters() if adapter.name in ADAPTER_CLASSES]
         if target in ADAPTER_CLASSES:
             return [target]
         return []
@@ -96,7 +110,7 @@ class Runtime:
             AdapterHealth(
                 name=adapter.name,
                 enabled=adapter.config.enabled,
-                configured=bool(adapter.config.token),
+                configured=bool(adapter.config.token) or adapter.name == "fake",
                 state=adapter.status.state,
                 capabilities=adapter.capabilities.names(),
                 started_at=adapter.status.started_at,
@@ -104,6 +118,7 @@ class Runtime:
                 last_error=adapter.status.last_error,
                 processed_events=adapter.status.processed_events,
                 failed_events=adapter.status.failed_events,
+                restart_count=adapter.status.restart_count,
             )
             for adapter in self.adapters
         ]
@@ -112,41 +127,84 @@ class Runtime:
         target = target or self.settings.default_target
         logger.info("запуск Cajeer Bots, режим=%s, цель=%s", self.settings.mode, target)
         self.settings.runtime_dir.mkdir(parents=True, exist_ok=True)
+        await self.components.start()
 
         if self.settings.mode == "distributed" and target not in {"api", "worker", "bridge"}:
             logger.info("распределённый режим включён; локальный запуск адаптеров используется только для agent-узла")
 
-        if target == "api":
-            return await self.run_api()
-        if target == "worker":
-            return await self.run_worker()
-        if target == "bridge":
-            return await self.run_bridge()
+        try:
+            if target == "api":
+                return await self.run_api()
+            if target == "worker":
+                return await self.run_worker()
+            if target == "bridge":
+                return await self.run_bridge()
 
-        names = self.selected_adapters(target)
-        if not names:
-            raise ValueError(f"неподдерживаемая цель запуска: {target}")
-        self.adapters = [self.build_adapter(name) for name in names]
-        await self._run_supervised(self.adapters)
+            names = self.selected_adapters(target)
+            if not names:
+                raise ValueError(f"неподдерживаемая цель запуска: {target}")
+            self.adapters = [self.build_adapter(name) for name in names]
+            await self._run_supervised(self.adapters)
+        finally:
+            await self.components.stop()
+
+    async def _adapter_supervisor(self, adapter: BotAdapter) -> None:
+        restarts = 0
+        policy = self.settings.supervisor.restart_policy
+        max_restarts = self.settings.supervisor.restart_max
+        while not (self._stop_event and self._stop_event.is_set()):
+            try:
+                await adapter.start()
+                if policy != "always":
+                    return
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                adapter.status.restart_count = restarts
+                logger.error("адаптер %s завершился с ошибкой: %s", adapter.name, exc)
+                self.audit.write(
+                    actor_type="system",
+                    actor_id="runtime",
+                    action="adapter.failed",
+                    resource=adapter.name,
+                    result="error",
+                    message=str(exc),
+                )
+                if policy == "never" or (policy == "on-failure" and restarts >= max_restarts):
+                    if self._stop_event is not None:
+                        self._stop_event.set()
+                    return
+                restarts += 1
+                adapter.status.restart_count = restarts
+                adapter.set_state("degraded", error=str(exc))
+                await asyncio.sleep(self.settings.supervisor.restart_backoff_seconds)
 
     async def _run_supervised(self, adapters: Iterable[BotAdapter]) -> None:
         self._stop_event = asyncio.Event()
         self._install_signal_handlers(self._stop_event)
-        tasks = [asyncio.create_task(adapter.start(), name=f"adapter:{adapter.name}") for adapter in adapters]
+        tasks = [asyncio.create_task(self._adapter_supervisor(adapter), name=f"adapter:{adapter.name}") for adapter in adapters]
         stop_task = asyncio.create_task(self._stop_event.wait(), name="runtime:stop")
+        heartbeat_task = asyncio.create_task(self._workspace_heartbeat_loop(), name="workspace:heartbeat")
         try:
             done, _ = await asyncio.wait([*tasks, stop_task], return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 if task is not stop_task:
                     exc = task.exception()
                     if exc:
-                        logger.error("адаптер завершился с ошибкой: %s", exc)
+                        logger.error("supervisor завершился с ошибкой: %s", exc)
                         self._stop_event.set()
             if stop_task in done:
                 logger.info("получен сигнал остановки")
         finally:
+            heartbeat_task.cancel()
             await self._stop_adapters(tasks)
             stop_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
+
+    async def _workspace_heartbeat_loop(self) -> None:
+        while not (self._stop_event and self._stop_event.is_set()):
+            await self.workspace.heartbeat(self.readiness_snapshot())
+            await asyncio.sleep(30)
 
     async def _stop_adapters(self, tasks: list[asyncio.Task[None]]) -> None:
         for adapter in self.adapters:
@@ -158,6 +216,7 @@ class Runtime:
     def request_stop(self) -> None:
         if self._stop_event is not None:
             self._stop_event.set()
+        self.audit.write(actor_type="api", actor_id="admin", action="runtime.stop", resource="runtime")
 
     def _install_signal_handlers(self, stop_event: asyncio.Event) -> None:
         loop = asyncio.get_running_loop()
@@ -195,13 +254,21 @@ class Runtime:
 
     def dependencies_snapshot(self) -> dict[str, object]:
         return {
-            "database_required": self.settings.event_bus_backend == "postgres",
-            "database_configured": bool(self.settings.database_url),
-            "redis_required": self.settings.event_bus_backend == "redis",
+            "database_required": self.settings.event_bus_backend == "postgres" or self.settings.storage.delivery_backend == "postgres",
+            "database_configured": bool(self.settings.database_url or self.settings.storage.async_database_url),
+            "redis_required": self.settings.event_bus_backend == "redis"
+            or self.settings.storage.delivery_backend == "redis"
+            or self.settings.storage.dead_letter_backend == "redis"
+            or self.settings.storage.idempotency_backend == "redis",
             "redis_configured": bool(self.settings.redis_url),
             "event_bus_backend": self.settings.event_bus_backend,
+            "delivery_backend": self.settings.storage.delivery_backend,
+            "dead_letter_backend": self.settings.storage.dead_letter_backend,
+            "idempotency_backend": self.settings.storage.idempotency_backend,
             "enabled_adapters": [adapter.name for adapter in self.settings.enabled_adapters()],
             "distributed_enabled": self.settings.distributed.enabled,
+            "workspace_enabled": self.settings.workspace.enabled,
+            "remote_logs_enabled": self.settings.remote_logs.enabled,
         }
 
     def readiness_snapshot(self) -> dict[str, object]:
@@ -229,6 +296,7 @@ class Runtime:
                 "plugins": len(self.registry.plugins()),
                 "load_order": [item.to_dict() for item in self.registry.load_order()],
             },
+            "components": self.components.snapshot(),
         }
 
     def metrics_text(self) -> str:
@@ -256,12 +324,16 @@ class Runtime:
             "# HELP cajeerbots_delivery_failed_total Количество ошибок доставки.",
             "# TYPE cajeerbots_delivery_failed_total counter",
             f"cajeerbots_delivery_failed_total {self.delivery.failed_total}",
+            "# HELP cajeerbots_audit_records_total Количество audit-записей в runtime.",
+            "# TYPE cajeerbots_audit_records_total gauge",
+            f"cajeerbots_audit_records_total {len(self.audit.snapshot())}",
         ]
         for adapter in self.adapter_health_snapshot():
             state_value = 1 if adapter.state == "running" else 0
             lines.append(f'cajeerbots_adapter_state{{adapter="{adapter.name}",state="{adapter.state}"}} {state_value}')
             lines.append(f'cajeerbots_adapter_events_total{{adapter="{adapter.name}"}} {adapter.processed_events}')
             lines.append(f'cajeerbots_adapter_events_failed_total{{adapter="{adapter.name}"}} {adapter.failed_events}')
+            lines.append(f'cajeerbots_adapter_restarts_total{{adapter="{adapter.name}"}} {adapter.restart_count}')
         return "\n".join(lines) + "\n"
 
     def doctor(self, offline: bool = False, *, doctor_mode: str = "local") -> list[str]:
@@ -279,7 +351,7 @@ class Runtime:
         if not (self.project_root / "bots").is_dir():
             problems.append("каталог bots не найден")
         if (self.project_root / "migrations").exists():
-            problems.append("каталог migrations не должен входить в проект")
+            problems.append("каталог migrations не должен входить в проект; используйте alembic/")
         problems.extend(self.registry.validate(settings=self.settings))
         problems.extend(self._check_executable_bits())
         problems.extend(self._check_forbidden_terms())
@@ -297,25 +369,22 @@ class Runtime:
                 except Exception as exc:
                     problems.append(f"проверка PostgreSQL завершилась ошибкой: {exc}")
             for name, adapter in self.settings.adapters.items():
+                if name == "fake":
+                    continue
                 if adapter.enabled and not adapter.token:
                     problems.append(f"адаптер {name} включён, но его токен не задан")
         return problems
 
     def _check_executable_bits(self) -> list[str]:
         errors: list[str] = []
-        for path in [
-            self.project_root / "run.sh",
-            self.project_root / "install.sh",
-            self.project_root / "setup_wizard.py",
-            *(self.project_root / "scripts").glob("*.sh"),
-        ]:
+        for path in executable_paths(self.project_root):
             if path.exists() and not path.stat().st_mode & 0o111:
                 errors.append(f"файл должен быть исполняемым: {path.relative_to(self.project_root)}")
         return errors
 
     def _check_forbidden_terms(self) -> list[str]:
         errors: list[str] = []
-        ignored_dirs = {".git", "dist", "runtime", "__pycache__", ".pytest_cache"}
+        ignored_dirs = {".git", "dist", "runtime", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
         for path in self.project_root.rglob("*"):
             if not path.is_file() or any(part in ignored_dirs for part in path.parts):
                 continue
