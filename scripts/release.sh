@@ -52,5 +52,40 @@ mkdir -p "dist/${NAME}"
 cp -a README.md LICENSE VERSION pyproject.toml .env.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini \
   core bots modules plugins distributed scripts ops wiki alembic install.sh run.sh setup_wizard.py main.py \
   "dist/${NAME}/"
-(cd dist && tar -czf "${NAME}.tar.gz" "${NAME}" && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
+chmod +x "dist/${NAME}/run.sh" "dist/${NAME}/install.sh" "dist/${NAME}/setup_wizard.py" "dist/${NAME}/scripts"/*.sh
+(cd dist && tar --mode='u+rwX,go+rX' -czf "${NAME}.tar.gz" "${NAME}" && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
+SHA256_VALUE="$(cut -d' ' -f1 "dist/${NAME}.tar.gz.sha256")"
+cat > "dist/${NAME}.release.json" <<JSON
+{
+  "name": "CajeerBots",
+  "version": "${VERSION}",
+  "channel": "${CAJEER_UPDATE_CHANNEL:-stable}",
+  "python": ">=3.11",
+  "db_contract": "cajeer.bots.db.v1",
+  "event_contract": "cajeer.bots.event.v1",
+  "requires_migration": true,
+  "artifacts": [
+    {
+      "name": "${NAME}.tar.gz",
+      "sha256": "${SHA256_VALUE}"
+    }
+  ]
+}
+JSON
+cat > "dist/${NAME}.spdx.json" <<JSON
+{"SPDXID":"SPDXRef-DOCUMENT","spdxVersion":"SPDX-2.3","name":"${NAME}","dataLicense":"CC0-1.0","documentNamespace":"https://cajeer.local/spdx/${NAME}","packages":[{"SPDXID":"SPDXRef-Package-CajeerBots","name":"CajeerBots","versionInfo":"${VERSION}","licenseConcluded":"Apache-2.0"}]}
+JSON
+cat > "dist/${NAME}.cyclonedx.json" <<JSON
+{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"metadata":{"component":{"type":"application","name":"CajeerBots","version":"${VERSION}"}}}
+JSON
+if command -v openssl >/dev/null 2>&1; then
+  openssl dgst -sha256 -sign "${RELEASE_SIGNING_KEY:-/dev/null}" -out "dist/${NAME}.sig" "dist/${NAME}.tar.gz" 2>/dev/null || true
+fi
+
+# Проверка итогового tar.gz, а не только рабочей директории.
+TMP_RELEASE_CHECK="$(mktemp -d)"
+tar -xzf "dist/${NAME}.tar.gz" -C "$TMP_RELEASE_CHECK"
+(cd "$TMP_RELEASE_CHECK/${NAME}" && EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token "$PYTHON_BIN" -m core doctor --offline)
+rm -rf "$TMP_RELEASE_CHECK"
+
 echo "Релиз создан: dist/${NAME}.tar.gz"
