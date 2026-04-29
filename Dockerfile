@@ -8,4 +8,4 @@ COPY modules ./modules
 COPY plugins ./plugins
 COPY scripts ./scripts
 RUN pip install --no-cache-dir --upgrade pip     && pip install --no-cache-dir '.[api,adapters]'     && chmod +x /app/scripts/*.sh
-CMD ["python", "-m", "core", "run", "all"]
+CMD ["cajeer-bots", "run", "all"]

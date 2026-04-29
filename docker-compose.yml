@@ -18,7 +18,7 @@ services:
     build: .
     profiles: ["api", "all"]
     env_file: .env
-    command: ["python", "-m", "core", "run", "api"]
+    command: ["cajeer-bots", "run", "api"]
     ports: ["8088:8088"]
     depends_on:
       postgres:
@@ -28,7 +28,7 @@ services:
     build: .
     profiles: ["worker", "all"]
     env_file: .env
-    command: ["python", "-m", "core", "run", "worker"]
+    command: ["cajeer-bots", "run", "worker"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,7 +37,7 @@ services:
     build: .
     profiles: ["telegram", "all"]
     env_file: .env
-    command: ["python", "-m", "core", "run", "telegram"]
+    command: ["cajeer-bots", "run", "telegram"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -46,7 +46,7 @@ services:
     build: .
     profiles: ["discord", "all"]
     env_file: .env
-    command: ["python", "-m", "core", "run", "discord"]
+    command: ["cajeer-bots", "run", "discord"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,7 +55,7 @@ services:
     build: .
     profiles: ["vkontakte", "vk", "all"]
     env_file: .env
-    command: ["python", "-m", "core", "run", "vkontakte"]
+    command: ["cajeer-bots", "run", "vkontakte"]
     depends_on:
       postgres:
         condition: service_healthy
