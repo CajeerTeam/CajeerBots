@@ -20,5 +20,6 @@
       "default": 30,
       "description": "Интервал проверки фоновых задач."
     }
-  }
+  },
+  "entrypoint": "modules.scheduler.runtime:SchedulerModule"
 }
