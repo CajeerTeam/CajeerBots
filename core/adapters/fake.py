@@ -10,6 +10,10 @@ class FakeAdapter(BotAdapter):
     name = "fake"
     capabilities = AdapterCapabilities()
 
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(*args, **kwargs)
+        self.sent_messages: list[dict[str, str]] = []
+
     async def on_start(self) -> None:
         await self.report_lifecycle("adapter.started", {"library": "fake"})
 
@@ -28,3 +32,7 @@ class FakeAdapter(BotAdapter):
             await self.handle_incoming_message(event)
         while not self._stopping.is_set():
             await asyncio.sleep(1)
+
+    async def send_message(self, target: str, text: str) -> None:
+        self.sent_messages.append({"target": target, "text": text})
+        await super().send_message(target, text)

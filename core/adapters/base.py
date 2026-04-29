@@ -27,6 +27,7 @@ class AdapterCapabilities:
     roles: bool = False
     reactions: bool = False
     webhooks: bool = False
+    slash_commands: bool = False
 
     def names(self) -> list[str]:
         values: list[str] = []
@@ -42,6 +43,8 @@ class AdapterCapabilities:
             values.append("reactions")
         if self.webhooks:
             values.append("webhooks")
+        if self.slash_commands:
+            values.append("slash_commands")
         values.extend(["health", "events.publish"])
         return sorted(set(values))
 
@@ -113,9 +116,11 @@ class BotAdapter(abc.ABC):
 
     async def start(self) -> None:
         self.set_state("starting")
+        delivery_task: asyncio.Task[None] | None = None
         try:
             await self.on_start()
             self.set_state("running")
+            delivery_task = asyncio.create_task(self._delivery_sender_loop(), name=f"delivery:{self.name}")
             await self.run_loop()
             if self.status.state not in {"failed", "stopping"}:
                 self.set_state("stopped")
@@ -128,9 +133,21 @@ class BotAdapter(abc.ABC):
             await self.report_lifecycle("adapter.failed", {"error": str(exc)})
             raise
         finally:
+            if delivery_task is not None:
+                delivery_task.cancel()
+                await asyncio.gather(delivery_task, return_exceptions=True)
             await self.on_stop()
             if self.status.state != "failed":
                 self.set_state("stopped")
+
+    async def _delivery_sender_loop(self) -> None:
+        while not self._stopping.is_set():
+            if self.context is not None and self.context.delivery is not None:
+                await self.context.delivery.process_for_adapter(self)
+            try:
+                await asyncio.wait_for(self._stopping.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
 
     async def on_start(self) -> None:
         """Хук запуска адаптера."""

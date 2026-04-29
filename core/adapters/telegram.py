@@ -20,17 +20,29 @@ class TelegramAdapter(BotAdapter):
         logger.info("адаптер Telegram запущен через aiogram")
         await self.report_lifecycle("adapter.started", {"mode": self.config.extra.get("mode", "polling"), "library": "aiogram"})
 
+    def _dispatcher(self):
+        from aiogram import Dispatcher
+
+        if self.settings.redis_url:
+            try:
+                from aiogram.fsm.storage.redis import RedisStorage
+
+                return Dispatcher(storage=RedisStorage.from_url(self.settings.redis_url))
+            except Exception as exc:  # pragma: no cover - fallback для неполного aiogram/redis окружения
+                logger.warning("Redis FSM для aiogram недоступен, используется memory storage: %s", exc)
+        return Dispatcher()
+
     async def run_loop(self) -> None:
         if not self.config.token:
             return await super().run_loop()
         try:
-            from aiogram import Bot, Dispatcher, F
+            from aiogram import Bot, F
             from aiogram.types import Message
         except ImportError as exc:
             raise RuntimeError("для Telegram установите пакет aiogram: pip install cajeer-bots[adapters]") from exc
 
         bot = Bot(self.config.token)
-        dispatcher = Dispatcher()
+        dispatcher = self._dispatcher()
         me = await bot.get_me()
         bot_username = me.username or None
 
@@ -50,7 +62,6 @@ class TelegramAdapter(BotAdapter):
 
         try:
             if self.config.extra.get("mode") == "webhook":
-                # Webhook endpoint is owned by API/reverse proxy layer; adapter registers the webhook and keeps process alive.
                 webhook_url = self.config.extra.get("webhook_url", "")
                 if not webhook_url:
                     raise RuntimeError("TELEGRAM_MODE=webhook требует TELEGRAM_WEBHOOK_URL")
