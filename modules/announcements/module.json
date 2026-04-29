@@ -21,5 +21,6 @@
       "default": 3,
       "description": "Количество повторных попыток доставки объявления."
     }
-  }
+  },
+  "entrypoint": "modules.announcements.runtime:AnnouncementsModule"
 }
