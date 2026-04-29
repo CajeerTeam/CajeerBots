@@ -10,4 +10,6 @@ def default_slash_commands() -> list[dict[str, object]]:
         {"name": "status", "description": "Показать состояние Cajeer Bots"},
         {"name": "help", "description": "Показать команды Cajeer Bots"},
         {"name": "support", "description": "Создать обращение в поддержку"},
+        {"name": "announce", "description": "Создать объявление"},
+        {"name": "moderation", "description": "Открыть инструменты модерации"},
     ]
