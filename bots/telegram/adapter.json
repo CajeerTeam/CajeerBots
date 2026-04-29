@@ -7,6 +7,8 @@
   "capabilities": [
     "messages.receive",
     "messages.send",
+    "files.receive",
+    "webhooks",
     "health",
     "events.publish"
   ],
