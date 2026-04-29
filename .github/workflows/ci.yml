@@ -13,8 +13,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
-      - run: pip install -e .
-      - run: python -m compileall -q core bots modules plugins
+      - run: pip install -e .[dev]
+      - run: python -m compileall -q core bots modules plugins tests
+      - run: find . -type d -name __pycache__ -prune -exec rm -rf {} +
       - run: test -s README.md && test -s .env.example && test -d core && test -d bots
-      - run: EVENT_SIGNING_SECRET=ci-secret python -m core doctor --offline
-      - run: python -m core adapters && python -m core modules && python -m core plugins
+      - run: test ! -d migrations
+      - run: |
+          if grep -RInE 'Never'""'Mine|cajeer'""'_bots|cajeer'""'_core|nm'""'bot' --exclude-dir=.git --exclude-dir=dist --exclude-dir=runtime --exclude-dir=__pycache__ .; then
+            echo "Найдены запрещённые проектные или устаревшие термины"
+            exit 1
+          fi
+      - run: EVENT_SIGNING_SECRET=ci-secret API_TOKEN=ci-token python -m core doctor --offline
+      - run: python -m core adapters && python -m core modules && python -m core plugins && python -m core commands
+      - run: python -m pytest -q
