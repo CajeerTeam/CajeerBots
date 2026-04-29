@@ -16,9 +16,23 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
+DB_CONTRACT_VERSION = "cajeer.bots.db.v1"
+
 
 def upgrade() -> None:
     op.execute("CREATE SCHEMA IF NOT EXISTS shared")
+    op.create_table(
+        "platform_schema",
+        sa.Column("component", sa.String(128), primary_key=True),
+        sa.Column("version", sa.String(128), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
+        schema="shared",
+    )
+    op.execute(
+        "INSERT INTO shared.platform_schema(component, version) "
+        f"VALUES ('cajeer-bots-db', '{DB_CONTRACT_VERSION}') "
+        "ON CONFLICT (component) DO UPDATE SET version = EXCLUDED.version, updated_at = NOW()"
+    )
     op.create_table(
         "event_bus",
         sa.Column("event_id", sa.String(64), primary_key=True),
@@ -35,22 +49,28 @@ def upgrade() -> None:
     op.create_table(
         "delivery_queue",
         sa.Column("delivery_id", sa.String(64), primary_key=True),
-        sa.Column("adapter", sa.String(64), nullable=False),
+        sa.Column("adapter", sa.String(64), nullable=False, index=True),
         sa.Column("target", sa.String(255), nullable=False),
         sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("status", sa.String(32), nullable=False, server_default="pending"),
+        sa.Column("status", sa.String(32), nullable=False, server_default="pending", index=True),
         sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("max_attempts", sa.Integer(), nullable=False, server_default="3"),
+        sa.Column("trace_id", sa.String(64), nullable=True, index=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
+        sa.Column("locked_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("sent_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_error", sa.Text(), nullable=True),
         schema="shared",
     )
     op.create_table(
         "dead_letters",
         sa.Column("dead_letter_id", sa.String(64), primary_key=True),
         sa.Column("event_id", sa.String(64), nullable=False, index=True),
+        sa.Column("trace_id", sa.String(64), nullable=True, index=True),
         sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("reason", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
+        sa.Column("retried_at", sa.DateTime(timezone=True), nullable=True),
         schema="shared",
     )
     op.create_table(
@@ -65,18 +85,27 @@ def upgrade() -> None:
         sa.Column("audit_id", sa.String(64), primary_key=True),
         sa.Column("actor_type", sa.String(64), nullable=False),
         sa.Column("actor_id", sa.String(255), nullable=False),
-        sa.Column("action", sa.String(128), nullable=False),
+        sa.Column("action", sa.String(128), nullable=False, index=True),
         sa.Column("resource", sa.String(255), nullable=False),
-        sa.Column("result", sa.String(32), nullable=False),
-        sa.Column("trace_id", sa.String(64), nullable=True),
+        sa.Column("result", sa.String(32), nullable=False, index=True),
+        sa.Column("trace_id", sa.String(64), nullable=True, index=True),
         sa.Column("ip", sa.String(64), nullable=True),
         sa.Column("user_agent", sa.String(512), nullable=True),
         sa.Column("message", sa.Text(), nullable=False, server_default=""),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
         schema="shared",
     )
+    op.create_table(
+        "adapter_state",
+        sa.Column("adapter", sa.String(64), primary_key=True),
+        sa.Column("instance_id", sa.String(128), primary_key=True),
+        sa.Column("state", sa.String(32), nullable=False, index=True),
+        sa.Column("last_error", sa.Text(), nullable=True),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
+        schema="shared",
+    )
 
 
 def downgrade() -> None:
-    for table in ["audit_log", "idempotency_keys", "dead_letters", "delivery_queue", "event_bus"]:
+    for table in ["adapter_state", "audit_log", "idempotency_keys", "dead_letters", "delivery_queue", "event_bus", "platform_schema"]:
         op.drop_table(table, schema="shared")
