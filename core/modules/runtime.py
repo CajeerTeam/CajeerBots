@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import logging
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
+from uuid import uuid4
 
 from core.events import CajeerEvent
 from core.registry import Manifest, Registry
@@ -44,6 +48,7 @@ class LoadedComponent:
             "entrypoint": self.manifest.entrypoint,
             "failed": self.failed,
             "last_error": self.last_error,
+            "catalog": self.manifest.catalog,
         }
 
 
@@ -53,13 +58,39 @@ class ComponentManager:
     registry: Registry
     loaded: list[LoadedComponent] = field(default_factory=list)
 
+    def _load_from_file(self, manifest: Manifest, module_name: str, attr: str) -> Any | None:
+        module_path = manifest.path / (module_name.replace(".", "/") + ".py")
+        if not module_path.is_absolute():
+            module_path = self.registry.project_root / module_path
+        if not module_path.exists() and module_name == "runtime":
+            module_path = manifest.path / "runtime.py"
+            if not module_path.is_absolute():
+                module_path = self.registry.project_root / module_path
+        if not module_path.exists():
+            return None
+        unique_name = f"cajeer_runtime_{manifest.type}_{manifest.id}_{uuid4().hex}"
+        spec = importlib.util.spec_from_file_location(unique_name, module_path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[unique_name] = module
+        spec.loader.exec_module(module)
+        cls = getattr(module, attr)
+        return cls()
+
     def _load_entrypoint(self, manifest: Manifest) -> Any | None:
         if not manifest.entrypoint:
             return None
         module_name, _, attr = manifest.entrypoint.partition(":")
-        module = importlib.import_module(module_name)
-        cls = getattr(module, attr)
-        return cls()
+        try:
+            module = importlib.import_module(module_name)
+            cls = getattr(module, attr)
+            return cls()
+        except ModuleNotFoundError:
+            loaded = self._load_from_file(manifest, module_name, attr)
+            if loaded is not None:
+                return loaded
+            raise
 
     async def start(self) -> None:
         for manifest in self.registry.load_order():
