@@ -1,26 +1,43 @@
 # Режимы запуска
 
-Предпочтительный интерфейс после установки пакета:
+Cajeer Bots разделяет архитектурный режим и цель запуска.
+
+```env
+CAJEER_BOTS_MODE=local
+CAJEER_BOTS_DEFAULT_TARGET=all
+```
+
+`local` и `distributed` — архитектурные режимы. `all`, `telegram`, `discord`, `vkontakte`, `api`, `worker`, `bridge` — цели запуска.
+
+## Local mode
+
+Local mode — основной режим по умолчанию.
 
 ```bash
 cajeer-bots run all
+cajeer-bots run telegram
+cajeer-bots run discord
+cajeer-bots run vkontakte
 ```
 
-Технический режим для разработки:
+Он не требует Core Server, Runtime Agent, `NODE_ID`, `NODE_SECRET` или broker.
+
+## Служебные local-процессы
 
 ```bash
-python -m core run all
+cajeer-bots run api
+cajeer-bots run worker
+cajeer-bots run bridge
 ```
 
-## Доступные режимы
+## Distributed mode
 
-- `all` — все включённые адаптеры.
-- `telegram` — только Telegram.
-- `discord` — только Discord.
-- `vkontakte` — только ВКонтакте.
-- `api` — HTTP API платформы.
-- `worker` — фоновые задачи.
-- `bridge` — шина событий.
+Distributed mode является дополнительным функционалом и включается явно.
+
+```bash
+cajeer-bots distributed doctor --offline
+cajeer-bots distributed protocol
+```
 
 ## Standalone-запуск адаптеров
 
