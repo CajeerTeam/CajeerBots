@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 from pathlib import Path
 
-from core.config import Settings
-from core.logging import configure_logging
-from core.runtime import Runtime
+from core.commands import build_default_commands
+from core.registry import Registry
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,21 +28,51 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("modules", help="Показать зарегистрированные модули.")
     sub.add_parser("plugins", help="Показать зарегистрированные плагины.")
     sub.add_parser("adapters", help="Показать зарегистрированные адаптеры.")
-    sub.add_parser("migrate", help="Показать статус миграций. В этом каркасе миграции не используются.")
+    sub.add_parser("commands", help="Показать зарегистрированные команды.")
+    sub.add_parser("migrate", help="Показать статус управления схемой БД. Встроенные миграции не используются.")
+    sub.add_parser("db-status", help="Показать статус модели БД без выполнения миграций.")
     return parser
 
 
-def _manifest_json(items):
-    return json.dumps([m.__dict__ | {"path": str(m.path)} for m in items], ensure_ascii=False, indent=2)
+def _json(items: object) -> str:
+    return json.dumps(items, ensure_ascii=False, indent=2)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    project_root = Path.cwd()
+
+    if args.command in {"modules", "plugins", "adapters"}:
+        registry = Registry(project_root)
+        if args.command == "modules":
+            print(_json([item.to_dict() for item in registry.modules()]), flush=True)
+        elif args.command == "plugins":
+            print(_json([item.to_dict() for item in registry.plugins()]), flush=True)
+        else:
+            print(_json([item.to_dict() for item in registry.adapters()]), flush=True)
+        return 0
+
+    if args.command == "commands":
+        print(_json([item.to_dict() for item in build_default_commands().list()]), flush=True)
+        return 0
+
+    if args.command in {"migrate", "db-status"}:
+        print("Встроенные миграции не используются.")
+        print("Структура PostgreSQL управляется внешним эксплуатационным слоем по контракту из GitHub Wiki.")
+        print("Команда не изменяет базу данных и безопасна для запуска в любом окружении.")
+        return 0
+
+    from core.config import Settings
+    from core.logging import configure_logging
+    from core.runtime import Runtime
+
     settings = Settings.from_env()
     configure_logging(settings.log_level)
-    runtime = Runtime(settings, project_root=Path.cwd())
+    runtime = Runtime(settings, project_root=project_root)
 
     if args.command == "run":
+        import asyncio
+
         asyncio.run(runtime.run(args.mode))
         return 0
 
@@ -56,22 +84,6 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"- {problem}")
             return 1
         print("Проверка Cajeer Bots: успешно")
-        return 0
-
-    if args.command == "migrate":
-        print("Миграции не используются: структура базы данных управляется внешним слоем эксплуатации.")
-        return 0
-
-    if args.command == "modules":
-        print(_manifest_json(runtime.registry.modules()))
-        return 0
-
-    if args.command == "plugins":
-        print(_manifest_json(runtime.registry.plugins()))
-        return 0
-
-    if args.command == "adapters":
-        print(_manifest_json(runtime.registry.adapters()))
         return 0
 
     return 2

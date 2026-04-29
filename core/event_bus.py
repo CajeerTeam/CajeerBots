@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections import deque
 from dataclasses import dataclass, field
 
@@ -17,17 +16,14 @@ class InMemoryEventBus:
 
     max_size: int = 1000
     _events: deque[CajeerEvent] = field(default_factory=deque)
-    _condition: asyncio.Condition = field(default_factory=asyncio.Condition)
 
     async def publish(self, event: CajeerEvent) -> None:
         errors = validate_event(event)
         if errors:
             raise ValueError("; ".join(errors))
-        async with self._condition:
-            self._events.append(event)
-            while len(self._events) > self.max_size:
-                self._events.popleft()
-            self._condition.notify_all()
+        self._events.append(event)
+        while len(self._events) > self.max_size:
+            self._events.popleft()
 
     def snapshot(self) -> list[CajeerEvent]:
         return list(self._events)
