@@ -2,13 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import MetaData, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
 
-
-class Base(DeclarativeBase):
-    metadata = MetaData(schema="shared")
+from core.contracts import DB_CONTRACT_VERSION
+from core.db_models import Base
 
 
 @dataclass
@@ -33,11 +31,13 @@ class AsyncDatabase:
 
 
 REQUIRED_TABLES = {
+    "platform_schema": {"component", "version", "updated_at"},
     "event_bus": {"event_id", "trace_id", "source", "event_type", "payload", "status", "created_at", "locked_at", "delivered_at"},
-    "delivery_queue": {"delivery_id", "adapter", "target", "payload", "status", "created_at"},
-    "dead_letters": {"dead_letter_id", "event_id", "payload", "reason", "created_at"},
+    "delivery_queue": {"delivery_id", "adapter", "target", "payload", "status", "attempts", "max_attempts", "trace_id", "created_at", "locked_at", "sent_at", "last_error"},
+    "dead_letters": {"dead_letter_id", "event_id", "trace_id", "payload", "reason", "created_at", "retried_at"},
     "idempotency_keys": {"key", "created_at", "expires_at"},
-    "audit_log": {"audit_id", "actor_type", "actor_id", "action", "resource", "result", "created_at"},
+    "audit_log": {"audit_id", "actor_type", "actor_id", "action", "resource", "result", "trace_id", "ip", "user_agent", "message", "created_at"},
+    "adapter_state": {"adapter", "instance_id", "state", "last_error", "updated_at"},
 }
 
 
@@ -67,6 +67,12 @@ async def check_schema(async_dsn: str, schema: str = "shared") -> list[str]:
                 missing = sorted(columns - found)
                 if missing:
                     problems.append(f"таблица {schema}.{table} не содержит поля: {', '.join(missing)}")
+            schema_result = await conn.execute(
+                text(f"SELECT version FROM {schema}.platform_schema WHERE component = 'cajeer-bots-db' LIMIT 1")
+            )
+            row = schema_result.first()
+            if row is not None and row[0] != DB_CONTRACT_VERSION:
+                problems.append(f"версия DB contract {row[0]!r} не совпадает с ожидаемой {DB_CONTRACT_VERSION!r}")
     finally:
         await engine.dispose()
     return problems

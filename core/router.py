@@ -6,6 +6,7 @@ from typing import Any
 
 from core.commands import CommandRegistry, build_default_commands
 from core.events import CajeerEvent
+from core.responses import response_from_result
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class EventRouter:
         if event.type == "command.received":
             command_name = str(event.payload.get("command", "")).strip().lstrip("/")
             if not command_name:
-                result = RouteResult(False, "commands", {"error": "команда не указана"})
+                result = RouteResult(False, "commands", {"error": "команда не указана", "message": "Команда не указана."})
             else:
                 component_result = None
                 if self.components is not None:
@@ -49,7 +50,12 @@ class EventRouter:
                 else:
                     details = await self.commands.dispatch(command_name, event)
                     result = RouteResult(bool(details.get("ok")), "commands", details)
+            if result.handled:
+                await self._emit_command_response(event, result)
             return self._remember(result)
+
+        if event.type == "command.response":
+            return self._remember(RouteResult(True, "delivery.response", {"queued": True}))
 
         if event.type.startswith("adapter."):
             logger.info("служебное событие адаптера: %s", event.type)
@@ -66,6 +72,32 @@ class EventRouter:
             return self._remember(RouteResult(False, "plugin", {"reason": "для события плагина не назначен обработчик"}))
 
         return self._remember(RouteResult(False, "unknown", {"type": event.type}))
+
+    async def _emit_command_response(self, event: CajeerEvent, result: RouteResult) -> None:
+        runtime = getattr(self.components, "runtime", None)
+        if runtime is None:
+            return
+        response = response_from_result(event, result.details)
+        if response is None:
+            return
+        response_event = CajeerEvent.create(
+            source=event.source,
+            type="command.response",
+            actor=event.actor,
+            chat=event.chat,
+            trace_id=event.trace_id,
+            payload=response.to_dict(),
+        )
+        await runtime.event_bus.publish(response_event)
+        runtime.delivery.enqueue(response.adapter, response.chat_id, response.text, trace_id=response.trace_id)
+        runtime.audit.write(
+            actor_type="system",
+            actor_id="router",
+            action="command.response.enqueue",
+            resource=response.adapter,
+            trace_id=response.trace_id,
+        )
+        await runtime.delivery.process_once(runtime.adapter_map())
 
     def _remember(self, result: RouteResult) -> RouteResult:
         self.history.append(result)

@@ -79,7 +79,7 @@ class InMemoryEventBus(EventBusBackend):
 
 
 class PostgresEventBus(EventBusBackend):
-    """PostgreSQL backend по внешнему контракту БД без встроенных миграций."""
+    """PostgreSQL backend по внешнему контракту БД."""
 
     name = "postgres"
 
@@ -121,12 +121,6 @@ class PostgresEventBus(EventBusBackend):
             raise
 
     async def drain(self, limit: int = 100) -> list[CajeerEvent]:
-        """Забрать новые события с блокировкой строк для нескольких worker/bridge-процессов.
-
-        Ожидаемый внешний DDL-контракт описан в GitHub Wiki: таблица
-        shared.event_bus должна иметь поля event_id, payload, status, created_at,
-        locked_at, delivered_at. Проект не создаёт эти таблицы сам.
-        """
         events: list[CajeerEvent] = []
         try:
             with self._connect() as conn:
@@ -181,44 +175,63 @@ class PostgresEventBus(EventBusBackend):
 
 
 class RedisEventBus(EventBusBackend):
-    """Redis Streams backend для многопроцессного local-режима."""
+    """Redis Streams backend через redis.asyncio + consumer groups."""
 
     name = "redis"
 
     def __init__(self, settings: Settings) -> None:
         if not settings.redis_url:
             raise RuntimeError("REDIS_URL не задан для EVENT_BUS_BACKEND=redis")
-        try:
-            from redis import Redis  # type: ignore
-        except ImportError as exc:
-            raise RuntimeError("для EVENT_BUS_BACKEND=redis установите пакет redis") from exc
-        self._redis = Redis.from_url(settings.redis_url, decode_responses=True)
-        self._stream = "cajeer-bots:events"
+        self.settings = settings
+        self._redis = None
+        self._stream = f"{settings.storage.redis_queue_prefix}:events"
+        self._group = "cajeer-bots-bridge"
+        self._consumer = settings.instance_id or "cajeer-bots-local"
         self._snapshot: deque[CajeerEvent] = deque(maxlen=1000)
-        self._last_id = "0-0"
         self._published = 0
         self._delivered = 0
         self._failed = 0
+        self._group_ready = False
+
+    async def _client(self):
+        if self._redis is None:
+            try:
+                from redis.asyncio import Redis  # type: ignore
+            except ImportError as exc:
+                raise RuntimeError("для EVENT_BUS_BACKEND=redis установите пакет redis") from exc
+            self._redis = Redis.from_url(self.settings.redis_url, decode_responses=True)
+        if not self._group_ready:
+            try:
+                await self._redis.xgroup_create(self._stream, self._group, id="0-0", mkstream=True)
+            except Exception:
+                pass
+            self._group_ready = True
+        return self._redis
 
     async def publish(self, event: CajeerEvent) -> None:
         errors = validate_event(event)
         if errors:
             self._failed += 1
             raise ValueError("; ".join(errors))
-        self._redis.xadd(self._stream, {"payload": event.to_json()})
+        redis = await self._client()
+        await redis.xadd(self._stream, {"payload": event.to_json(), "event_id": event.event_id, "trace_id": event.trace_id})
         self._snapshot.append(event)
         self._published += 1
 
     async def drain(self, limit: int = 100) -> list[CajeerEvent]:
-        records = self._redis.xread({self._stream: self._last_id}, count=limit, block=1)
+        redis = await self._client()
+        records = await redis.xreadgroup(self._group, self._consumer, {self._stream: ">"}, count=limit, block=1)
         result: list[CajeerEvent] = []
+        ack_ids: list[str] = []
         for _, items in records:
             for item_id, fields in items:
-                self._last_id = item_id
                 data = json.loads(fields["payload"])
                 event = CajeerEvent.from_dict(data)
                 result.append(event)
                 self._snapshot.append(event)
+                ack_ids.append(item_id)
+        if ack_ids:
+            await redis.xack(self._stream, self._group, *ack_ids)
         self._delivered += len(result)
         return result
 

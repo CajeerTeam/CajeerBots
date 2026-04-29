@@ -12,17 +12,18 @@ from core.adapters.discord import DiscordAdapter
 from core.adapters.fake import FakeAdapter
 from core.adapters.telegram import TelegramAdapter
 from core.adapters.vkontakte import VkontakteAdapter
-from core.audit import AuditLog
+from core.audit import build_audit_log
 from core.bridge import BridgeService
 from core.commands import CommandRegistry, build_default_commands
+from core.contracts import API_CONTRACT_VERSION, DB_CONTRACT_VERSION, EVENT_CONTRACT_VERSION_ID, LOGS_CONTRACT_VERSION, WORKSPACE_CONTRACT_VERSION
 from core.compatibility import check_compatibility
 from core.config import Settings
 from core.db import Database
-from core.dead_letters import DeadLetterQueue
-from core.delivery import DeliveryService
+from core.dead_letters import build_dead_letter_queue
+from core.delivery import build_delivery_service
 from core.event_bus import build_event_bus
-from core.events import EVENT_CONTRACT_VERSION
-from core.idempotency import IdempotencyStore
+from core.events import EVENT_CONTRACT_VERSION, command_event_from_message, extract_command
+from core.idempotency import build_idempotency_store
 from core.integrations.logs import CajeerLogsClient
 from core.integrations.workspace import WorkspaceClient
 from core.modules.runtime import ComponentManager
@@ -60,18 +61,22 @@ class Runtime:
         self.registry = Registry(self.project_root, settings=settings)
         self.adapters: list[BotAdapter] = []
         self.event_bus = build_event_bus(settings)
-        self.dead_letters = DeadLetterQueue()
-        self.delivery = DeliveryService()
-        self.idempotency = IdempotencyStore()
+        self.dead_letters = build_dead_letter_queue(settings)
+        self.delivery = build_delivery_service(settings)
+        self.idempotency = build_idempotency_store(settings)
         self.commands: CommandRegistry = build_default_commands(self)
-        self.audit = AuditLog()
+        self.audit = build_audit_log(settings)
         self.components = ComponentManager(self, self.registry)
         self.router = EventRouter(self.commands, self.idempotency, components=self.components)
         self.bridge = BridgeService(self)
         self.worker = WorkerService(self)
         self._stop_event: asyncio.Event | None = None
         self.version = self._read_version()
-        self.event_contract_version = EVENT_CONTRACT_VERSION
+        self.event_contract_version = EVENT_CONTRACT_VERSION_ID
+        self.db_contract_version = DB_CONTRACT_VERSION
+        self.workspace_contract_version = WORKSPACE_CONTRACT_VERSION
+        self.logs_contract_version = LOGS_CONTRACT_VERSION
+        self.api_contract_version = API_CONTRACT_VERSION
         self.workspace = WorkspaceClient(settings.workspace, settings.instance_id, self.version)
         self.remote_logs = CajeerLogsClient(settings.remote_logs, settings.instance_id)
         self.started_at = time.time()
@@ -226,6 +231,18 @@ class Runtime:
             except (NotImplementedError, RuntimeError):
                 pass
 
+    async def ingest_incoming_event(self, event, *, bot_username: str | None = None) -> list[dict[str, object]]:
+        results: list[dict[str, object]] = []
+        await self.event_bus.publish(event)
+        results.append((await self.router.route(event)).to_dict())
+        command = extract_command(str(event.payload.get("text") or ""), bot_username=bot_username)
+        if command is not None:
+            name, args = command
+            command_event = command_event_from_message(event, name, args)
+            await self.event_bus.publish(command_event)
+            results.append((await self.router.route(command_event)).to_dict())
+        return results
+
     async def run_api(self) -> None:
         from core.api import ApiServer
 
@@ -269,6 +286,14 @@ class Runtime:
             "distributed_enabled": self.settings.distributed.enabled,
             "workspace_enabled": self.settings.workspace.enabled,
             "remote_logs_enabled": self.settings.remote_logs.enabled,
+            "audit_backend": getattr(self.audit, "backend", "memory"),
+            "delivery_runtime_backend": getattr(self.delivery, "backend", "memory"),
+            "dead_letter_runtime_backend": getattr(self.dead_letters, "backend", "memory"),
+            "idempotency_runtime_backend": getattr(self.idempotency, "backend", "memory"),
+            "event_contract_version": self.event_contract_version,
+            "db_contract_version": self.db_contract_version,
+            "workspace_contract_version": self.workspace_contract_version,
+            "logs_contract_version": self.logs_contract_version,
         }
 
     def readiness_snapshot(self) -> dict[str, object]:

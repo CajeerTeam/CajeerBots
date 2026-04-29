@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from typing import Any
 from uuid import uuid4
 
 
@@ -25,8 +26,9 @@ class AuditRecord:
 
 
 class AuditLog:
-    def __init__(self, max_size: int = 2000) -> None:
+    def __init__(self, max_size: int = 2000, *, backend: str = "memory") -> None:
         self._records: deque[AuditRecord] = deque(maxlen=max_size)
+        self.backend = backend
 
     def write(
         self,
@@ -59,3 +61,21 @@ class AuditLog:
 
     def snapshot(self) -> list[AuditRecord]:
         return list(self._records)
+
+
+class PostgresAuditLog(AuditLog):
+    def __init__(self, async_dsn: str, schema: str = "shared", max_size: int = 2000) -> None:
+        super().__init__(max_size=max_size, backend="postgres")
+        self.async_dsn = async_dsn
+        self.schema = schema
+
+
+def build_audit_log(settings: Any) -> AuditLog:
+    if "postgres" in {
+        settings.storage.delivery_backend,
+        settings.storage.dead_letter_backend,
+        settings.storage.idempotency_backend,
+    }:
+        if settings.storage.async_database_url:
+            return PostgresAuditLog(settings.storage.async_database_url, settings.shared_schema)
+    return AuditLog()

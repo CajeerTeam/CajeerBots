@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import threading
@@ -8,6 +9,8 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 from uuid import uuid4
 
+from bots.telegram.bot.mapper import update_to_event as telegram_update_to_event
+from core.contracts import API_CONTRACT_VERSION
 from core.events import CajeerEvent
 
 if TYPE_CHECKING:
@@ -57,6 +60,13 @@ class ApiServer:
             return "metrics"
         return None
 
+    def _telegram_webhook_authorized(self, headers: object) -> bool:
+        expected = self.runtime.settings.adapters["telegram"].extra.get("webhook_secret", "")
+        if not expected:
+            return True
+        actual = headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        return hmac.compare_digest(str(actual), str(expected))
+
     def _can_get(self, path: str, scope: str | None) -> bool:
         if path in PUBLIC_PATHS:
             return True
@@ -76,7 +86,14 @@ class ApiServer:
         if path == "/metrics":
             return 200, runtime.metrics_text(), "text/plain"
         if path == "/version":
-            return 200, {"version": runtime.version, "event_contract": runtime.event_contract_version}, "application/json"
+            return 200, {
+                "version": runtime.version,
+                "api_contract": API_CONTRACT_VERSION,
+                "event_contract": runtime.event_contract_version,
+                "db_contract": runtime.db_contract_version,
+                "workspace_contract": runtime.workspace_contract_version,
+                "logs_contract": runtime.logs_contract_version,
+            }, "application/json"
         if path == "/adapters":
             return 200, {"items": [m.to_dict() for m in runtime.registry.adapters()]}, "application/json"
         if path == "/modules":
@@ -114,7 +131,6 @@ class ApiServer:
         if path == "/commands/dispatch":
             command = str(body.get("command", "")).strip().lstrip("/")
             event = CajeerEvent.create(source="system", type="command.received", payload={"command": command, **dict(body.get("payload") or {})})
-            import asyncio
 
             async def run_command() -> dict[str, object]:
                 await runtime.event_bus.publish(event)
@@ -130,12 +146,12 @@ class ApiServer:
                 target=str(body.get("target", "")),
                 text=str(body.get("text", "")),
                 max_attempts=int(body.get("max_attempts", 3)),
+                trace_id=str(body.get("trace_id") or "") or None,
             )
-            runtime.audit.write(actor_type="api", actor_id=actor, action="delivery.enqueue", resource=task.adapter)
+            runtime.audit.write(actor_type="api", actor_id=actor, action="delivery.enqueue", resource=task.adapter, trace_id=task.trace_id)
             return 202, {"ok": True, "task": task.to_dict()}, "application/json"
         if path == "/dead-letters/retry":
             events = runtime.dead_letters.retry_all()
-            import asyncio
 
             async def retry() -> int:
                 for event in events:
@@ -147,24 +163,31 @@ class ApiServer:
             return 202, {"ok": True, "queued": count}, "application/json"
         if path == "/events/publish":
             event = CajeerEvent.create(
-                source=str(body.get("source", "system")),
+                source=str(body.get("source", "system")),  # type: ignore[arg-type]
                 type=str(body.get("type", "system.event")),
                 payload=dict(body.get("payload") or {}),
             )
-            import asyncio
-
             asyncio.run(runtime.event_bus.publish(event))
             runtime.audit.write(actor_type="api", actor_id=actor, action="events.publish", resource=event.type, trace_id=event.trace_id)
             return 202, {"ok": True, "event": event.to_dict()}, "application/json"
         if path == "/runtime/stop":
             runtime.request_stop()
             return 202, {"ok": True, "message": "запрошена остановка runtime"}, "application/json"
+        if path == "/webhooks/telegram":
+            event = telegram_update_to_event(body)
+
+            async def ingest() -> list[dict[str, object]]:
+                return await runtime.ingest_incoming_event(event)
+
+            results = asyncio.run(ingest())
+            runtime.audit.write(actor_type="webhook", actor_id="telegram", action="webhook.telegram", resource="telegram", trace_id=event.trace_id)
+            return 200, {"ok": True, "event": event.to_dict(), "results": results}, "application/json"
         return 404, {"ok": False, "error": {"code": "not_found", "message": "маршрут не найден"}}, "application/json"
 
     def openapi(self) -> dict[str, object]:
         return {
             "openapi": "3.1.0",
-            "info": {"title": "Cajeer Bots API", "version": self.runtime.version},
+            "info": {"title": "Cajeer Bots API", "version": self.runtime.version, "x-contract": API_CONTRACT_VERSION},
             "paths": {
                 "/healthz": {"get": {"summary": "Проверка процесса"}},
                 "/readyz": {"get": {"summary": "Проверка готовности"}},
@@ -172,6 +195,7 @@ class ApiServer:
                 "/commands/dispatch": {"post": {"summary": "Отправить команду в router"}},
                 "/events/publish": {"post": {"summary": "Опубликовать событие"}},
                 "/delivery/enqueue": {"post": {"summary": "Поставить исходящее сообщение в очередь"}},
+                "/webhooks/telegram": {"post": {"summary": "Принять Telegram webhook update"}},
                 "/audit": {"get": {"summary": "Audit trail"}},
             },
         }
@@ -230,6 +254,17 @@ class ApiServer:
                 request_id = self.headers.get("X-Request-Id") or str(uuid4())
                 path = urlparse(self.path).path
                 scope = server._token_scope(self.headers)
+                if path == "/webhooks/telegram":
+                    if not server._telegram_webhook_authorized(self.headers):
+                        self._write(401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid telegram webhook secret"}}, "application/json", request_id)
+                        return
+                    try:
+                        body = self._json_body()
+                        status, payload, content_type = server._post_payload(path, body, actor="telegram")
+                    except Exception as exc:  # noqa: BLE001
+                        status, payload, content_type = 400, {"ok": False, "error": {"code": "bad_request", "message": str(exc)}}, "application/json"
+                    self._write(status, payload, content_type, request_id)
+                    return
                 if scope != "admin":
                     server.runtime.audit.write(
                         actor_type="api",
