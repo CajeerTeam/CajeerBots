@@ -12,9 +12,11 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
 fi
 
 if [ -d migrations ]; then
-  echo "Каталог migrations не должен входить в проект" >&2
+  echo "Каталог migrations не должен входить в проект; используйте alembic/" >&2
   exit 1
 fi
+
+chmod +x run.sh install.sh setup_wizard.py scripts/*.sh
 
 if grep -RInE "$FORBIDDEN_PATTERN" \
   --exclude-dir=.git --exclude-dir=dist --exclude-dir=runtime --exclude-dir=__pycache__ --exclude-dir=.pytest_cache \
@@ -47,8 +49,8 @@ fi
 
 rm -rf dist
 mkdir -p "dist/${NAME}"
-cp -a README.md LICENSE VERSION pyproject.toml .env.example Dockerfile docker-compose.yml Makefile compatibility.yaml \
-  core bots modules plugins distributed scripts ops wiki install.sh run.sh setup_wizard.py main.py \
+cp -a README.md LICENSE VERSION pyproject.toml .env.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini \
+  core bots modules plugins distributed scripts ops wiki alembic install.sh run.sh setup_wizard.py main.py \
   "dist/${NAME}/"
 (cd dist && tar -czf "${NAME}.tar.gz" "${NAME}" && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
 echo "Релиз создан: dist/${NAME}.tar.gz"
