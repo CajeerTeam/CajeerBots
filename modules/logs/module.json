@@ -17,5 +17,6 @@
       "default": 100,
       "description": "Размер пачки для отправки журналов."
     }
-  }
+  },
+  "entrypoint": "modules.logs.runtime:LogsModule"
 }
