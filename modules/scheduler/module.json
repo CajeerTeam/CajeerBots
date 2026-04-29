@@ -10,5 +10,12 @@
     "discord",
     "vkontakte"
   ],
-  "enabled_by_default": false
+  "enabled_by_default": false,
+  "settings_schema": {
+    "tick_interval_seconds": {
+      "type": "integer",
+      "default": 30,
+      "description": "Интервал проверки фоновых задач."
+    }
+  }
 }
