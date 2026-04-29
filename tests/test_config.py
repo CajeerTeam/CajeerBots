@@ -1,4 +1,6 @@
-from core.config import Settings
+import pytest
+
+from core.config import Settings, SettingsError
 
 
 def test_safe_summary_hides_secrets(monkeypatch):
@@ -10,3 +12,9 @@ def test_safe_summary_hides_secrets(monkeypatch):
     assert summary["api_token_configured"] is True
     assert "secret" not in str(summary)
     assert "token" not in str(summary)
+
+
+def test_settings_reports_invalid_port(monkeypatch):
+    monkeypatch.setenv("API_PORT", "wrong")
+    with pytest.raises(SettingsError, match="API_PORT должен быть целым числом"):
+        Settings.from_env()

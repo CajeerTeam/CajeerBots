@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from core.config import Settings
-from core.registry import Registry
+from core.registry import Dependency, Registry
 
 
 def test_registry_loads_default_manifests(monkeypatch):
@@ -14,7 +14,8 @@ def test_registry_loads_default_manifests(monkeypatch):
     assert registry.validate(settings=settings) == []
 
 
-def test_plugin_dependency_is_known():
+def test_plugin_dependency_is_namespaced():
     registry = Registry(Path.cwd())
     plugin = next(item for item in registry.plugins() if item.id == "example_plugin")
-    assert "bridge" in plugin.requires
+    assert "module:bridge" in plugin.requires
+    assert Dependency.parse("module:bridge").normalized() == "module:bridge"

@@ -11,3 +11,11 @@ def test_runtime_selects_enabled_adapters(monkeypatch):
     runtime = Runtime(Settings.from_env(), Path.cwd())
     assert runtime.selected_adapters("all") == ["telegram", "vkontakte"]
     assert runtime.selected_adapters("discord") == ["discord"]
+
+
+def test_runtime_metrics_are_prometheus_text(monkeypatch):
+    monkeypatch.setenv("EVENT_SIGNING_SECRET", "secret")
+    monkeypatch.setenv("API_TOKEN", "token")
+    runtime = Runtime(Settings.from_env(), Path.cwd())
+    metrics = runtime.metrics_text()
+    assert "cajeerbots_events_total" in metrics

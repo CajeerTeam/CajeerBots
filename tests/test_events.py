@@ -7,3 +7,9 @@ def test_event_signature_roundtrip():
     assert verify_event_signature(event, "secret", signature)
     assert not verify_event_signature(event, "other", signature)
     assert validate_event(event) == []
+
+
+def test_event_roundtrip_from_dict():
+    event = CajeerEvent.create(source="system", type="system.test", payload={"ok": True})
+    restored = CajeerEvent.from_dict(event.to_dict())
+    assert restored == event
