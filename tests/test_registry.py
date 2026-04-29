@@ -19,3 +19,10 @@ def test_plugin_dependency_is_namespaced():
     plugin = next(item for item in registry.plugins() if item.id == "example_plugin")
     assert "module:bridge" in plugin.requires
     assert Dependency.parse("module:bridge").normalized() == "module:bridge"
+
+
+def test_registry_has_load_order():
+    registry = Registry(Path.cwd())
+    order = [item.key() for item in registry.load_order()]
+    assert order.index("module:identity") < order.index("module:rbac")
+    assert order.index("module:logs") < order.index("module:bridge")
