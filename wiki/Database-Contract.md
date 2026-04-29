@@ -126,3 +126,9 @@ updated_at
 cajeer-bots db contract
 cajeer-bots db check
 ```
+
+## Runtime persistence 0.10.0
+
+Delivery, dead letters, idempotency и audit имеют memory/redis/postgres backend-и. PostgreSQL-реализации используют SQLAlchemy 2.x async и таблицы `delivery_queue`, `dead_letters`, `idempotency_keys`, `audit_log` из Alembic-контракта.
+
+Для `EVENT_BUS_BACKEND=postgres` требуется `DATABASE_ASYNC_URL`; sync `psycopg` больше не используется в event bus runtime path.

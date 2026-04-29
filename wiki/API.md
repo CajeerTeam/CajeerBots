@@ -22,3 +22,9 @@ uvicorn
 OpenAPI из кода
 middleware: request-id, rate-limit, audit, CORS, auth scopes
 ```
+
+## Webhook gateway 0.10.0
+
+`POST /webhooks/telegram` принимает Telegram update и ставит ответ в delivery queue через общий command response pipeline.
+
+`POST /webhooks/vkontakte` принимает VK Callback API payload. Для `type=confirmation` возвращается `VK_CONFIRMATION_CODE`; для остальных событий проверяется `VK_CALLBACK_SECRET`, если он задан.
