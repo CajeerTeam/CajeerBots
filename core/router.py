@@ -45,7 +45,7 @@ class EventRouter:
             else:
                 command_definition = self.commands.get(command_name)
                 permission = command_definition.permission if command_definition else None
-                if permission and not has_permission(grants_from_event(event), permission):
+                if permission and not await self._permission_allowed(event, permission):
                     result = RouteResult(False, "rbac", {
                         "ok": False,
                         "error": "permission_denied",
@@ -83,6 +83,14 @@ class EventRouter:
             return self._remember(RouteResult(False, "plugin", {"reason": "для события плагина не назначен обработчик"}))
 
         return self._remember(RouteResult(False, "unknown", {"type": event.type}))
+
+    async def _permission_allowed(self, event: CajeerEvent, permission: str) -> bool:
+        runtime = getattr(self.components, "runtime", None)
+        if runtime is not None and getattr(runtime, "rbac_store", None) is not None:
+            decision = runtime.rbac_store.decide(event, permission)
+            runtime.audit.write(actor_type="system", actor_id="rbac", action="rbac.decision", resource=permission, result="allow" if decision.allowed else "deny", trace_id=event.trace_id, message=decision.source)
+            return decision.allowed
+        return has_permission(grants_from_event(event), permission)
 
     async def _emit_command_response(self, event: CajeerEvent, result: RouteResult) -> None:
         runtime = getattr(self.components, "runtime", None)

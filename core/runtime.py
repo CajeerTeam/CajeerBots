@@ -33,6 +33,8 @@ from core.router import EventRouter
 from core.worker import WorkerService
 from core.rate_limits import build_rate_limiter
 from core.updater import UpdateManager
+from core.token_registry import ApiTokenRegistry
+from core.rbac_store import HybridRbacStore
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,8 @@ class Runtime:
         self.bridge = BridgeService(self)
         self.worker = WorkerService(self)
         self.updater = UpdateManager(self)
+        self.token_registry = ApiTokenRegistry(settings.api_tokens_file)
+        self.rbac_store = HybridRbacStore(settings.runtime_dir / "secrets" / "rbac_cache.json")
         self.rate_limiter = build_rate_limiter(settings)
         self._stop_event: asyncio.Event | None = None
         self.version = self._read_version()
@@ -339,6 +343,7 @@ class Runtime:
             "update_source": self.updater.source,
             "update_channel": self.updater.channel,
             "rate_limiter": self.rate_limiter.__class__.__name__,
+            "api_token_registry_configured": self.settings.api_tokens_file.exists(),
         }
 
     def readiness_snapshot(self) -> dict[str, object]:
@@ -355,6 +360,10 @@ class Runtime:
             problems.append("DATABASE_ASYNC_URL требуется для EVENT_BUS_BACKEND=postgres")
         if self.settings.event_bus_backend == "redis" and not self.settings.redis_url:
             problems.append("Redis требуется для EVENT_BUS_BACKEND=redis")
+        dependency_checks = self.dependency_health_snapshot()
+        for check in dependency_checks.get("checks", []):
+            if isinstance(check, dict) and not check.get("ok"):
+                problems.append(str(check.get("message") or check.get("name")))
         return {
             "ok": not problems,
             "problems": problems,
@@ -367,7 +376,24 @@ class Runtime:
                 "load_order": [item.to_dict() for item in self.registry.load_order()],
             },
             "components": self.components.snapshot(),
+            "dependency_checks": dependency_checks,
         }
+
+    def dependency_health_snapshot(self) -> dict[str, object]:
+        checks: list[dict[str, object]] = []
+        if self.settings.redis_url and (self.settings.event_bus_backend == "redis" or self.settings.storage.delivery_backend == "redis" or self.settings.storage.dead_letter_backend == "redis" or self.settings.storage.idempotency_backend == "redis"):
+            try:
+                import redis
+                client = redis.Redis.from_url(self.settings.redis_url, socket_connect_timeout=1, socket_timeout=1)
+                client.ping()
+                checks.append({"name": "redis", "ok": True, "message": "pong"})
+            except Exception as exc:
+                checks.append({"name": "redis", "ok": False, "message": str(exc)})
+        if self.settings.storage.async_database_url and (self.settings.event_bus_backend == "postgres" or self.settings.storage.delivery_backend == "postgres" or self.settings.storage.dead_letter_backend == "postgres" or self.settings.storage.idempotency_backend == "postgres"):
+            checks.append({"name": "postgres", "ok": True, "message": "async check доступен через cajeer-bots db check"})
+        checks.append({"name": "workspace", "ok": not self.settings.workspace.enabled or bool(self.settings.workspace.url), "message": "enabled" if self.settings.workspace.enabled else "disabled"})
+        checks.append({"name": "remote_logs", "ok": not self.settings.remote_logs.enabled or bool(self.settings.remote_logs.url), "message": "enabled" if self.settings.remote_logs.enabled else "disabled"})
+        return {"checks": checks}
 
     def metrics_text(self) -> str:
         metrics = self.event_bus.metrics()

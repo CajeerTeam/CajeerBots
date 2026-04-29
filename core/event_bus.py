@@ -219,15 +219,18 @@ class PostgresEventBus(EventBusBackend):
         event_id = self._event_id(claimed)
         if retry:
             statement = f"""UPDATE {self.settings.shared_schema}.event_bus
-                           SET status='failed', last_error=:error, locked_at=NULL, locked_by=NULL,
-                               next_attempt_at=NOW() + INTERVAL '5 seconds'
+                           SET status=CASE WHEN attempts >= :max_attempts THEN 'failed' ELSE 'failed' END,
+                               last_error=:error, locked_at=NULL, locked_by=NULL,
+                               next_attempt_at=CASE WHEN attempts >= :max_attempts THEN NULL ELSE NOW() + (:delay || ' seconds')::interval END
                          WHERE event_id=:event_id"""
         else:
             statement = f"""UPDATE {self.settings.shared_schema}.event_bus
                            SET status='failed', last_error=:error, locked_at=NULL, locked_by=NULL
                          WHERE event_id=:event_id"""
+        attempts_delay = min(self.settings.storage.event_bus_retry_backoff_max_seconds, self.settings.storage.event_bus_retry_backoff_seconds)
+        params = {"event_id": event_id, "error": error, "delay": attempts_delay, "max_attempts": self.settings.storage.event_bus_max_attempts}
         async with self._engine_obj().begin() as conn:
-            await conn.execute(_sql_text(statement), {"event_id": event_id, "error": error})
+            await conn.execute(_sql_text(statement), params)
         self._failed += 1
 
     def snapshot(self) -> list[CajeerEvent]:

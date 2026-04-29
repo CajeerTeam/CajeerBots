@@ -171,6 +171,11 @@ class StorageSettings:
     redis_fsm_prefix: str
     redis_queue_prefix: str
     delivery_retry_backoff_seconds: int
+    delivery_lease_seconds: int
+    delivery_claim_limit: int
+    event_bus_retry_backoff_seconds: int
+    event_bus_retry_backoff_max_seconds: int
+    event_bus_max_attempts: int
     idempotency_ttl_seconds: int
 
 
@@ -205,7 +210,10 @@ class Settings:
     api_token: str
     api_readonly_token: str
     api_metrics_token: str
+    api_tokens_file: Path
     metrics_public: bool
+    webhook_rate_limit_per_minute: int
+    webhook_auth_failure_limit: int
     event_signing_secret: str
     worker_tick_seconds: int
     distributed: DistributedSettings
@@ -276,6 +284,11 @@ class Settings:
             redis_fsm_prefix=os.getenv("REDIS_FSM_PREFIX", "cajeer:bots:fsm"),
             redis_queue_prefix=os.getenv("REDIS_QUEUE_PREFIX", "cajeer:bots:queue"),
             delivery_retry_backoff_seconds=_int("DELIVERY_RETRY_BACKOFF_SECONDS", 5, minimum=0, maximum=3600),
+            delivery_lease_seconds=_int("DELIVERY_LEASE_SECONDS", 60, minimum=1, maximum=3600),
+            delivery_claim_limit=_int("DELIVERY_CLAIM_LIMIT", 50, minimum=1, maximum=1000),
+            event_bus_retry_backoff_seconds=_int("EVENT_BUS_RETRY_BACKOFF_SECONDS", 5, minimum=0, maximum=3600),
+            event_bus_retry_backoff_max_seconds=_int("EVENT_BUS_RETRY_BACKOFF_MAX_SECONDS", 300, minimum=1, maximum=86400),
+            event_bus_max_attempts=_int("EVENT_BUS_MAX_ATTEMPTS", 10, minimum=1, maximum=1000),
             idempotency_ttl_seconds=_int("IDEMPOTENCY_TTL_SECONDS", 86400, minimum=60, maximum=31536000),
         )
         supervisor = SupervisorSettings(
@@ -306,7 +319,10 @@ class Settings:
             api_token=os.getenv("API_TOKEN", ""),
             api_readonly_token=os.getenv("API_TOKEN_READONLY", ""),
             api_metrics_token=os.getenv("API_TOKEN_METRICS", ""),
+            api_tokens_file=Path(os.getenv("API_TOKENS_FILE", "runtime/secrets/api_tokens.json")),
             metrics_public=_bool(os.getenv("METRICS_PUBLIC"), False),
+            webhook_rate_limit_per_minute=_int("WEBHOOK_RATE_LIMIT_PER_MINUTE", 120, minimum=1, maximum=100000),
+            webhook_auth_failure_limit=_int("WEBHOOK_AUTH_FAILURE_LIMIT", 20, minimum=1, maximum=100000),
             event_signing_secret=os.getenv("EVENT_SIGNING_SECRET", ""),
             worker_tick_seconds=_int("WORKER_TICK_SECONDS", 30, minimum=1, maximum=3600),
             distributed=distributed,
@@ -367,6 +383,10 @@ class Settings:
             "dead_letter_backend": self.storage.dead_letter_backend,
             "idempotency_backend": self.storage.idempotency_backend,
             "delivery_retry_backoff_seconds": self.storage.delivery_retry_backoff_seconds,
+            "delivery_lease_seconds": self.storage.delivery_lease_seconds,
+            "delivery_claim_limit": self.storage.delivery_claim_limit,
+            "event_bus_retry_backoff_seconds": self.storage.event_bus_retry_backoff_seconds,
+            "event_bus_max_attempts": self.storage.event_bus_max_attempts,
             "idempotency_ttl_seconds": self.storage.idempotency_ttl_seconds,
             "local_inline_routing": self.local_inline_routing,
             "bridge_routing": self.bridge_routing,
@@ -379,7 +399,10 @@ class Settings:
             "api_token_configured": bool(self.api_token),
             "api_readonly_token_configured": bool(self.api_readonly_token),
             "api_metrics_token_configured": bool(self.api_metrics_token),
+            "api_tokens_file": str(self.api_tokens_file),
             "metrics_public": self.metrics_public,
+            "webhook_rate_limit_per_minute": self.webhook_rate_limit_per_minute,
+            "webhook_auth_failure_limit": self.webhook_auth_failure_limit,
             "event_signing_secret_configured": bool(self.event_signing_secret),
             "workspace_enabled": self.workspace.enabled,
             "workspace_url_configured": bool(self.workspace.url),

@@ -38,18 +38,30 @@ def build_parser() -> argparse.ArgumentParser:
     update_sub.add_parser("status", help="Показать локальный статус updater.")
     update_sub.add_parser("history", help="Показать историю обновлений.")
     update_sub.add_parser("check", help="Проверить доступное обновление.")
+    update_sub.add_parser("download", help="Скачать latest artifact из GitHub Releases.")
+    update_sub.add_parser("stage-latest", help="Скачать и распаковать latest artifact в staging.")
     stage = update_sub.add_parser("stage", help="Проверить и распаковать локальный release artifact в staging.")
     stage.add_argument("artifact", help="Путь к CajeerBots-*.tar.gz")
     stage.add_argument("--manifest", help="Путь к *.release.json", default="")
     stage.add_argument("--sha256", help="Ожидаемый sha256", default="")
     apply = update_sub.add_parser("apply", help="Переключить current на staged release.")
     apply.add_argument("--version", required=True)
-    apply.add_argument("--staged-path", required=True)
+    apply.add_argument("--staged-path", default="")
     update_sub.add_parser("rollback", help="Откатить current на previous.")
 
     secrets = sub.add_parser("secrets", help="Операции с секретами.")
     secrets_sub = secrets.add_subparsers(dest="secrets_command", required=True)
     secrets_sub.add_parser("generate", help="Сгенерировать безопасный env-блок секретов.")
+
+    tokens = sub.add_parser("tokens", help="Управление scoped API-токенами.")
+    tokens_sub = tokens.add_subparsers(dest="tokens_command", required=True)
+    create_token = tokens_sub.add_parser("create", help="Создать API-токен и сохранить только sha256-хэш.")
+    create_token.add_argument("--id", required=True)
+    create_token.add_argument("--scope", action="append", default=[])
+    create_token.add_argument("--prefix", default="cb_")
+    revoke_token = tokens_sub.add_parser("revoke", help="Отозвать API-токен по id.")
+    revoke_token.add_argument("id")
+    tokens_sub.add_parser("list", help="Показать token registry без значений токенов.")
 
     db = sub.add_parser("db", help="Команды PostgreSQL/SQLAlchemy/Alembic.")
     db_sub = db.add_subparsers(dest="db_command", required=True)
@@ -118,6 +130,23 @@ def main(argv: list[str] | None = None) -> int:
         print(generate_env_block(), end="", flush=True)
         return 0
 
+    if args.command == "tokens":
+        from core.config import Settings
+        from core.token_registry import ApiTokenRegistry
+
+        settings = Settings.from_env()
+        registry = ApiTokenRegistry(settings.api_tokens_file)
+        if args.tokens_command == "create":
+            token, record = registry.create_token(token_id=args.id, scopes=args.scope or ["readonly"], prefix=args.prefix)
+            print(_json({"token": token, "record": record.to_dict()}), flush=True)
+            return 0
+        if args.tokens_command == "revoke":
+            print(_json({"revoked": registry.revoke(args.id)}), flush=True)
+            return 0
+        if args.tokens_command == "list":
+            print(_json({"items": registry.snapshot()}), flush=True)
+            return 0
+
     if args.command in {"modules", "plugins", "adapters"}:
         from core.config import Settings
 
@@ -154,6 +183,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.update_command == "check":
             print(_json(runtime.updater.check()), flush=True)
             return 0
+        if args.update_command == "download":
+            print(_json(runtime.updater.download_latest()), flush=True)
+            return 0
+        if args.update_command == "stage-latest":
+            print(_json(runtime.updater.stage_latest()), flush=True)
+            return 0
         if args.update_command == "stage":
             from core.updater.manifest import ReleaseManifest
 
@@ -161,7 +196,13 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(runtime.updater.stage_local_artifact(Path(args.artifact), manifest=manifest, expected_sha256=args.sha256 or None)), flush=True)
             return 0
         if args.update_command == "apply":
-            print(_json(runtime.updater.apply_staged(args.version, args.staged_path)), flush=True)
+            staged_path = args.staged_path
+            if args.version == "latest" and not staged_path:
+                staged = runtime.updater.stage_latest()
+                staged_path = str(staged.get("staged_path") or "")
+                manifest = staged.get("manifest") if isinstance(staged.get("manifest"), dict) else {}
+                args.version = str(manifest.get("version") or runtime.version)
+            print(_json(runtime.updater.apply_staged(args.version, staged_path)), flush=True)
             return 0
         if args.update_command == "rollback":
             print(_json(runtime.updater.rollback()), flush=True)

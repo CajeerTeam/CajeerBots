@@ -42,6 +42,7 @@ class DeliveryTask:
     sent_at: str | None = None
     failed_at: str | None = None
     rate_limit_bucket: str | None = None
+    lease_id: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -74,6 +75,7 @@ class DeliveryTask:
             sent_at=data.get("sent_at") if data.get("sent_at") is None else str(data.get("sent_at")),
             failed_at=data.get("failed_at") if data.get("failed_at") is None else str(data.get("failed_at")),
             rate_limit_bucket=data.get("rate_limit_bucket") if data.get("rate_limit_bucket") is None else str(data.get("rate_limit_bucket")),
+            lease_id=data.get("lease_id") if data.get("lease_id") is None else str(data.get("lease_id")),
         )
 
     def due(self) -> bool:
@@ -232,24 +234,40 @@ class RedisDeliveryService(DeliveryService):
             task.locked_by = consumer
             task.locked_at = _now()
             task.rate_limit_bucket = task.rate_limit_bucket or f"{adapter}:{task.target}"
-            task.locked_at = item_id  # lease id for ack; stored separately from DB semantics.
+            task.lease_id = item_id
             tasks.append(task)
         return tasks
 
     async def mark_sent(self, delivery_id: str) -> None:
-        # Redis Streams ACK needs stream id. For compatibility, delivery_id is also accepted for in-memory metrics.
+        redis = await self._client()
+        task = next((item for item in self._tasks if item.delivery_id == delivery_id), None)
+        if task and task.lease_id:
+            await redis.xack(self._stream(task.adapter), self.group, task.lease_id)
+        self._tasks = [item for item in self._tasks if item.delivery_id != delivery_id]
         self.delivered_total += 1
 
     async def mark_failed(self, delivery_id: str, error: str, *, retry: bool = True) -> None:
+        redis = await self._client()
         task = next((item for item in self._tasks if item.delivery_id == delivery_id), None)
-        if task and retry and task.attempts < task.max_attempts:
+        if not task:
+            self.failed_total += 1
+            return
+        if retry and task.attempts < task.max_attempts:
             delay = self.retry_backoff_seconds * max(1, 2 ** max(0, task.attempts - 1))
             task.next_attempt_at = (_now_dt() + timedelta(seconds=delay)).isoformat()
             task.retry_after = task.next_attempt_at
             task.last_error = error
             task.status = "pending"
-            await (await self._client()).xadd(self._stream(task.adapter), {"payload": json.dumps(task.to_dict(), ensure_ascii=False), "delivery_id": task.delivery_id})
+            # ACK current claim only after durable retry record was written.
+            await redis.xadd(self._stream(task.adapter), {"payload": json.dumps(task.to_dict(), ensure_ascii=False), "delivery_id": task.delivery_id})
+            if task.lease_id:
+                await redis.xack(self._stream(task.adapter), self.group, task.lease_id)
             return
+        task.status = "failed"
+        task.failed_at = _now()
+        await redis.xadd(self._dlq(task.adapter), {"payload": json.dumps(task.to_dict(), ensure_ascii=False), "delivery_id": task.delivery_id, "error": error})
+        if task.lease_id:
+            await redis.xack(self._stream(task.adapter), self.group, task.lease_id)
         self.failed_total += 1
 
     async def process_for_adapter(self, adapter: Any) -> int:
@@ -258,18 +276,14 @@ class RedisDeliveryService(DeliveryService):
         stream = self._stream(adapter.name)
         await self._ensure_group(adapter.name)
         for task in await self.claim(adapter.name, limit=50, consumer=getattr(adapter.settings, "instance_id", adapter.name)):
-            stream_id = task.locked_at
+            stream_id = task.lease_id
             try:
                 if getattr(adapter, "context", None) is not None and getattr(adapter.context, "rate_limiter", None) is not None:
                     await adapter.context.rate_limiter.acquire(f"{task.adapter}:{task.target}")
                 await adapter.send_message(task.target, task.text)
-                if stream_id:
-                    await redis.xack(stream, self.group, stream_id)
-                self.delivered_total += 1
+                await self.mark_sent(task.delivery_id)
                 processed += 1
             except Exception as exc:  # pragma: no cover
-                if stream_id:
-                    await redis.xack(stream, self.group, stream_id)
                 await self.mark_failed(task.delivery_id, str(exc), retry=True)
         return processed
 
@@ -277,6 +291,7 @@ class RedisDeliveryService(DeliveryService):
 class PostgresDeliveryService(DeliveryService):
     def __init__(self, async_dsn: str, schema: str = "shared", *, retry_backoff_seconds: int = 5) -> None:
         super().__init__(backend="postgres", retry_backoff_seconds=retry_backoff_seconds)
+        self.lease_seconds = int(__import__("os").getenv("DELIVERY_LEASE_SECONDS", "60"))
         self.async_dsn = async_dsn
         self.schema = schema
         self._engine: Any | None = None
@@ -311,8 +326,10 @@ class PostgresDeliveryService(DeliveryService):
                         f"""WITH picked AS (
                         SELECT delivery_id FROM {self.schema}.delivery_queue
                          WHERE adapter=:adapter
-                           AND status='pending'
-                           AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+                           AND (
+                             (status='pending' AND (next_attempt_at IS NULL OR next_attempt_at <= NOW()))
+                             OR (status='processing' AND locked_at IS NOT NULL AND locked_at < NOW() - (:lease_seconds || ' seconds')::interval)
+                           )
                          ORDER BY created_at
                          LIMIT :limit
                          FOR UPDATE SKIP LOCKED
@@ -323,7 +340,7 @@ class PostgresDeliveryService(DeliveryService):
                      WHERE q.delivery_id=picked.delivery_id
                  RETURNING q.delivery_id, q.adapter, q.target, q.payload, q.attempts, q.max_attempts, q.trace_id, q.created_at, q.last_error, q.next_attempt_at, q.locked_by, q.locked_at, q.rate_limit_bucket"""
                     ),
-                    {"adapter": adapter, "limit": limit, "consumer": consumer},
+                    {"adapter": adapter, "limit": limit, "consumer": consumer, "lease_seconds": getattr(self, "lease_seconds", 60)},
                 )
             ).mappings().all()
         result: list[DeliveryTask] = []

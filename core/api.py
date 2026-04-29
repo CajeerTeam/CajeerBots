@@ -12,6 +12,7 @@ from uuid import uuid4
 from bots.telegram.bot.mapper import update_to_event as telegram_update_to_event
 from bots.vkontakte.bot.thin import VkontakteThinWrapper
 from core.contracts import API_CONTRACT_VERSION
+from core.api_routes import ROUTES, openapi_document, readonly_paths
 from core.events import CajeerEvent
 
 if TYPE_CHECKING:
@@ -19,26 +20,7 @@ if TYPE_CHECKING:
 
 
 PUBLIC_PATHS = {"/healthz", "/readyz"}
-READONLY_PATHS = {
-    "/version",
-    "/adapters",
-    "/modules",
-    "/plugins",
-    "/components",
-    "/events",
-    "/routes",
-    "/dead-letters",
-    "/commands",
-    "/config/summary",
-    "/adapter-status",
-    "/worker-status",
-    "/bridge-status",
-    "/status/dependencies",
-    "/audit",
-    "/openapi.json",
-    "/updates/status",
-    "/updates/history",
-}
+READONLY_PATHS = readonly_paths() | {"/openapi.json"}
 
 MAX_BODY_BYTES = 1_048_576
 
@@ -47,6 +29,8 @@ class ApiServer:
     def __init__(self, runtime: "Runtime") -> None:
         self.runtime = runtime
         self._httpd: ThreadingHTTPServer | None = None
+        self._webhook_hits: dict[str, list[float]] = {}
+        self._webhook_auth_failures: dict[str, list[float]] = {}
 
     def _token_scope(self, headers: object) -> str | None:
         value = headers.get("Authorization", "")
@@ -55,6 +39,15 @@ class ApiServer:
         def same(expected: str) -> bool:
             return bool(expected) and hmac.compare_digest(value, f"Bearer {expected}")
 
+        token_id, scopes, _prefix = self.runtime.token_registry.authenticate(value)
+        if token_id:
+            if "system.admin" in scopes or "*" in scopes:
+                return "admin"
+            if "metrics" in scopes:
+                return "metrics"
+            if "readonly" in scopes or "system.read" in scopes:
+                return "readonly"
+            return ",".join(sorted(scopes))
         if same(settings.api_token):
             return "admin"
         if same(settings.api_readonly_token):
@@ -62,6 +55,33 @@ class ApiServer:
         if same(settings.api_metrics_token):
             return "metrics"
         return None
+
+    def _scope_allowed(self, path: str, method: str, scope: str | None) -> bool:
+        if scope == "admin":
+            return True
+        if path in PUBLIC_PATHS and method == "GET":
+            return True
+        if path == "/metrics":
+            return self.runtime.settings.metrics_public or scope in {"admin", "metrics"}
+        if path in READONLY_PATHS and method == "GET":
+            return scope in {"admin", "readonly"}
+        wanted = next((item.auth_scope for item in ROUTES if item.path == path and item.method == method), "admin")
+        if wanted in {"public", "webhook"}:
+            return True
+        if not scope:
+            return False
+        granted = set(scope.split(","))
+        return wanted in granted or "system.admin" in granted or "*" in granted
+
+    def _webhook_rate_limited(self, key: str, *, failed_auth: bool = False) -> bool:
+        import time
+        now = time.time()
+        bucket = self._webhook_auth_failures if failed_auth else self._webhook_hits
+        limit = self.runtime.settings.webhook_auth_failure_limit if failed_auth else self.runtime.settings.webhook_rate_limit_per_minute
+        items = [ts for ts in bucket.get(key, []) if now - ts < 60]
+        items.append(now)
+        bucket[key] = items
+        return len(items) > limit
 
     def _telegram_webhook_authorized(self, headers: object) -> bool:
         expected = self.runtime.settings.adapters["telegram"].extra.get("webhook_secret", "")
@@ -77,13 +97,7 @@ class ApiServer:
         return hmac.compare_digest(str(body.get("secret") or ""), str(expected))
 
     def _can_get(self, path: str, scope: str | None) -> bool:
-        if path in PUBLIC_PATHS:
-            return True
-        if path == "/metrics":
-            return self.runtime.settings.metrics_public or scope in {"admin", "metrics"}
-        if path in READONLY_PATHS:
-            return scope in {"admin", "readonly"}
-        return scope == "admin"
+        return self._scope_allowed(path, "GET", scope)
 
     def _payload(self, path: str) -> tuple[int, dict[str, object] | str, str]:
         runtime = self.runtime
@@ -128,7 +142,7 @@ class ApiServer:
         if path == "/bridge-status":
             return 200, {"status": runtime.bridge.status.to_dict()}, "application/json"
         if path == "/status/dependencies":
-            return 200, {"dependencies": runtime.dependencies_snapshot()}, "application/json"
+            return 200, {"dependencies": runtime.dependencies_snapshot(), "checks": runtime.dependency_health_snapshot()}, "application/json"
         if path == "/audit":
             return 200, {"items": [item.to_dict() for item in runtime.audit.snapshot()]}, "application/json"
         if path == "/openapi.json":
@@ -223,26 +237,7 @@ class ApiServer:
         return 404, {"ok": False, "error": {"code": "not_found", "message": "маршрут не найден"}}, "application/json"
 
     def openapi(self) -> dict[str, object]:
-        return {
-            "openapi": "3.1.0",
-            "info": {"title": "Cajeer Bots API", "version": self.runtime.version, "x-contract": API_CONTRACT_VERSION},
-            "paths": {
-                "/healthz": {"get": {"summary": "Проверка процесса"}},
-                "/readyz": {"get": {"summary": "Проверка готовности"}},
-                "/metrics": {"get": {"summary": "Prometheus metrics"}},
-                "/commands/dispatch": {"post": {"summary": "Отправить команду в router"}},
-                "/events/publish": {"post": {"summary": "Опубликовать событие"}},
-                "/delivery/enqueue": {"post": {"summary": "Поставить исходящее сообщение в очередь"}},
-                "/webhooks/telegram": {"post": {"summary": "Принять Telegram webhook update"}},
-                "/webhooks/vkontakte": {"post": {"summary": "Принять VK Callback API update"}},
-                "/audit": {"get": {"summary": "Audit trail"}},
-                "/updates/status": {"get": {"summary": "Статус системы обновлений"}},
-                "/updates/history": {"get": {"summary": "История обновлений"}},
-                "/updates/check": {"post": {"summary": "Проверить обновления"}},
-                "/updates/apply": {"post": {"summary": "Применить staged-обновление"}},
-                "/updates/rollback": {"post": {"summary": "Откатить current -> previous"}},
-            },
-        }
+        return openapi_document(self.runtime.version, API_CONTRACT_VERSION)
 
     def serve_forever(self) -> None:
         server = self
@@ -291,9 +286,14 @@ class ApiServer:
                 path = urlparse(self.path).path
                 scope = server._token_scope(self.headers)
                 if path in {"/webhooks/telegram", "/webhooks/vkontakte"}:
+                    ip = self.client_address[0] if self.client_address else "unknown"
+                    if server._webhook_rate_limited(f"{path}:{ip}"):
+                        self._write(429, {"ok": False, "error": {"code": "rate_limited", "message": "webhook rate limit exceeded"}}, "application/json", request_id)
+                        return
                     try:
                         body = self._json_body()
                         if path == "/webhooks/telegram" and not server._telegram_webhook_authorized(self.headers):
+                            server._webhook_rate_limited(f"auth:{path}:{ip}", failed_auth=True)
                             self._write(401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid telegram webhook secret"}}, "application/json", request_id)
                             return
                         status, payload, content_type = server._post_payload(path, body, actor=path.rsplit("/", 1)[-1])
@@ -301,7 +301,7 @@ class ApiServer:
                         status, payload, content_type = 400, {"ok": False, "error": {"code": "bad_request", "message": str(exc)}}, "application/json"
                     self._write(status, payload, content_type, request_id)
                     return
-                if scope != "admin":
+                if not server._scope_allowed(path, "POST", scope):
                     server.runtime.audit.write(actor_type="api", actor_id=scope or "anonymous", action="http.post", resource=path, result="denied", ip=self.client_address[0] if self.client_address else None, user_agent=self.headers.get("User-Agent"))
                     self._write(401, {"ok": False, "error": {"code": "unauthorized", "message": "требуется admin-токен"}}, "application/json", request_id)
                     return
