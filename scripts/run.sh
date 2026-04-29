@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-MODE="${1:-all}"
+TARGET="${1:-}"
 [ ! -d .venv ] || . .venv/bin/activate
-exec python -m core run "$MODE"
+if [ -n "$TARGET" ]; then
+  exec ${PYTHON_BIN:-python3} -m core run "$TARGET"
+fi
+exec ${PYTHON_BIN:-python3} -m core run
