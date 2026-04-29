@@ -19,7 +19,7 @@ jobs:
       - run: test -s README.md && test -s .env.example && test -d core && test -d bots
       - run: test ! -d migrations
       - run: |
-          if grep -RInE 'Never'""'Mine|cajeer'""'_bots|cajeer'""'_core|nm'""'bot' --exclude-dir=.git --exclude-dir=dist --exclude-dir=runtime --exclude-dir=__pycache__ .; then
+          if grep -RInE 'Never'""'Mine|cajeer'""'_bots|cajeer'""'_core|nm'""'bot' --exclude-dir=.git --exclude-dir=dist --exclude-dir=runtime --exclude-dir=__pycache__ --exclude-dir=.pytest_cache .; then
             echo "Найдены запрещённые проектные или устаревшие термины"
             exit 1
           fi
