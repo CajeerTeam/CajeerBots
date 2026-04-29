@@ -17,5 +17,6 @@
       "default": false,
       "description": "Автоматически связывать внешние аккаунты при доверенном источнике."
     }
-  }
+  },
+  "entrypoint": "modules.identity.runtime:IdentityModule"
 }
