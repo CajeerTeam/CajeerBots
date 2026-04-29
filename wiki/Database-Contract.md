@@ -1,85 +1,128 @@
-# Контракт базы данных
+# Database Contract
 
-Этот документ описывает ожидаемую модель PostgreSQL без встроенных миграций.
+Cajeer Bots использует PostgreSQL как общий эксплуатационный слой. Runtime **не выполняет DDL автоматически**. Проект поставляет reference Alembic migrations, а оператор применяет их явно через Alembic.
 
-## Принципы
-
-1. Одна база данных обслуживает все адаптеры, модули и плагины.
-2. Общие сущности находятся в `shared`.
-3. Состояние конкретного адаптера находится в его собственной схеме.
-4. Данные модулей и плагинов изолируются по отдельным схемам.
-5. Cajeer Bots не выполняет DDL-команды в runtime.
-
-## Обязательные общие таблицы
+Текущая версия DB contract:
 
 ```text
-shared.platform_schema       версия внешнего контракта БД
-shared.event_bus             журнал входящих событий
-shared.event_outbox          события на доставку
-shared.event_inbox           дедупликация входящих событий
-shared.event_dead_letters    события, которые не удалось обработать
-shared.audit_log             аудит административных действий
-shared.runtime_locks         блокировки фоновых процессов
-shared.idempotency_keys      ключи идемпотентности
+cajeer.bots.db.v1
 ```
 
-## Обязательные поля событий
+Обязательная схема по умолчанию:
+
+```text
+shared
+```
+
+Обязательные таблицы:
+
+```text
+shared.platform_schema
+shared.event_bus
+shared.delivery_queue
+shared.dead_letters
+shared.idempotency_keys
+shared.audit_log
+shared.adapter_state
+```
+
+## platform_schema
+
+Хранит версии эксплуатационных контрактов.
+
+```text
+component
+version
+updated_at
+```
+
+Для Cajeer Bots должна быть запись:
+
+```text
+component = cajeer-bots-db
+version   = cajeer.bots.db.v1
+```
+
+## event_bus
 
 ```text
 event_id
-contract_version
-source
-type
 trace_id
+source
+event_type
 payload
-created_at
-processed_at
 status
+created_at
+locked_at
+delivered_at
+```
+
+## delivery_queue
+
+```text
+delivery_id
+adapter
+target
+payload
+status
+attempts
+max_attempts
+trace_id
+created_at
+locked_at
+sent_at
 last_error
 ```
 
-## Проверка эксплуатации
-
-`doctor` должен проверять подключение к PostgreSQL, но не должен создавать таблицы. Внешний эксплуатационный слой отвечает за создание и обновление схемы.
-
-
-## Контракт `shared.event_bus` для backend `postgres`
-
-Минимальный набор полей для `EVENT_BUS_BACKEND=postgres`:
+## dead_letters
 
 ```text
-event_id      уникальный идентификатор события
-trace_id      идентификатор трассировки
-source        источник события: telegram, discord, vkontakte, system, module, plugin
-event_type    тип события, например adapter.started
-payload       JSONB-представление CajeerEvent
-status        состояние доставки: new, processing, done, failed
-created_at    время создания записи
-processed_at  время обработки, если применимо
-last_error    последняя ошибка обработки, если применимо
+dead_letter_id
+event_id
+trace_id
+payload
+reason
+created_at
+retried_at
 ```
 
-Индексы и блокировки выбираются эксплуатационным слоем. Платформа не создаёт таблицы автоматически.
-
-## Redis Streams
-
-Для `EVENT_BUS_BACKEND=redis` используется stream `cajeer-bots:events`. Поле `payload` содержит JSON-представление `CajeerEvent`.
-
-## Обновлённый контракт `shared.event_bus` для `PostgresEventBus.drain()`
-
-Минимальный DDL-контракт для многопроцессного backend `postgres`:
+## idempotency_keys
 
 ```text
-event_id      уникальный идентификатор события
-trace_id      идентификатор трассировки
-source        источник события
-event_type    тип события
-payload       JSONB-представление CajeerEvent
-status        new, processing, delivered, failed
-created_at    время создания
-locked_at     время взятия события в обработку
-delivered_at  время успешной передачи bridge-процессу
-last_error    последняя ошибка
+key
+created_at
+expires_at
 ```
 
-`drain()` использует выборку с `FOR UPDATE SKIP LOCKED`. Проект не создаёт таблицу сам.
+## audit_log
+
+```text
+audit_id
+actor_type
+actor_id
+action
+resource
+result
+trace_id
+ip
+user_agent
+message
+created_at
+```
+
+## adapter_state
+
+```text
+adapter
+instance_id
+state
+last_error
+updated_at
+```
+
+## Проверка
+
+```bash
+cajeer-bots db contract
+cajeer-bots db check
+```

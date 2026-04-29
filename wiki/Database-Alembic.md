@@ -1,27 +1,27 @@
-# SQLAlchemy async и Alembic
+# Alembic
 
-Cajeer Bots использует PostgreSQL, SQLAlchemy 2.x async и Alembic.
+Cajeer Bots поставляет reference Alembic migrations для DB contract, но runtime не запускает миграции автоматически.
 
-## Переменные
-
-```env
-DATABASE_URL=postgresql://...
-DATABASE_ASYNC_URL=postgresql+asyncpg://...
-ALEMBIC_CONFIG=alembic.ini
-```
-
-## Команды
+Оператор выполняет миграции отдельно:
 
 ```bash
-cajeer-bots db contract
-cajeer-bots db check
-alembic upgrade head
+alembic -c alembic.ini upgrade head
 ```
 
-Базовая ревизия создаёт таблицы:
+После применения миграций нужно проверить контракт:
 
-- `shared.event_bus`
-- `shared.delivery_queue`
-- `shared.dead_letters`
-- `shared.idempotency_keys`
-- `shared.audit_log`
+```bash
+cajeer-bots db check
+```
+
+Текущая reference revision:
+
+```text
+0001_core
+```
+
+Текущий DB contract:
+
+```text
+cajeer.bots.db.v1
+```
