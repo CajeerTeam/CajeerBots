@@ -11,8 +11,13 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
+if [ -d migrations ]; then
+  echo "Каталог migrations не должен входить в проект" >&2
+  exit 1
+fi
+
 if grep -RInE "$FORBIDDEN_PATTERN" \
-  --exclude-dir=.git --exclude-dir=dist --exclude-dir=runtime --exclude-dir=__pycache__ \
+  --exclude-dir=.git --exclude-dir=dist --exclude-dir=runtime --exclude-dir=__pycache__ --exclude-dir=.pytest_cache \
   --exclude='*.zip' . >/tmp/cajeer-bots-forbidden.txt; then
   echo "Найдены запрещённые проектные или устаревшие термины:" >&2
   cat /tmp/cajeer-bots-forbidden.txt >&2
@@ -33,6 +38,7 @@ EVENT_SIGNING_SECRET="${EVENT_SIGNING_SECRET:-release-secret}" API_TOKEN="${API_
 "$PYTHON_BIN" -m core modules >/dev/null
 "$PYTHON_BIN" -m core plugins >/dev/null
 "$PYTHON_BIN" -m core commands >/dev/null
+"$PYTHON_BIN" -m pytest -q
 
 rm -rf dist
 mkdir -p "dist/${NAME}"
