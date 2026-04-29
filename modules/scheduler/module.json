@@ -4,7 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Фоновые задачи и отложенные действия платформы.",
-  "requires": [],
+  "requires": [
+    "module:logs",
+    "module:bridge"
+  ],
   "adapters": [
     "telegram",
     "discord",
