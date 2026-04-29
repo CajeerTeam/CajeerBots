@@ -4,7 +4,11 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Базовые инструменты модерации сообщений и пользователей.",
-  "requires": [],
+  "requires": [
+    "module:identity",
+    "module:rbac",
+    "module:logs"
+  ],
   "adapters": [
     "telegram",
     "discord",
