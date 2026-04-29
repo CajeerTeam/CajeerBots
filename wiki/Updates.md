@@ -43,3 +43,28 @@ runtime/updates/
 - preflight запускает `doctor --offline` и проверяет версии контрактов;
 - rollback переключает symlink `current` на `previous`;
 - автоматический downgrade БД не выполняется.
+
+## Безопасный контур обновления
+
+Production-обновление выполняется через GitHub Releases, release manifest и staged install. `git pull` допускается только для development/repo-root режима.
+
+Команды:
+
+```bash
+cajeer-bots update check
+cajeer-bots update download
+cajeer-bots update stage-latest
+cajeer-bots update apply --version latest
+cajeer-bots update rollback
+cajeer-bots update history
+```
+
+Updater использует `runtime/updates/update.lock`, чтобы запретить параллельные обновления. Для production можно включить systemd-менеджер:
+
+```env
+CAJEER_UPDATE_SERVICE_MANAGER=systemd
+CAJEER_UPDATE_SERVICES=cajeer-bots-api,cajeer-bots-bridge,cajeer-bots-telegram
+CAJEER_UPDATE_REQUIRE_SIGNATURE=true
+```
+
+Rollback проверяет service health gate. Если проверка не прошла, запись истории получает `result=error`.
