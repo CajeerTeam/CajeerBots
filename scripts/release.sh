@@ -50,7 +50,7 @@ fi
 rm -rf dist
 mkdir -p "dist/${NAME}"
 cp -a README.md LICENSE VERSION pyproject.toml .env.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini \
-  core bots modules plugins distributed scripts ops wiki alembic install.sh run.sh setup_wizard.py main.py \
+  core bots modules plugins distributed scripts ops wiki alembic install.sh run.sh setup_wizard.py run.py \
   "dist/${NAME}/"
 chmod +x "dist/${NAME}/run.sh" "dist/${NAME}/install.sh" "dist/${NAME}/setup_wizard.py" "dist/${NAME}/scripts"/*.sh
 (cd dist && tar --mode='u+rwX,go+rX' -czf "${NAME}.tar.gz" "${NAME}" && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
@@ -78,8 +78,12 @@ JSON
 cat > "dist/${NAME}.cyclonedx.json" <<JSON
 {"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"metadata":{"component":{"type":"application","name":"CajeerBots","version":"${VERSION}"}}}
 JSON
-if command -v openssl >/dev/null 2>&1; then
-  openssl dgst -sha256 -sign "${RELEASE_SIGNING_KEY:-/dev/null}" -out "dist/${NAME}.sig" "dist/${NAME}.tar.gz" 2>/dev/null || true
+SIGNATURE_REQUIRED="${RELEASE_SIGNATURE_REQUIRED:-false}"
+if [ -n "${RELEASE_SIGNING_KEY:-}" ] && [ -f "${RELEASE_SIGNING_KEY:-}" ]; then
+  openssl dgst -sha256 -sign "${RELEASE_SIGNING_KEY}" -out "dist/${NAME}.sig" "dist/${NAME}.tar.gz"
+elif [ "$SIGNATURE_REQUIRED" = "true" ]; then
+  echo "RELEASE_SIGNATURE_REQUIRED=true, но RELEASE_SIGNING_KEY не задан или файл отсутствует" >&2
+  exit 1
 fi
 
 # Проверка итогового tar.gz, а не только рабочей директории.
