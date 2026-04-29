@@ -17,9 +17,20 @@ class SupportModule:
     async def on_command(self, command: str, event: CajeerEvent, context) -> dict[str, object] | None:
         if command != "support":
             return None
-        ticket_id = "sup_" + uuid4().hex[:12]
-        chat_id = event.chat.platform_chat_id if event.chat else "unknown"
+        args = str(event.payload.get("args") or "").strip()
+        parts = args.split()
+        subcommand = parts[0] if parts else "create"
         actor = event.actor.platform_user_id if event.actor else "anonymous"
-        context.runtime.audit.write(actor_type="module", actor_id=self.id, action="support.ticket.create", resource=ticket_id, trace_id=event.trace_id, message=f"actor={actor};chat={chat_id}")
-        await context.runtime.workspace.report_event(context.runtime.make_system_event("cajeer.bots.support.ticket_created", {"ticket_id": ticket_id, "actor": actor, "chat_id": chat_id, "trace_id": event.trace_id}))
-        return {"ok": True, "message": f"Обращение создано: {ticket_id}. Опишите проблему следующим сообщением.", "ticket_id": ticket_id, "status": "open", "trace_id": event.trace_id}
+        chat_id = event.chat.platform_chat_id if event.chat else "unknown"
+        if subcommand in {"assign", "status"} and len(parts) >= 3:
+            ticket_id = parts[1]
+            value = parts[2]
+            action = "support.ticket.assign" if subcommand == "assign" else "support.ticket.status"
+            context.runtime.audit.write(actor_type="module", actor_id=self.id, action=action, resource=ticket_id, trace_id=event.trace_id, message=f"value={value};actor={actor}")
+            await context.runtime.workspace.report_event(context.runtime.make_system_event(f"cajeer.bots.{action}", {"ticket_id": ticket_id, "value": value, "actor": actor, "trace_id": event.trace_id}))
+            return {"ok": True, "message": f"Обращение {ticket_id}: {subcommand}={value}.", "ticket_id": ticket_id, "trace_id": event.trace_id}
+        ticket_id = "sup_" + uuid4().hex[:12]
+        subject = args if args else "Без темы"
+        context.runtime.audit.write(actor_type="module", actor_id=self.id, action="support.ticket.create", resource=ticket_id, trace_id=event.trace_id, message=f"actor={actor};chat={chat_id};subject={subject}")
+        await context.runtime.workspace.report_event(context.runtime.make_system_event("cajeer.bots.support.ticket_created", {"ticket_id": ticket_id, "actor": actor, "chat_id": chat_id, "subject": subject, "trace_id": event.trace_id}))
+        return {"ok": True, "message": f"Обращение создано: {ticket_id}. Тема: {subject}", "ticket_id": ticket_id, "status": "open", "subject": subject, "trace_id": event.trace_id}
