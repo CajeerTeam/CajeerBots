@@ -43,7 +43,11 @@ def upgrade() -> None:
         sa.Column("status", sa.String(32), nullable=False, server_default="new", index=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
         sa.Column("locked_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("locked_by", sa.String(128), nullable=True, index=True),
         sa.Column("delivered_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("next_attempt_at", sa.DateTime(timezone=True), nullable=True, index=True),
+        sa.Column("last_error", sa.Text(), nullable=True),
         schema="shared",
     )
     op.create_table(
@@ -58,8 +62,12 @@ def upgrade() -> None:
         sa.Column("trace_id", sa.String(64), nullable=True, index=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
         sa.Column("locked_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("locked_by", sa.String(128), nullable=True, index=True),
+        sa.Column("next_attempt_at", sa.DateTime(timezone=True), nullable=True, index=True),
         sa.Column("sent_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("failed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_error", sa.Text(), nullable=True),
+        sa.Column("rate_limit_bucket", sa.String(128), nullable=True, index=True),
         schema="shared",
     )
     op.create_table(
