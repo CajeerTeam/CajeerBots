@@ -132,3 +132,23 @@ cajeer-bots db check
 Delivery, dead letters, idempotency и audit имеют memory/redis/postgres backend-и. PostgreSQL-реализации используют SQLAlchemy 2.x async и таблицы `delivery_queue`, `dead_letters`, `idempotency_keys`, `audit_log` из Alembic-контракта.
 
 Для `EVENT_BUS_BACKEND=postgres` требуется `DATABASE_ASYNC_URL`; sync `psycopg` больше не используется в event bus runtime path.
+
+## Дополнительные production-таблицы 0.10.x
+
+Для identity/RBAC/support/moderation/announcements/scheduler foundation добавлены контракты:
+
+```text
+users
+platform_accounts
+user_profiles
+workspace_links
+roles
+role_permissions
+user_roles
+support_tickets
+moderation_actions
+announcements
+scheduled_jobs
+```
+
+`platform_accounts` связывает `telegram/discord/vkontakte` идентификаторы с внутренним `user_id`. `workspace_links` хранит связь с Cajeer Workspace. `scheduled_jobs` используется для отложенных задач: heartbeat, logs flush, update checks, cleanup и scheduled announcements.

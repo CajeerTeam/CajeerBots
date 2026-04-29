@@ -28,3 +28,25 @@ middleware: request-id, rate-limit, audit, CORS, auth scopes
 `POST /webhooks/telegram` принимает Telegram update и ставит ответ в delivery queue через общий command response pipeline.
 
 `POST /webhooks/vkontakte` принимает VK Callback API payload. Для `type=confirmation` возвращается `VK_CONFIRMATION_CODE`; для остальных событий проверяется `VK_CALLBACK_SECRET`, если он задан.
+
+## Update API и scopes
+
+API использует единый словарь scopes:
+
+```text
+system.read
+system.admin
+system.metrics
+system.commands.dispatch
+system.delivery.enqueue
+system.events.publish
+system.events.retry
+system.runtime.stop
+system.update.read
+system.update.apply
+system.update.rollback
+```
+
+`readonly`, `metrics` и `admin` остаются compatibility aliases для старых env-токенов.
+
+Webhook failures и rate-limit события пишутся в audit как `webhook.telegram.denied`, `webhook.vkontakte.denied` и `webhook.rate_limited`.
