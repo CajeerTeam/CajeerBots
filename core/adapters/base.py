@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 import abc
 import asyncio
@@ -7,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from core.config import AdapterConfig, Settings
-from core.events import CajeerEvent
+from core.events import CajeerEvent, command_event_from_message, extract_command
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class AdapterHealth:
     last_error: str | None = None
     processed_events: int = 0
     failed_events: int = 0
+    restart_count: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -70,6 +72,7 @@ class AdapterRuntimeStatus:
     last_error: str | None = None
     processed_events: int = 0
     failed_events: int = 0
+    restart_count: int = 0
     history: list[tuple[str, str]] = field(default_factory=list)
 
 
@@ -78,6 +81,10 @@ class AdapterContext:
     event_bus: Any
     router: Any
     dead_letters: Any | None = None
+    delivery: Any | None = None
+    audit: Any | None = None
+    workspace: Any | None = None
+    remote_logs: Any | None = None
     inline_routing: bool = True
 
 
@@ -118,6 +125,7 @@ class BotAdapter(abc.ABC):
         except Exception as exc:
             self.status.failed_events += 1
             self.set_state("failed", error=str(exc))
+            await self.report_lifecycle("adapter.failed", {"error": str(exc)})
             raise
         finally:
             await self.on_stop()
@@ -138,6 +146,14 @@ class BotAdapter(abc.ABC):
         self.set_state("stopping")
         self._stopping.set()
 
+    async def report_lifecycle(self, event_type: str, payload: dict[str, object] | None = None) -> None:
+        event = CajeerEvent.create(source=self.name, type=event_type, payload=payload or {})
+        await self.publish_event(event)
+        if self.context is not None and self.context.workspace is not None:
+            await self.context.workspace.report_event(event)
+        if self.context is not None and self.context.remote_logs is not None:
+            await self.context.remote_logs.emit_event(event, level="INFO")
+
     async def publish_event(self, event: CajeerEvent) -> None:
         logger.info("%s опубликовал событие: %s", self.name, event.to_json())
         try:
@@ -156,6 +172,13 @@ class BotAdapter(abc.ABC):
                 self.context.dead_letters.add(event, str(exc))
             raise
 
+    async def handle_incoming_message(self, event: CajeerEvent, *, bot_username: str | None = None) -> None:
+        await self.publish_event(event)
+        command = extract_command(str(event.payload.get("text") or ""), bot_username=bot_username)
+        if command is not None:
+            name, args = command
+            await self.publish_event(command_event_from_message(event, name, args))
+
     async def send_message(self, target: str, text: str) -> None:
         logger.info("%s отправляет сообщение target=%s text=%s", self.name, target, text)
         self.status.processed_events += 1
@@ -173,4 +196,5 @@ class BotAdapter(abc.ABC):
             last_error=self.status.last_error,
             processed_events=self.status.processed_events,
             failed_events=self.status.failed_events,
+            restart_count=self.status.restart_count,
         )
