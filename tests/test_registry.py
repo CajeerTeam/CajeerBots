@@ -9,7 +9,7 @@ def test_registry_loads_default_manifests(monkeypatch):
     monkeypatch.setenv("PLUGINS_ENABLED", "example_plugin")
     registry = Registry(Path.cwd())
     settings = Settings.from_env()
-    assert {item.id for item in registry.adapters()} == {"telegram", "discord", "vkontakte"}
+    assert {item.id for item in registry.adapters()} == {"telegram", "discord", "vkontakte", "fake"}
     assert "bridge" in {item.id for item in registry.modules()}
     assert registry.validate(settings=settings) == []
 
