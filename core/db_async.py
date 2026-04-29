@@ -38,6 +38,17 @@ REQUIRED_TABLES = {
     "idempotency_keys": {"key", "created_at", "expires_at"},
     "audit_log": {"audit_id", "actor_type", "actor_id", "action", "resource", "result", "trace_id", "ip", "user_agent", "message", "created_at"},
     "adapter_state": {"adapter", "instance_id", "state", "last_error", "updated_at"},
+    "users": {"user_id", "display_name", "workspace_user_id", "created_at", "updated_at"},
+    "platform_accounts": {"platform", "platform_user_id", "user_id", "username", "display_name", "profile", "created_at", "updated_at"},
+    "roles": {"role_id", "title", "source", "created_at"},
+    "role_permissions": {"role_id", "permission"},
+    "user_roles": {"user_id", "role_id", "granted_at"},
+    "support_tickets": {"ticket_id", "user_id", "platform", "platform_chat_id", "status", "subject", "assigned_to", "history", "created_at", "updated_at"},
+    "moderation_actions": {"action_id", "platform", "target_id", "action", "reason", "actor_id", "trace_id", "created_at"},
+    "announcements": {"announcement_id", "status", "title", "body", "targets", "scheduled_at", "created_at"},
+    "user_profiles": {"user_id", "profile", "updated_at"},
+    "workspace_links": {"link_id", "user_id", "workspace_user_id", "source", "created_at"},
+    "scheduled_jobs": {"job_id", "job_type", "payload", "status", "run_at", "locked_at", "locked_by", "last_error", "created_at"},
 }
 
 

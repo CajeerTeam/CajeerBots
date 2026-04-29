@@ -12,7 +12,7 @@ from uuid import uuid4
 from bots.telegram.bot.mapper import update_to_event as telegram_update_to_event
 from bots.vkontakte.bot.thin import VkontakteThinWrapper
 from core.contracts import API_CONTRACT_VERSION
-from core.api_routes import ROUTES, openapi_document, readonly_paths
+from core.api_routes import KNOWN_SCOPES, ROUTES, canonical_scope, openapi_document, readonly_paths
 from core.events import CajeerEvent
 
 if TYPE_CHECKING:
@@ -41,13 +41,10 @@ class ApiServer:
 
         token_id, scopes, _prefix = self.runtime.token_registry.authenticate(value)
         if token_id:
-            if "system.admin" in scopes or "*" in scopes:
-                return "admin"
-            if "metrics" in scopes:
-                return "metrics"
-            if "readonly" in scopes or "system.read" in scopes:
-                return "readonly"
-            return ",".join(sorted(scopes))
+            normalized = {canonical_scope(scope) for scope in scopes}
+            if "system.admin" in normalized or "*" in normalized:
+                return "system.admin"
+            return ",".join(sorted(normalized))
         if same(settings.api_token):
             return "admin"
         if same(settings.api_readonly_token):
@@ -57,21 +54,21 @@ class ApiServer:
         return None
 
     def _scope_allowed(self, path: str, method: str, scope: str | None) -> bool:
-        if scope == "admin":
+        if scope in {"admin", "system.admin"}:
             return True
         if path in PUBLIC_PATHS and method == "GET":
             return True
         if path == "/metrics":
-            return self.runtime.settings.metrics_public or scope in {"admin", "metrics"}
+            return self.runtime.settings.metrics_public or scope in {"admin", "metrics", "system.admin", "system.metrics"}
         if path in READONLY_PATHS and method == "GET":
-            return scope in {"admin", "readonly"}
+            return scope in {"admin", "readonly", "system.admin", "system.read", "system.update.read"}
         wanted = next((item.auth_scope for item in ROUTES if item.path == path and item.method == method), "admin")
         if wanted in {"public", "webhook"}:
             return True
         if not scope:
             return False
-        granted = set(scope.split(","))
-        return wanted in granted or "system.admin" in granted or "*" in granted
+        granted = {canonical_scope(item) for item in scope.split(",")}
+        return canonical_scope(wanted) in granted or "system.admin" in granted or "*" in granted
 
     def _webhook_rate_limited(self, key: str, *, failed_auth: bool = False) -> bool:
         import time
@@ -149,6 +146,8 @@ class ApiServer:
             return 200, self.openapi(), "application/json"
         if path == "/updates/status":
             return 200, {"status": runtime.updater.status().to_dict()}, "application/json"
+        if path == "/updates/plan":
+            return 200, {"plan": runtime.updater.plan("latest")}, "application/json"
         if path == "/updates/history":
             return 200, {"items": [item.to_dict() for item in runtime.updater.history()]}, "application/json"
         return 404, {"ok": False, "error": {"code": "not_found", "message": "маршрут не найден"}}, "application/json"
@@ -204,11 +203,16 @@ class ApiServer:
             return 202, {"ok": True, "message": "запрошена остановка runtime"}, "application/json"
         if path == "/updates/check":
             return 200, {"ok": True, "update": runtime.updater.check()}, "application/json"
+        if path == "/updates/plan":
+            return 200, {"ok": True, "plan": runtime.updater.plan(str(body.get("version") or "latest"))}, "application/json"
         if path == "/updates/apply":
-            version = str(body.get("version") or "").strip()
+            version = str(body.get("version") or "latest").strip()
             staged_path = str(body.get("staged_path") or "").strip()
+            auto_stage = bool(body.get("auto_stage", version == "latest" and not staged_path))
+            if version == "latest" and auto_stage:
+                return 202, runtime.updater.apply_latest(), "application/json"
             if not version or not staged_path:
-                return 400, {"ok": False, "error": {"code": "bad_request", "message": "version и staged_path обязательны"}}, "application/json"
+                return 400, {"ok": False, "error": {"code": "bad_request", "message": "version/staged_path обязательны, кроме version=latest+auto_stage"}}, "application/json"
             return 202, runtime.updater.apply_staged(version, staged_path), "application/json"
         if path == "/updates/rollback":
             return 202, runtime.updater.rollback(), "application/json"
@@ -226,6 +230,7 @@ class ApiServer:
                 code = runtime.settings.adapters["vkontakte"].extra.get("confirmation_code", "")
                 return 200, {"ok": True, "response": code}, "application/json"
             if not self._vkontakte_webhook_authorized(body):
+                runtime.audit.write(actor_type="webhook", actor_id="vkontakte", action="webhook.vkontakte.denied", resource="vkontakte", result="denied")
                 return 401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid vkontakte webhook secret"}}, "application/json"
             async def ingest_vk() -> list[dict[str, object]]:
                 wrapper = VkontakteThinWrapper(runtime.settings.adapters["vkontakte"].token)
@@ -288,12 +293,14 @@ class ApiServer:
                 if path in {"/webhooks/telegram", "/webhooks/vkontakte"}:
                     ip = self.client_address[0] if self.client_address else "unknown"
                     if server._webhook_rate_limited(f"{path}:{ip}"):
+                        server.runtime.audit.write(actor_type="webhook", actor_id=path.rsplit("/", 1)[-1], action="webhook.rate_limited", resource=path, result="denied", ip=ip, user_agent=self.headers.get("User-Agent"))
                         self._write(429, {"ok": False, "error": {"code": "rate_limited", "message": "webhook rate limit exceeded"}}, "application/json", request_id)
                         return
                     try:
                         body = self._json_body()
                         if path == "/webhooks/telegram" and not server._telegram_webhook_authorized(self.headers):
                             server._webhook_rate_limited(f"auth:{path}:{ip}", failed_auth=True)
+                            server.runtime.audit.write(actor_type="webhook", actor_id="telegram", action="webhook.telegram.denied", resource=path, result="denied", ip=ip, user_agent=self.headers.get("User-Agent"))
                             self._write(401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid telegram webhook secret"}}, "application/json", request_id)
                             return
                         status, payload, content_type = server._post_payload(path, body, actor=path.rsplit("/", 1)[-1])

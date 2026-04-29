@@ -159,6 +159,7 @@ class DeliveryService:
                 await self.mark_sent(task.delivery_id)
                 processed += 1
             except Exception as exc:  # pragma: no cover
+                await redis.delete(f"{self.prefix}:delivery:sent:{task.delivery_id}")
                 await self.mark_failed(task.delivery_id, str(exc), retry=True)
         return processed
 
@@ -235,6 +236,8 @@ class RedisDeliveryService(DeliveryService):
             task.locked_at = _now()
             task.rate_limit_bucket = task.rate_limit_bucket or f"{adapter}:{task.target}"
             task.lease_id = item_id
+            self._tasks = [existing for existing in self._tasks if existing.delivery_id != task.delivery_id]
+            self._tasks.append(task)
             tasks.append(task)
         return tasks
 
@@ -276,14 +279,20 @@ class RedisDeliveryService(DeliveryService):
         stream = self._stream(adapter.name)
         await self._ensure_group(adapter.name)
         for task in await self.claim(adapter.name, limit=50, consumer=getattr(adapter.settings, "instance_id", adapter.name)):
-            stream_id = task.lease_id
             try:
+                guard_key = f"{self.prefix}:delivery:sent:{task.delivery_id}"
+                guard_created = await redis.set(guard_key, "processing", nx=True, ex=86400)
+                if not guard_created:
+                    if task.lease_id:
+                        await redis.xack(stream, self.group, task.lease_id)
+                    continue
                 if getattr(adapter, "context", None) is not None and getattr(adapter.context, "rate_limiter", None) is not None:
                     await adapter.context.rate_limiter.acquire(f"{task.adapter}:{task.target}")
                 await adapter.send_message(task.target, task.text)
                 await self.mark_sent(task.delivery_id)
                 processed += 1
             except Exception as exc:  # pragma: no cover
+                await redis.delete(f"{self.prefix}:delivery:sent:{task.delivery_id}")
                 await self.mark_failed(task.delivery_id, str(exc), retry=True)
         return processed
 

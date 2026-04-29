@@ -38,6 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     update_sub.add_parser("status", help="Показать локальный статус updater.")
     update_sub.add_parser("history", help="Показать историю обновлений.")
     update_sub.add_parser("check", help="Проверить доступное обновление.")
+    plan = update_sub.add_parser("plan", help="Показать план обновления без применения.")
+    plan.add_argument("--version", default="latest")
     update_sub.add_parser("download", help="Скачать latest artifact из GitHub Releases.")
     update_sub.add_parser("stage-latest", help="Скачать и распаковать latest artifact в staging.")
     stage = update_sub.add_parser("stage", help="Проверить и распаковать локальный release artifact в staging.")
@@ -61,6 +63,10 @@ def build_parser() -> argparse.ArgumentParser:
     create_token.add_argument("--prefix", default="cb_")
     revoke_token = tokens_sub.add_parser("revoke", help="Отозвать API-токен по id.")
     revoke_token.add_argument("id")
+    inspect_token = tokens_sub.add_parser("inspect", help="Показать один token record без значения токена.")
+    inspect_token.add_argument("id")
+    rotate_token = tokens_sub.add_parser("rotate", help="Перевыпустить токен с сохранением scopes.")
+    rotate_token.add_argument("id")
     tokens_sub.add_parser("list", help="Показать token registry без значений токенов.")
 
     db = sub.add_parser("db", help="Команды PostgreSQL/SQLAlchemy/Alembic.")
@@ -69,9 +75,17 @@ def build_parser() -> argparse.ArgumentParser:
     db_sub.add_parser("contract", help="Показать обязательные таблицы и поля DB contract.")
     db_sub.add_parser("doctor", help="Проверить async-подключение и DB contract.")
     db_sub.add_parser("alembic", help="Показать путь к Alembic-конфигурации.")
+    db_sub.add_parser("current", help="Показать текущую Alembic revision.")
+    db_sub.add_parser("history", help="Показать историю Alembic revisions.")
+    db_upgrade = db_sub.add_parser("upgrade", help="Выполнить alembic upgrade.")
+    db_upgrade.add_argument("revision", nargs="?", default="head")
 
     sub.add_parser("migrate", help="Показать статус управления схемой БД через Alembic.")
     sub.add_parser("db-status", help="Показать статус модели БД без выполнения миграций.")
+
+    maintenance = sub.add_parser("maintenance", help="Операционное обслуживание runtime.")
+    maintenance_sub = maintenance.add_subparsers(dest="maintenance_command", required=True)
+    maintenance_sub.add_parser("cleanup", help="Очистить устаревшие runtime-записи по retention policy.")
 
     distributed = sub.add_parser("distributed", help="Команды дополнительного распределённого режима.")
     distributed_sub = distributed.add_subparsers(dest="distributed_command", required=True)
@@ -143,6 +157,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.tokens_command == "revoke":
             print(_json({"revoked": registry.revoke(args.id)}), flush=True)
             return 0
+        if args.tokens_command == "inspect":
+            print(_json(registry.inspect(args.id) or {"error": "not_found"}), flush=True)
+            return 0
+        if args.tokens_command == "rotate":
+            token, record = registry.rotate(args.id)
+            print(_json({"token": token, "record": record.to_dict()}), flush=True)
+            return 0
         if args.tokens_command == "list":
             print(_json({"items": registry.snapshot()}), flush=True)
             return 0
@@ -183,6 +204,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.update_command == "check":
             print(_json(runtime.updater.check()), flush=True)
             return 0
+        if args.update_command == "plan":
+            print(_json(runtime.updater.plan(args.version)), flush=True)
+            return 0
         if args.update_command == "download":
             print(_json(runtime.updater.download_latest()), flush=True)
             return 0
@@ -196,17 +220,22 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(runtime.updater.stage_local_artifact(Path(args.artifact), manifest=manifest, expected_sha256=args.sha256 or None)), flush=True)
             return 0
         if args.update_command == "apply":
-            staged_path = args.staged_path
-            if args.version == "latest" and not staged_path:
-                staged = runtime.updater.stage_latest()
-                staged_path = str(staged.get("staged_path") or "")
-                manifest = staged.get("manifest") if isinstance(staged.get("manifest"), dict) else {}
-                args.version = str(manifest.get("version") or runtime.version)
-            print(_json(runtime.updater.apply_staged(args.version, staged_path)), flush=True)
+            if args.version == "latest" and not args.staged_path:
+                print(_json(runtime.updater.apply_latest()), flush=True)
+                return 0
+            print(_json(runtime.updater.apply_staged(args.version, args.staged_path)), flush=True)
             return 0
         if args.update_command == "rollback":
             print(_json(runtime.updater.rollback()), flush=True)
             return 0
+
+    if args.command == "maintenance" and args.maintenance_command == "cleanup":
+        from core.config import Settings
+        from core.maintenance import cleanup_runtime
+
+        settings = Settings.from_env()
+        print(_json(cleanup_runtime(project_root, settings)), flush=True)
+        return 0
 
     if args.command in {"migrate", "db-status"}:
         print("Схема PostgreSQL управляется Alembic.")
@@ -225,6 +254,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.db_command == "alembic":
             print(_json({"config": settings.storage.alembic_config, "async_url_configured": bool(settings.storage.async_database_url)}), flush=True)
             return 0
+        if args.db_command in {"current", "history", "upgrade"}:
+            import subprocess
+            alembic_args = {"current": ["alembic", "-c", settings.storage.alembic_config, "current"], "history": ["alembic", "-c", settings.storage.alembic_config, "history"], "upgrade": ["alembic", "-c", settings.storage.alembic_config, "upgrade", args.revision]}[args.db_command]
+            completed = subprocess.run(alembic_args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+            print(completed.stdout, end="", flush=True)
+            return completed.returncode
         if args.db_command in {"check", "doctor"}:
             problems = asyncio.run(check_schema(settings.storage.async_database_url, settings.shared_schema))
             if problems:

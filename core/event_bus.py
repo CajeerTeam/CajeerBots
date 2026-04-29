@@ -217,20 +217,42 @@ class PostgresEventBus(EventBusBackend):
 
     async def nack(self, claimed: ClaimedEvent | CajeerEvent | str, error: str, *, retry: bool = True) -> None:
         event_id = self._event_id(claimed)
-        if retry:
-            statement = f"""UPDATE {self.settings.shared_schema}.event_bus
-                           SET status=CASE WHEN attempts >= :max_attempts THEN 'failed' ELSE 'failed' END,
-                               last_error=:error, locked_at=NULL, locked_by=NULL,
-                               next_attempt_at=CASE WHEN attempts >= :max_attempts THEN NULL ELSE NOW() + (:delay || ' seconds')::interval END
-                         WHERE event_id=:event_id"""
-        else:
-            statement = f"""UPDATE {self.settings.shared_schema}.event_bus
-                           SET status='failed', last_error=:error, locked_at=NULL, locked_by=NULL
-                         WHERE event_id=:event_id"""
-        attempts_delay = min(self.settings.storage.event_bus_retry_backoff_max_seconds, self.settings.storage.event_bus_retry_backoff_seconds)
-        params = {"event_id": event_id, "error": error, "delay": attempts_delay, "max_attempts": self.settings.storage.event_bus_max_attempts}
+        base = max(0, int(self.settings.storage.event_bus_retry_backoff_seconds))
+        max_backoff = max(1, int(self.settings.storage.event_bus_retry_backoff_max_seconds))
+        max_attempts = max(1, int(self.settings.storage.event_bus_max_attempts))
         async with self._engine_obj().begin() as conn:
-            await conn.execute(_sql_text(statement), params)
+            row = (
+                await conn.execute(
+                    _sql_text(f"SELECT attempts, payload, trace_id FROM {self.settings.shared_schema}.event_bus WHERE event_id=:event_id"),
+                    {"event_id": event_id},
+                )
+            ).mappings().first()
+            attempts = int(row["attempts"] or 0) if row else 0
+            delay = min(max_backoff, base * max(1, 2 ** max(0, attempts - 1)))
+            terminal = (not retry) or attempts >= max_attempts
+            await conn.execute(
+                _sql_text(
+                    f"""UPDATE {self.settings.shared_schema}.event_bus
+                       SET status='failed',
+                           last_error=:error,
+                           locked_at=NULL,
+                           locked_by=NULL,
+                           next_attempt_at=CASE WHEN :terminal THEN NULL ELSE NOW() + (:delay || ' seconds')::interval END
+                     WHERE event_id=:event_id"""
+                ),
+                {"event_id": event_id, "error": error, "delay": delay, "terminal": terminal},
+            )
+            if terminal and row is not None:
+                from uuid import uuid4
+
+                await conn.execute(
+                    _sql_text(
+                        f"""INSERT INTO {self.settings.shared_schema}.dead_letters(dead_letter_id,event_id,trace_id,payload,reason,created_at)
+                            VALUES (:dead_letter_id,:event_id,:trace_id,CAST(:payload AS jsonb),:reason,NOW())
+                            ON CONFLICT (dead_letter_id) DO NOTHING"""
+                    ),
+                    {"dead_letter_id": str(uuid4()), "event_id": event_id, "trace_id": row.get("trace_id"), "payload": json.dumps(row.get("payload") if isinstance(row.get("payload"), dict) else json.loads(str(row.get("payload") or "{}")), ensure_ascii=False), "reason": error},
+                )
         self._failed += 1
 
     def snapshot(self) -> list[CajeerEvent]:

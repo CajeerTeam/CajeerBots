@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -14,15 +15,29 @@ class TokenBucket:
     updated_at: float
 
 
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
 @dataclass
 class MemoryRateLimiter:
     default_capacity: int = 30
     default_rate: float = 30.0
+    adapter_rates: dict[str, float] = field(default_factory=dict)
     _buckets: dict[str, TokenBucket] = field(default_factory=dict)
 
+    def _rate_for_key(self, key: str) -> tuple[int, float]:
+        adapter = key.split(":", 1)[0].lower()
+        rate = self.adapter_rates.get(adapter, self.default_rate)
+        return max(1, int(rate)), max(0.1, float(rate))
+
     async def acquire(self, key: str, *, capacity: int | None = None, rate: float | None = None) -> None:
-        capacity = capacity or self.default_capacity
-        rate = rate or self.default_rate
+        default_capacity, default_rate = self._rate_for_key(key)
+        capacity = capacity or default_capacity
+        rate = rate or default_rate
         while True:
             now = time.monotonic()
             bucket = self._buckets.setdefault(key, TokenBucket(capacity, rate, float(capacity), now))
@@ -36,8 +51,8 @@ class MemoryRateLimiter:
 
 
 class RedisRateLimiter(MemoryRateLimiter):
-    def __init__(self, redis_url: str, prefix: str, *, default_capacity: int = 30, default_rate: float = 30.0) -> None:
-        super().__init__(default_capacity=default_capacity, default_rate=default_rate)
+    def __init__(self, redis_url: str, prefix: str, *, default_capacity: int = 30, default_rate: float = 30.0, adapter_rates: dict[str, float] | None = None) -> None:
+        super().__init__(default_capacity=default_capacity, default_rate=default_rate, adapter_rates=adapter_rates or {})
         self.redis_url = redis_url
         self.prefix = prefix
         self._redis: Any | None = None
@@ -50,8 +65,9 @@ class RedisRateLimiter(MemoryRateLimiter):
         return self._redis
 
     async def acquire(self, key: str, *, capacity: int | None = None, rate: float | None = None) -> None:
-        # Lightweight Redis-backed fixed-window limiter. При недоступности Redis fallback на memory.
-        capacity = capacity or self.default_capacity
+        default_capacity, default_rate = self._rate_for_key(key)
+        capacity = capacity or default_capacity
+        rate = rate or default_rate
         window_key = f"{self.prefix}:rate:{key}:{int(time.time())}"
         try:
             redis = await self._client()
@@ -60,13 +76,18 @@ class RedisRateLimiter(MemoryRateLimiter):
                 await redis.expire(window_key, 2)
             if int(count) <= capacity:
                 return
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(max(0.05, 1.0 / max(rate, 0.1)))
             return
         except Exception:
             await super().acquire(key, capacity=capacity, rate=rate)
 
 
 def build_rate_limiter(settings: Any) -> MemoryRateLimiter:
+    adapter_rates = {
+        "telegram": _float_env("TELEGRAM_RATE_LIMIT_GLOBAL_PER_SECOND", 30.0),
+        "vkontakte": _float_env("VK_RATE_LIMIT_GLOBAL_PER_SECOND", 20.0),
+        "discord": _float_env("DISCORD_RATE_LIMIT_PER_CHANNEL_PER_SECOND", 1.0),
+    }
     if settings.redis_url:
-        return RedisRateLimiter(settings.redis_url, settings.storage.redis_queue_prefix)
-    return MemoryRateLimiter()
+        return RedisRateLimiter(settings.redis_url, settings.storage.redis_queue_prefix, adapter_rates=adapter_rates)
+    return MemoryRateLimiter(adapter_rates=adapter_rates)

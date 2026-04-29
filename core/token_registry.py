@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+from core.api_routes import KNOWN_SCOPES, canonical_scope
+
 
 @dataclass
 class ApiTokenRecord:
@@ -18,6 +20,10 @@ class ApiTokenRecord:
     scopes: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_used_at: str | None = None
+    last_used_ip: str | None = None
+    last_used_user_agent: str | None = None
+    created_by: str | None = None
+    expires_at: str | None = None
     revoked_at: str | None = None
 
     def to_dict(self) -> dict[str, object]:
@@ -53,7 +59,14 @@ class ApiTokenRegistry:
     def hash_token(token: str) -> str:
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-    def authenticate(self, bearer: str) -> tuple[str | None, set[str], str | None]:
+    def _normalize_scopes(self, scopes: Iterable[str]) -> list[str]:
+        normalized = sorted({canonical_scope(scope) for scope in scopes if scope})
+        unknown = [scope for scope in normalized if scope not in KNOWN_SCOPES and scope != "*"]
+        if unknown:
+            raise ValueError("неизвестные scopes: " + ", ".join(unknown))
+        return normalized
+
+    def authenticate(self, bearer: str, *, ip: str | None = None, user_agent: str | None = None) -> tuple[str | None, set[str], str | None]:
         token = bearer.removeprefix("Bearer ").strip()
         if not token:
             return None, set(), None
@@ -62,20 +75,38 @@ class ApiTokenRegistry:
         for record in self.records:
             if record.revoked_at:
                 continue
+            if record.expires_at and record.expires_at < now:
+                continue
             if record.prefix and not token.startswith(record.prefix):
                 continue
             if hmac.compare_digest(record.sha256, digest):
                 record.last_used_at = now
+                record.last_used_ip = ip or record.last_used_ip
+                record.last_used_user_agent = user_agent or record.last_used_user_agent
                 self._save()
                 return record.id, set(record.scopes), record.prefix
         return None, set(), None
 
-    def create_token(self, *, token_id: str, scopes: Iterable[str], prefix: str = "cb_") -> tuple[str, ApiTokenRecord]:
+    def create_token(self, *, token_id: str, scopes: Iterable[str], prefix: str = "cb_", created_by: str | None = None, expires_at: str | None = None) -> tuple[str, ApiTokenRecord]:
+        if any(record.id == token_id for record in self.records):
+            raise ValueError(f"token id уже существует: {token_id}")
         token = prefix + secrets.token_urlsafe(32)
-        record = ApiTokenRecord(token_id, prefix, self.hash_token(token), sorted(set(scopes)))
+        record = ApiTokenRecord(token_id, prefix, self.hash_token(token), self._normalize_scopes(scopes), created_by=created_by, expires_at=expires_at)
         self.records.append(record)
         self._save()
         return token, record
+
+    def rotate(self, token_id: str) -> tuple[str, ApiTokenRecord]:
+        old = next((item for item in self.records if item.id == token_id and not item.revoked_at), None)
+        if old is None:
+            raise KeyError(token_id)
+        token = old.prefix + secrets.token_urlsafe(32)
+        old.sha256 = self.hash_token(token)
+        old.last_used_at = None
+        old.last_used_ip = None
+        old.last_used_user_agent = None
+        self._save()
+        return token, old
 
     def revoke(self, token_id: str) -> bool:
         for record in self.records:
@@ -84,6 +115,12 @@ class ApiTokenRegistry:
                 self._save()
                 return True
         return False
+
+    def inspect(self, token_id: str) -> dict[str, object] | None:
+        for record in self.records:
+            if record.id == token_id:
+                return record.to_dict()
+        return None
 
     def snapshot(self) -> list[dict[str, object]]:
         return [record.to_dict() for record in self.records]
