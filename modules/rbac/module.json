@@ -19,5 +19,6 @@
       "default": "user",
       "description": "Роль по умолчанию для новых пользователей."
     }
-  }
+  },
+  "entrypoint": "modules.rbac.runtime:RbacModule"
 }
