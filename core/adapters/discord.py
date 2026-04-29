@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from core.adapters.base import AdapterCapabilities, BotAdapter
@@ -13,12 +12,14 @@ class DiscordAdapter(BotAdapter):
     name = "discord"
     capabilities = AdapterCapabilities(files_receive=True, roles=True, reactions=True)
 
-    async def start(self) -> None:
+    async def on_start(self) -> None:
         if not self.config.token:
             logger.warning("токен Discord не задан; адаптер запущен в демонстрационном режиме")
         logger.info("адаптер Discord запущен")
         await self.publish_event(
-            CajeerEvent.create(source="discord", type="adapter.started", payload={"guild_id": self.config.extra.get("guild_id", "")})
+            CajeerEvent.create(
+                source="discord",
+                type="adapter.started",
+                payload={"guild_id": self.config.extra.get("guild_id", "")},
+            )
         )
-        while not self._stopping.is_set():
-            await asyncio.sleep(5)
