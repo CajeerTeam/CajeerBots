@@ -22,5 +22,6 @@
       "default": 14,
       "description": "Через сколько дней закрывать неактивные обращения."
     }
-  }
+  },
+  "entrypoint": "modules.support.runtime:SupportModule"
 }
