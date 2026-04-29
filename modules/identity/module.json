@@ -10,5 +10,12 @@
     "discord",
     "vkontakte"
   ],
-  "enabled_by_default": true
+  "enabled_by_default": true,
+  "settings_schema": {
+    "identity_auto_link": {
+      "type": "boolean",
+      "default": false,
+      "description": "Автоматически связывать внешние аккаунты при доверенном источнике."
+    }
+  }
 }
