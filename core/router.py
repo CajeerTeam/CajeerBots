@@ -6,6 +6,7 @@ from typing import Any
 
 from core.commands import CommandRegistry, build_default_commands
 from core.events import CajeerEvent
+from core.permissions import grants_from_event, has_permission
 from core.responses import response_from_result
 
 logger = logging.getLogger(__name__)
@@ -42,15 +43,25 @@ class EventRouter:
             if not command_name:
                 result = RouteResult(False, "commands", {"error": "команда не указана", "message": "Команда не указана."})
             else:
-                component_result = None
-                if self.components is not None:
-                    component_result = await self.components.route_command(command_name, event)
-                if component_result:
-                    result = RouteResult(True, "component", component_result)
+                command_definition = self.commands.get(command_name)
+                permission = command_definition.permission if command_definition else None
+                if permission and not has_permission(grants_from_event(event), permission):
+                    result = RouteResult(False, "rbac", {
+                        "ok": False,
+                        "error": "permission_denied",
+                        "permission": permission,
+                        "message": f"Недостаточно прав для команды /{command_name}.",
+                    })
                 else:
-                    details = await self.commands.dispatch(command_name, event)
-                    result = RouteResult(bool(details.get("ok")), "commands", details)
-            if result.handled:
+                    component_result = None
+                    if self.components is not None:
+                        component_result = await self.components.route_command(command_name, event)
+                    if component_result:
+                        result = RouteResult(True, "component", component_result)
+                    else:
+                        details = await self.commands.dispatch(command_name, event)
+                        result = RouteResult(bool(details.get("ok")), "commands", details)
+            if result.handled or result.handler == "rbac":
                 await self._emit_command_response(event, result)
             return self._remember(result)
 
@@ -89,7 +100,7 @@ class EventRouter:
             payload=response.to_dict(),
         )
         await runtime.event_bus.publish(response_event)
-        runtime.delivery.enqueue(response.adapter, response.chat_id, response.text, trace_id=response.trace_id)
+        await runtime.delivery.enqueue_async(response.adapter, response.chat_id, response.text, trace_id=response.trace_id)
         runtime.audit.write(
             actor_type="system",
             actor_id="router",
@@ -97,7 +108,9 @@ class EventRouter:
             resource=response.adapter,
             trace_id=response.trace_id,
         )
-        await runtime.delivery.process_once(runtime.adapter_map())
+        adapters = runtime.adapter_map()
+        if adapters:
+            await runtime.delivery.process_once(adapters)
 
     def _remember(self, result: RouteResult) -> RouteResult:
         self.history.append(result)

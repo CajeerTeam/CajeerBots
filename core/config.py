@@ -170,6 +170,8 @@ class StorageSettings:
     redis_cache_prefix: str
     redis_fsm_prefix: str
     redis_queue_prefix: str
+    delivery_retry_backoff_seconds: int
+    idempotency_ttl_seconds: int
 
 
 @dataclass(frozen=True)
@@ -218,8 +220,18 @@ class Settings:
         telegram_mode = _choice("TELEGRAM_MODE", "polling", {"polling", "webhook"})
         adapters = {
             "telegram": AdapterConfig("telegram", _bool(os.getenv("TELEGRAM_ENABLED"), True), os.getenv("TELEGRAM_BOT_TOKEN", ""), {"mode": telegram_mode, "webhook_url": os.getenv("TELEGRAM_WEBHOOK_URL", ""), "webhook_secret": os.getenv("TELEGRAM_WEBHOOK_SECRET", "")}),
-            "discord": AdapterConfig("discord", _bool(os.getenv("DISCORD_ENABLED"), True), os.getenv("DISCORD_TOKEN", ""), {"application_id": os.getenv("DISCORD_APPLICATION_ID", ""), "guild_id": os.getenv("DISCORD_GUILD_ID", "")}),
-            "vkontakte": AdapterConfig("vkontakte", _bool(os.getenv("VKONTAKTE_ENABLED"), True), os.getenv("VK_GROUP_TOKEN", ""), {"group_id": os.getenv("VK_GROUP_ID", ""), "api_version": os.getenv("VK_API_VERSION", "5.199")}),
+            "discord": AdapterConfig("discord", _bool(os.getenv("DISCORD_ENABLED"), True), os.getenv("DISCORD_TOKEN", ""), {
+                "application_id": os.getenv("DISCORD_APPLICATION_ID", ""),
+                "guild_id": os.getenv("DISCORD_GUILD_ID", ""),
+                "message_content_enabled": str(_bool(os.getenv("DISCORD_MESSAGE_CONTENT_ENABLED"), False)).lower(),
+                "slash_commands_enabled": str(_bool(os.getenv("DISCORD_SLASH_COMMANDS_ENABLED"), True)).lower(),
+            }),
+            "vkontakte": AdapterConfig("vkontakte", _bool(os.getenv("VKONTAKTE_ENABLED"), True), os.getenv("VK_GROUP_TOKEN", ""), {
+                "group_id": os.getenv("VK_GROUP_ID", ""),
+                "api_version": os.getenv("VK_API_VERSION", "5.199"),
+                "callback_secret": os.getenv("VK_CALLBACK_SECRET", ""),
+                "confirmation_code": os.getenv("VK_CONFIRMATION_CODE", ""),
+            }),
             "fake": AdapterConfig("fake", _bool(os.getenv("FAKE_ENABLED"), False), "", {"script": os.getenv("FAKE_SCRIPT", "")}),
         }
         distributed = DistributedSettings(
@@ -263,6 +275,8 @@ class Settings:
             redis_cache_prefix=os.getenv("REDIS_CACHE_PREFIX", "cajeer:bots:cache"),
             redis_fsm_prefix=os.getenv("REDIS_FSM_PREFIX", "cajeer:bots:fsm"),
             redis_queue_prefix=os.getenv("REDIS_QUEUE_PREFIX", "cajeer:bots:queue"),
+            delivery_retry_backoff_seconds=_int("DELIVERY_RETRY_BACKOFF_SECONDS", 5, minimum=0, maximum=3600),
+            idempotency_ttl_seconds=_int("IDEMPOTENCY_TTL_SECONDS", 86400, minimum=60, maximum=31536000),
         )
         supervisor = SupervisorSettings(
             restart_policy=_choice("ADAPTER_RESTART_POLICY", "on-failure", {"always", "on-failure", "never"}),
@@ -318,8 +332,8 @@ class Settings:
             errors.append("DISTRIBUTED_ENABLED=true нельзя использовать вместе с CAJEER_BOTS_MODE=local")
         if doctor_mode == "distributed" or self.mode == "distributed" or self.distributed.enabled:
             errors.extend(self.distributed.validate())
-        if self.event_bus_backend == "postgres" and not self.database_url:
-            errors.append("EVENT_BUS_BACKEND=postgres требует DATABASE_URL")
+        if self.event_bus_backend == "postgres" and not self.storage.async_database_url:
+            errors.append("EVENT_BUS_BACKEND=postgres требует DATABASE_ASYNC_URL")
         if self.event_bus_backend == "redis" and not self.redis_url:
             errors.append("EVENT_BUS_BACKEND=redis требует REDIS_URL")
         if self.storage.async_database_url and not self.storage.async_database_url.startswith("postgresql+asyncpg://"):
@@ -352,6 +366,8 @@ class Settings:
             "delivery_backend": self.storage.delivery_backend,
             "dead_letter_backend": self.storage.dead_letter_backend,
             "idempotency_backend": self.storage.idempotency_backend,
+            "delivery_retry_backoff_seconds": self.storage.delivery_retry_backoff_seconds,
+            "idempotency_ttl_seconds": self.storage.idempotency_ttl_seconds,
             "local_inline_routing": self.local_inline_routing,
             "bridge_routing": self.bridge_routing,
             "modules_enabled": self.modules_enabled,

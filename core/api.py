@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from bots.telegram.bot.mapper import update_to_event as telegram_update_to_event
+from bots.vkontakte.bot.thin import VkontakteThinWrapper
 from core.contracts import API_CONTRACT_VERSION
 from core.events import CajeerEvent
 
@@ -66,6 +67,12 @@ class ApiServer:
             return True
         actual = headers.get("X-Telegram-Bot-Api-Secret-Token", "")
         return hmac.compare_digest(str(actual), str(expected))
+
+    def _vkontakte_webhook_authorized(self, body: dict[str, object]) -> bool:
+        expected = self.runtime.settings.adapters["vkontakte"].extra.get("callback_secret", "")
+        if not expected:
+            return True
+        return hmac.compare_digest(str(body.get("secret") or ""), str(expected))
 
     def _can_get(self, path: str, scope: str | None) -> bool:
         if path in PUBLIC_PATHS:
@@ -141,13 +148,15 @@ class ApiServer:
             runtime.audit.write(actor_type="api", actor_id=actor, action="commands.dispatch", resource=command, trace_id=event.trace_id)
             return 200, {"ok": True, "result": result}, "application/json"
         if path == "/delivery/enqueue":
-            task = runtime.delivery.enqueue(
-                adapter=str(body.get("adapter", "")),
-                target=str(body.get("target", "")),
-                text=str(body.get("text", "")),
-                max_attempts=int(body.get("max_attempts", 3)),
-                trace_id=str(body.get("trace_id") or "") or None,
-            )
+            async def enqueue_task():
+                return await runtime.delivery.enqueue_async(
+                    adapter=str(body.get("adapter", "")),
+                    target=str(body.get("target", "")),
+                    text=str(body.get("text", "")),
+                    max_attempts=int(body.get("max_attempts", 3)),
+                    trace_id=str(body.get("trace_id") or "") or None,
+                )
+            task = asyncio.run(enqueue_task())
             runtime.audit.write(actor_type="api", actor_id=actor, action="delivery.enqueue", resource=task.adapter, trace_id=task.trace_id)
             return 202, {"ok": True, "task": task.to_dict()}, "application/json"
         if path == "/dead-letters/retry":
@@ -182,6 +191,19 @@ class ApiServer:
             results = asyncio.run(ingest())
             runtime.audit.write(actor_type="webhook", actor_id="telegram", action="webhook.telegram", resource="telegram", trace_id=event.trace_id)
             return 200, {"ok": True, "event": event.to_dict(), "results": results}, "application/json"
+        if path == "/webhooks/vkontakte":
+            if body.get("type") == "confirmation":
+                code = runtime.settings.adapters["vkontakte"].extra.get("confirmation_code", "")
+                return 200, {"ok": True, "response": code}, "application/json"
+            if not self._vkontakte_webhook_authorized(body):
+                return 401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid vkontakte webhook secret"}}, "application/json"
+            async def ingest_vk() -> list[dict[str, object]]:
+                wrapper = VkontakteThinWrapper(runtime.settings.adapters["vkontakte"].token)
+                event = await wrapper.callback_event(body)
+                return await runtime.ingest_incoming_event(event)
+            results = asyncio.run(ingest_vk())
+            runtime.audit.write(actor_type="webhook", actor_id="vkontakte", action="webhook.vkontakte", resource="vkontakte")
+            return 200, {"ok": True, "results": results, "response": "ok"}, "application/json"
         return 404, {"ok": False, "error": {"code": "not_found", "message": "маршрут не найден"}}, "application/json"
 
     def openapi(self) -> dict[str, object]:
@@ -196,6 +218,7 @@ class ApiServer:
                 "/events/publish": {"post": {"summary": "Опубликовать событие"}},
                 "/delivery/enqueue": {"post": {"summary": "Поставить исходящее сообщение в очередь"}},
                 "/webhooks/telegram": {"post": {"summary": "Принять Telegram webhook update"}},
+                "/webhooks/vkontakte": {"post": {"summary": "Принять VK Callback API update"}},
                 "/audit": {"get": {"summary": "Audit trail"}},
             },
         }
@@ -254,13 +277,13 @@ class ApiServer:
                 request_id = self.headers.get("X-Request-Id") or str(uuid4())
                 path = urlparse(self.path).path
                 scope = server._token_scope(self.headers)
-                if path == "/webhooks/telegram":
-                    if not server._telegram_webhook_authorized(self.headers):
-                        self._write(401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid telegram webhook secret"}}, "application/json", request_id)
-                        return
+                if path in {"/webhooks/telegram", "/webhooks/vkontakte"}:
                     try:
                         body = self._json_body()
-                        status, payload, content_type = server._post_payload(path, body, actor="telegram")
+                        if path == "/webhooks/telegram" and not server._telegram_webhook_authorized(self.headers):
+                            self._write(401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid telegram webhook secret"}}, "application/json", request_id)
+                            return
+                        status, payload, content_type = server._post_payload(path, body, actor=path.rsplit("/", 1)[-1])
                     except Exception as exc:  # noqa: BLE001
                         status, payload, content_type = 400, {"ok": False, "error": {"code": "bad_request", "message": str(exc)}}, "application/json"
                     self._write(status, payload, content_type, request_id)

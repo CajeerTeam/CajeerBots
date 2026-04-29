@@ -17,6 +17,7 @@ KNOWN_CAPABILITIES = {
     "roles",
     "reactions",
     "webhooks",
+    "slash_commands",
     "health",
     "events.publish",
 }

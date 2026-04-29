@@ -271,8 +271,8 @@ class Runtime:
 
     def dependencies_snapshot(self) -> dict[str, object]:
         return {
-            "database_required": self.settings.event_bus_backend == "postgres" or self.settings.storage.delivery_backend == "postgres",
-            "database_configured": bool(self.settings.database_url or self.settings.storage.async_database_url),
+            "database_required": self.settings.event_bus_backend == "postgres" or self.settings.storage.delivery_backend == "postgres" or self.settings.storage.dead_letter_backend == "postgres" or self.settings.storage.idempotency_backend == "postgres",
+            "database_configured": bool(self.settings.storage.async_database_url or self.settings.database_url),
             "redis_required": self.settings.event_bus_backend == "redis"
             or self.settings.storage.delivery_backend == "redis"
             or self.settings.storage.dead_letter_backend == "redis"
@@ -306,8 +306,8 @@ class Runtime:
             problems.append("API_TOKEN содержит демонстрационное значение")
         if self.settings.event_signing_secret in PLACEHOLDER_SECRETS:
             problems.append("EVENT_SIGNING_SECRET содержит демонстрационное значение")
-        if self.settings.event_bus_backend == "postgres" and not self.settings.database_url:
-            problems.append("PostgreSQL требуется для EVENT_BUS_BACKEND=postgres")
+        if self.settings.event_bus_backend == "postgres" and not self.settings.storage.async_database_url:
+            problems.append("DATABASE_ASYNC_URL требуется для EVENT_BUS_BACKEND=postgres")
         if self.settings.event_bus_backend == "redis" and not self.settings.redis_url:
             problems.append("Redis требуется для EVENT_BUS_BACKEND=redis")
         return {

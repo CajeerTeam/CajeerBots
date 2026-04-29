@@ -4,9 +4,16 @@ import abc
 import json
 from collections import deque
 from dataclasses import asdict, dataclass, field
+from typing import Any
 
 from core.config import Settings
 from core.events import CajeerEvent, validate_event
+
+
+def _sql_text(statement: str):
+    from sqlalchemy import text
+
+    return text(statement)
 
 
 @dataclass(frozen=True)
@@ -25,26 +32,20 @@ class EventBusBackend(abc.ABC):
     name: str = "abstract"
 
     @abc.abstractmethod
-    async def publish(self, event: CajeerEvent) -> None:
-        """Опубликовать событие в шину."""
+    async def publish(self, event: CajeerEvent) -> None: ...
 
     @abc.abstractmethod
-    async def drain(self, limit: int = 100) -> list[CajeerEvent]:
-        """Получить неполученные события для режима bridge."""
+    async def drain(self, limit: int = 100) -> list[CajeerEvent]: ...
 
     @abc.abstractmethod
-    def snapshot(self) -> list[CajeerEvent]:
-        """Вернуть последние известные события для API/диагностики."""
+    def snapshot(self) -> list[CajeerEvent]: ...
 
     @abc.abstractmethod
-    def metrics(self) -> EventBusMetrics:
-        """Вернуть диагностические счётчики шины."""
+    def metrics(self) -> EventBusMetrics: ...
 
 
 @dataclass
 class InMemoryEventBus(EventBusBackend):
-    """Локальная шина событий для одиночного процесса и тестов."""
-
     max_size: int = 1000
     name: str = "memory"
     _events: deque[CajeerEvent] = field(default_factory=deque)
@@ -79,8 +80,6 @@ class InMemoryEventBus(EventBusBackend):
 
 
 class PostgresEventBus(EventBusBackend):
-    """PostgreSQL backend по внешнему контракту БД."""
-
     name = "postgres"
 
     def __init__(self, settings: Settings) -> None:
@@ -89,31 +88,30 @@ class PostgresEventBus(EventBusBackend):
         self._published = 0
         self._delivered = 0
         self._failed = 0
+        self._engine: Any | None = None
 
-    def _connect(self):
-        if not self.settings.database_url:
-            raise RuntimeError("DATABASE_URL не задан для EVENT_BUS_BACKEND=postgres")
-        import psycopg
-        return psycopg.connect(self.settings.database_url, sslmode=self.settings.database_sslmode)
+    def _engine_obj(self) -> Any:
+        if self._engine is None:
+            from sqlalchemy.ext.asyncio import create_async_engine
+
+            if not self.settings.storage.async_database_url:
+                raise RuntimeError("DATABASE_ASYNC_URL не задан для EVENT_BUS_BACKEND=postgres")
+            self._engine = create_async_engine(self.settings.storage.async_database_url, pool_pre_ping=True)
+        return self._engine
 
     async def publish(self, event: CajeerEvent) -> None:
         errors = validate_event(event)
         if errors:
             self._failed += 1
             raise ValueError("; ".join(errors))
-        payload = event.to_json()
         try:
-            with self._connect() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        f"""
-                        INSERT INTO {self.settings.shared_schema}.event_bus
-                          (event_id, trace_id, source, event_type, payload, status, created_at)
-                        VALUES (%s, %s, %s, %s, %s::jsonb, 'new', NOW())
-                        ON CONFLICT (event_id) DO NOTHING
-                        """,
-                        (event.event_id, event.trace_id, event.source, event.type, payload),
-                    )
+            async with self._engine_obj().begin() as conn:
+                await conn.execute(_sql_text(f"""INSERT INTO {self.settings.shared_schema}.event_bus
+                    (event_id, trace_id, source, event_type, payload, status, created_at)
+                    VALUES (:event_id, :trace_id, :source, :event_type, CAST(:payload AS jsonb), 'new', NOW())
+                    ON CONFLICT (event_id) DO NOTHING"""),
+                    {"event_id": event.event_id, "trace_id": event.trace_id, "source": event.source, "event_type": event.type, "payload": event.to_json()},
+                )
             self._snapshot.append(event)
             self._published += 1
         except Exception:
@@ -121,44 +119,23 @@ class PostgresEventBus(EventBusBackend):
             raise
 
     async def drain(self, limit: int = 100) -> list[CajeerEvent]:
-        events: list[CajeerEvent] = []
         try:
-            with self._connect() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        f"""
-                        WITH picked AS (
-                          SELECT event_id, payload
-                          FROM {self.settings.shared_schema}.event_bus
-                          WHERE status = 'new'
-                          ORDER BY created_at
-                          LIMIT %s
-                          FOR UPDATE SKIP LOCKED
-                        )
-                        UPDATE {self.settings.shared_schema}.event_bus AS bus
-                        SET status = 'processing', locked_at = NOW()
-                        FROM picked
-                        WHERE bus.event_id = picked.event_id
-                        RETURNING picked.event_id, picked.payload
-                        """,
-                        (limit,),
-                    )
-                    rows = cur.fetchall()
-                    ids: list[str] = []
-                    for event_id, payload in rows:
-                        data = payload if isinstance(payload, dict) else json.loads(str(payload))
-                        event = CajeerEvent.from_dict(data)
-                        events.append(event)
-                        ids.append(str(event_id))
-                    if ids:
-                        cur.execute(
-                            f"""
-                            UPDATE {self.settings.shared_schema}.event_bus
-                            SET status = 'delivered', delivered_at = NOW()
-                            WHERE event_id = ANY(%s)
-                            """,
-                            (ids,),
-                        )
+            async with self._engine_obj().begin() as conn:
+                rows = (await conn.execute(_sql_text(f"""WITH picked AS (
+                    SELECT event_id FROM {self.settings.shared_schema}.event_bus WHERE status='new'
+                    ORDER BY created_at LIMIT :limit FOR UPDATE SKIP LOCKED)
+                    UPDATE {self.settings.shared_schema}.event_bus bus
+                    SET status='processing', locked_at=NOW()
+                    FROM picked WHERE bus.event_id=picked.event_id
+                    RETURNING bus.event_id, bus.payload"""), {"limit": limit})).fetchall()
+                ids: list[str] = []
+                events: list[CajeerEvent] = []
+                for event_id, payload in rows:
+                    data = payload if isinstance(payload, dict) else json.loads(str(payload))
+                    events.append(CajeerEvent.from_dict(data))
+                    ids.append(str(event_id))
+                if ids:
+                    await conn.execute(_sql_text(f"UPDATE {self.settings.shared_schema}.event_bus SET status='delivered', delivered_at=NOW() WHERE event_id = ANY(:ids)"), {"ids": ids})
             for event in events:
                 self._snapshot.append(event)
             self._delivered += len(events)
@@ -175,16 +152,15 @@ class PostgresEventBus(EventBusBackend):
 
 
 class RedisEventBus(EventBusBackend):
-    """Redis Streams backend через redis.asyncio + consumer groups."""
-
     name = "redis"
 
     def __init__(self, settings: Settings) -> None:
         if not settings.redis_url:
             raise RuntimeError("REDIS_URL не задан для EVENT_BUS_BACKEND=redis")
         self.settings = settings
-        self._redis = None
+        self._redis: Any | None = None
         self._stream = f"{settings.storage.redis_queue_prefix}:events"
+        self._dlq = f"{settings.storage.redis_queue_prefix}:events:dlq"
         self._group = "cajeer-bots-bridge"
         self._consumer = settings.instance_id or "cajeer-bots-local"
         self._snapshot: deque[CajeerEvent] = deque(maxlen=1000)
@@ -193,12 +169,10 @@ class RedisEventBus(EventBusBackend):
         self._failed = 0
         self._group_ready = False
 
-    async def _client(self):
+    async def _client(self) -> Any:
         if self._redis is None:
-            try:
-                from redis.asyncio import Redis  # type: ignore
-            except ImportError as exc:
-                raise RuntimeError("для EVENT_BUS_BACKEND=redis установите пакет redis") from exc
+            from redis.asyncio import Redis  # type: ignore
+
             self._redis = Redis.from_url(self.settings.redis_url, decode_responses=True)
         if not self._group_ready:
             try:
@@ -213,8 +187,7 @@ class RedisEventBus(EventBusBackend):
         if errors:
             self._failed += 1
             raise ValueError("; ".join(errors))
-        redis = await self._client()
-        await redis.xadd(self._stream, {"payload": event.to_json(), "event_id": event.event_id, "trace_id": event.trace_id})
+        await (await self._client()).xadd(self._stream, {"payload": event.to_json(), "event_id": event.event_id, "trace_id": event.trace_id})
         self._snapshot.append(event)
         self._published += 1
 
@@ -225,11 +198,15 @@ class RedisEventBus(EventBusBackend):
         ack_ids: list[str] = []
         for _, items in records:
             for item_id, fields in items:
-                data = json.loads(fields["payload"])
-                event = CajeerEvent.from_dict(data)
-                result.append(event)
-                self._snapshot.append(event)
-                ack_ids.append(item_id)
+                try:
+                    event = CajeerEvent.from_dict(json.loads(fields["payload"]))
+                    result.append(event)
+                    self._snapshot.append(event)
+                    ack_ids.append(item_id)
+                except Exception as exc:  # pragma: no cover
+                    self._failed += 1
+                    await redis.xadd(self._dlq, {"source_id": item_id, "error": str(exc), **fields})
+                    ack_ids.append(item_id)
         if ack_ids:
             await redis.xack(self._stream, self._group, *ack_ids)
         self._delivered += len(result)

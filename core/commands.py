@@ -40,6 +40,9 @@ class CommandRegistry:
             unique[command.name] = command
         return sorted(unique.values(), key=lambda item: item.name)
 
+    def get(self, command_name: str) -> CommandDefinition | None:
+        return self._commands.get(command_name.strip().lstrip("/"))
+
     async def dispatch(self, command_name: str, event: Any) -> dict[str, object]:
         command = self._commands.get(command_name)
         if command is None:
@@ -90,7 +93,7 @@ def build_default_commands(runtime: Any | None = None) -> CommandRegistry:
 
     registry.register(CommandDefinition("help", "Показать список доступных команд.", aliases=("помощь",)), help_handler)
     registry.register(CommandDefinition("status", "Показать состояние платформы.", aliases=("статус",)), status_handler)
-    registry.register(CommandDefinition("support", "Создать или просмотреть обращение в поддержку.", module_id="support"), support_handler)
-    registry.register(CommandDefinition("announce", "Создать объявление для каналов доставки.", module_id="announcements"), announce_handler)
-    registry.register(CommandDefinition("moderation", "Открыть инструменты модерации.", module_id="moderation"), moderation_handler)
+    registry.register(CommandDefinition("support", "Создать или просмотреть обращение в поддержку.", module_id="support", permission="bots.support.reply"), support_handler)
+    registry.register(CommandDefinition("announce", "Создать объявление для каналов доставки.", module_id="announcements", permission="bots.announce.create"), announce_handler)
+    registry.register(CommandDefinition("moderation", "Открыть инструменты модерации.", module_id="moderation", permission="bots.moderation.manage"), moderation_handler)
     return registry
