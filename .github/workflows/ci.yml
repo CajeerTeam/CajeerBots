@@ -14,7 +14,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: pip install -e .[dev]
-      - run: python -m compileall -q core bots modules plugins tests
+      - run: python scripts/check_syntax.py
       - run: find . -type d -name __pycache__ -prune -exec rm -rf {} +
       - run: test -s README.md && test -s .env.example && test -d core && test -d bots
       - run: test ! -d migrations
@@ -23,6 +23,6 @@ jobs:
             echo "Найдены запрещённые проектные или устаревшие термины"
             exit 1
           fi
-      - run: EVENT_SIGNING_SECRET=ci-secret API_TOKEN=ci-token python -m core doctor --offline
-      - run: python -m core adapters && python -m core modules && python -m core plugins && python -m core commands
+      - run: EVENT_SIGNING_SECRET=ci-secret API_TOKEN=ci-token API_TOKEN_READONLY=ci-readonly API_TOKEN_METRICS=ci-metrics python -m core doctor --offline
+      - run: python -m core adapters && python -m core modules && python -m core plugins && python -m core commands && python -m core distributed protocol
       - run: python -m pytest -q
