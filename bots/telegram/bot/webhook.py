@@ -1,5 +1,11 @@
-class TelegramWebhook:
-    """Каркас webhook-режима Telegram."""
+from __future__ import annotations
 
-    async def handle(self, payload: dict[str, object]) -> dict[str, object]:
-        return {"ok": True, "payload": payload}
+from core.events import CajeerEvent
+from bots.telegram.bot.mapper import update_to_event
+
+
+class TelegramWebhook:
+    """Webhook parser для Telegram updates."""
+
+    async def handle(self, payload: dict[str, object]) -> CajeerEvent:
+        return update_to_event(payload)
