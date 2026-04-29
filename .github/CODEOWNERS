@@ -9,6 +9,7 @@
 /plugins/ @CajeerTeam/Cajeer404
 /runtime/ @CajeerTeam/Cajeer404
 /scripts/ @CajeerTeam/Cajeer404
-shared
+/shared/ @CajeerTeam/Cajeer404
+/tests/ @CajeerTeam/Cajeer404
 /wiki/ @CajeerTeam/CajeerTeam
 /.github/ @CajeerTeam/CajeerTeam
