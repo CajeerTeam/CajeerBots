@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 import abc
 import asyncio
@@ -79,6 +78,7 @@ class AdapterContext:
     event_bus: Any
     router: Any
     dead_letters: Any | None = None
+    inline_routing: bool = True
 
 
 class BotAdapter(abc.ABC):
@@ -143,9 +143,10 @@ class BotAdapter(abc.ABC):
         try:
             if self.context is not None:
                 await self.context.event_bus.publish(event)
-                result = await self.context.router.route(event)
-                if not result.handled:
-                    logger.info("событие опубликовано без финального обработчика: %s", result.to_dict())
+                if self.context.inline_routing:
+                    result = await self.context.router.route(event)
+                    if not result.handled:
+                        logger.info("событие опубликовано без финального обработчика: %s", result.to_dict())
             self.status.processed_events += 1
             self.status.last_event_at = _utc_iso()
         except Exception as exc:
