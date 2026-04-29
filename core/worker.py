@@ -17,6 +17,7 @@ class WorkerStatus:
     ticks: int = 0
     last_tick_at: str | None = None
     delivery_processed_total: int = 0
+    dead_letters_retry_total: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -39,5 +40,5 @@ class WorkerService:
     async def tick(self) -> None:
         self.status.ticks += 1
         self.status.last_tick_at = _now()
-        self.status.delivery_processed_total += await self.runtime.delivery.process_once()
+        self.status.delivery_processed_total += await self.runtime.delivery.process_once(self.runtime.adapter_map())
         logger.debug("worker tick выполнен: %s", self.status.to_dict())

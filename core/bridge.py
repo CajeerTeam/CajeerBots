@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 class BridgeStatus:
     processed_events: int = 0
     failed_events: int = 0
+    skipped_events: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return asdict(self)
@@ -31,10 +32,15 @@ class BridgeService:
                 continue
 
     async def process_once(self) -> int:
+        if not self.runtime.settings.bridge_routing:
+            return 0
         events = await self.runtime.event_bus.drain(limit=100)
         for event in events:
             try:
                 result = await self.runtime.router.route(event)
+                if result.handler == "idempotency":
+                    self.status.skipped_events += 1
+                    continue
                 if not result.handled:
                     logger.info("событие не обработано окончательно: %s", result.to_dict())
                 self.status.processed_events += 1

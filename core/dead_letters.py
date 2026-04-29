@@ -34,5 +34,10 @@ class DeadLetterQueue:
     def snapshot(self) -> list[DeadLetter]:
         return list(self._items)
 
+    def retry_all(self) -> list[CajeerEvent]:
+        events = [item.event for item in self._items]
+        self._items.clear()
+        return events
+
     def count(self) -> int:
         return len(self._items)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import time
 from pathlib import Path
@@ -36,6 +37,8 @@ ADAPTER_CLASSES: dict[str, type[BotAdapter]] = {
 PLACEHOLDER_SECRETS = {
     "change-me",
     "change-me-admin-token",
+    "change-me-readonly-token",
+    "change-me-metrics-token",
     "change-me-long-random-secret",
     "",
 }
@@ -55,7 +58,7 @@ class Runtime:
         self.delivery = DeliveryService()
         self.idempotency = IdempotencyStore()
         self.commands: CommandRegistry = build_default_commands(self)
-        self.router = EventRouter(self.commands)
+        self.router = EventRouter(self.commands, self.idempotency)
         self.bridge = BridgeService(self)
         self.worker = WorkerService(self)
         self._stop_event: asyncio.Event | None = None
@@ -70,15 +73,23 @@ class Runtime:
         return "0.0.0"
 
     def build_adapter(self, name: str) -> BotAdapter:
-        context = AdapterContext(self.event_bus, self.router, self.dead_letters)
+        context = AdapterContext(
+            self.event_bus,
+            self.router,
+            self.dead_letters,
+            inline_routing=self.settings.local_inline_routing,
+        )
         return ADAPTER_CLASSES[name](self.settings, self.settings.adapters[name], context=context)
 
-    def selected_adapters(self, mode: str) -> list[str]:
-        if mode == "all":
+    def selected_adapters(self, target: str) -> list[str]:
+        if target == "all":
             return [adapter.name for adapter in self.settings.enabled_adapters()]
-        if mode in ADAPTER_CLASSES:
-            return [mode]
+        if target in ADAPTER_CLASSES:
+            return [target]
         return []
+
+    def adapter_map(self) -> dict[str, BotAdapter]:
+        return {adapter.name: adapter for adapter in self.adapters}
 
     def adapter_health_snapshot(self) -> list[AdapterHealth]:
         return [
@@ -97,20 +108,24 @@ class Runtime:
             for adapter in self.adapters
         ]
 
-    async def run(self, mode: str) -> None:
-        logger.info("запуск Cajeer Bots, режим=%s", mode)
+    async def run(self, target: str | None = None) -> None:
+        target = target or self.settings.default_target
+        logger.info("запуск Cajeer Bots, режим=%s, цель=%s", self.settings.mode, target)
         self.settings.runtime_dir.mkdir(parents=True, exist_ok=True)
 
-        if mode == "api":
+        if self.settings.mode == "distributed" and target not in {"api", "worker", "bridge"}:
+            logger.info("распределённый режим включён; локальный запуск адаптеров используется только для agent-узла")
+
+        if target == "api":
             return await self.run_api()
-        if mode == "worker":
+        if target == "worker":
             return await self.run_worker()
-        if mode == "bridge":
+        if target == "bridge":
             return await self.run_bridge()
 
-        names = self.selected_adapters(mode)
+        names = self.selected_adapters(target)
         if not names:
-            raise ValueError(f"неподдерживаемый режим: {mode}")
+            raise ValueError(f"неподдерживаемая цель запуска: {target}")
         self.adapters = [self.build_adapter(name) for name in names]
         await self._run_supervised(self.adapters)
 
@@ -140,6 +155,10 @@ class Runtime:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
+    def request_stop(self) -> None:
+        if self._stop_event is not None:
+            self._stop_event.set()
+
     def _install_signal_handlers(self, stop_event: asyncio.Event) -> None:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -153,6 +172,7 @@ class Runtime:
 
         logger.info("режим API запущен на %s:%s", self.settings.api_bind, self.settings.api_port)
         stop_event = asyncio.Event()
+        self._stop_event = stop_event
         self._install_signal_handlers(stop_event)
         server = ApiServer(self)
         server.start_in_thread()
@@ -163,31 +183,51 @@ class Runtime:
 
     async def run_worker(self) -> None:
         stop_event = asyncio.Event()
+        self._stop_event = stop_event
         self._install_signal_handlers(stop_event)
         await self.worker.run(stop_event)
 
     async def run_bridge(self) -> None:
         stop_event = asyncio.Event()
+        self._stop_event = stop_event
         self._install_signal_handlers(stop_event)
         await self.bridge.run(stop_event)
 
+    def dependencies_snapshot(self) -> dict[str, object]:
+        return {
+            "database_required": self.settings.event_bus_backend == "postgres",
+            "database_configured": bool(self.settings.database_url),
+            "redis_required": self.settings.event_bus_backend == "redis",
+            "redis_configured": bool(self.settings.redis_url),
+            "event_bus_backend": self.settings.event_bus_backend,
+            "enabled_adapters": [adapter.name for adapter in self.settings.enabled_adapters()],
+            "distributed_enabled": self.settings.distributed.enabled,
+        }
+
     def readiness_snapshot(self) -> dict[str, object]:
         problems: list[str] = []
+        problems.extend(self.settings.validate_runtime(doctor_mode=self.settings.mode))
         problems.extend(self.registry.validate(settings=self.settings))
-        compat = check_compatibility(self.project_root, self.version)
+        compat = check_compatibility(self.project_root, self.version, registry=self.registry)
         problems.extend(compat.errors)
         if self.settings.api_token in PLACEHOLDER_SECRETS:
             problems.append("API_TOKEN содержит демонстрационное значение")
         if self.settings.event_signing_secret in PLACEHOLDER_SECRETS:
             problems.append("EVENT_SIGNING_SECRET содержит демонстрационное значение")
+        if self.settings.event_bus_backend == "postgres" and not self.settings.database_url:
+            problems.append("PostgreSQL требуется для EVENT_BUS_BACKEND=postgres")
+        if self.settings.event_bus_backend == "redis" and not self.settings.redis_url:
+            problems.append("Redis требуется для EVENT_BUS_BACKEND=redis")
         return {
             "ok": not problems,
             "problems": problems,
+            "dependencies": self.dependencies_snapshot(),
             "event_bus": self.event_bus.metrics().to_dict(),
             "registry": {
                 "adapters": len(self.registry.adapters()),
                 "modules": len(self.registry.modules()),
                 "plugins": len(self.registry.plugins()),
+                "load_order": [item.to_dict() for item in self.registry.load_order()],
             },
         }
 
@@ -213,6 +253,9 @@ class Runtime:
             "# HELP cajeerbots_dead_letters_total Количество dead letter событий.",
             "# TYPE cajeerbots_dead_letters_total gauge",
             f"cajeerbots_dead_letters_total {self.dead_letters.count()}",
+            "# HELP cajeerbots_delivery_failed_total Количество ошибок доставки.",
+            "# TYPE cajeerbots_delivery_failed_total counter",
+            f"cajeerbots_delivery_failed_total {self.delivery.failed_total}",
         ]
         for adapter in self.adapter_health_snapshot():
             state_value = 1 if adapter.state == "running" else 0
@@ -221,9 +264,10 @@ class Runtime:
             lines.append(f'cajeerbots_adapter_events_failed_total{{adapter="{adapter.name}"}} {adapter.failed_events}')
         return "\n".join(lines) + "\n"
 
-    def doctor(self, offline: bool = False) -> list[str]:
+    def doctor(self, offline: bool = False, *, doctor_mode: str = "local") -> list[str]:
         problems: list[str] = []
         warnings: list[str] = []
+        problems.extend(self.settings.validate_runtime(doctor_mode=doctor_mode))
         if not self.settings.event_signing_secret:
             problems.append("EVENT_SIGNING_SECRET не задан")
         if self.settings.event_signing_secret in PLACEHOLDER_SECRETS:
@@ -236,14 +280,10 @@ class Runtime:
             problems.append("каталог bots не найден")
         if (self.project_root / "migrations").exists():
             problems.append("каталог migrations не должен входить в проект")
-        if self.settings.event_bus_backend == "postgres" and not self.settings.database_url:
-            problems.append("EVENT_BUS_BACKEND=postgres требует DATABASE_URL")
-        if self.settings.event_bus_backend == "redis" and not self.settings.redis_url:
-            problems.append("EVENT_BUS_BACKEND=redis требует REDIS_URL")
         problems.extend(self.registry.validate(settings=self.settings))
         problems.extend(self._check_executable_bits())
         problems.extend(self._check_forbidden_terms())
-        compat = check_compatibility(self.project_root, self.version)
+        compat = check_compatibility(self.project_root, self.version, registry=self.registry)
         problems.extend(compat.errors)
         warnings.extend(compat.warnings)
         for warning in warnings:

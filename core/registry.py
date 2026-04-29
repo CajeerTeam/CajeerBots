@@ -31,7 +31,6 @@ class Dependency:
     @classmethod
     def parse(cls, raw: str) -> "Dependency":
         if ":" not in raw:
-            # Совместимость со старыми manifest: bridge == module:bridge.
             return cls("module", raw)
         kind, component_id = raw.split(":", 1)
         return cls(kind.strip(), component_id.strip())
@@ -56,6 +55,9 @@ class Manifest:
 
     def dependencies(self) -> list[Dependency]:
         return [Dependency.parse(item) for item in self.requires]
+
+    def key(self) -> str:
+        return f"{self.type}:{self.id}"
 
     def to_dict(self) -> dict[str, object]:
         data = asdict(self)
@@ -98,17 +100,51 @@ class Registry:
     def all(self) -> list[Manifest]:
         return [*self.adapters(), *self.modules(), *self.plugins()]
 
+    def _by_type(self) -> dict[str, dict[str, Manifest]]:
+        manifests = self.all()
+        return {
+            "adapter": {manifest.id: manifest for manifest in manifests if manifest.type == "adapter"},
+            "module": {manifest.id: manifest for manifest in manifests if manifest.type == "module"},
+            "plugin": {manifest.id: manifest for manifest in manifests if manifest.type == "plugin"},
+        }
+
+    def load_order(self) -> list[Manifest]:
+        by_type = self._by_type()
+        candidates = {**{f"module:{k}": v for k, v in by_type["module"].items()}, **{f"plugin:{k}": v for k, v in by_type["plugin"].items()}}
+        result: list[Manifest] = []
+        temporary: set[str] = set()
+        permanent: set[str] = set()
+
+        def visit(key: str) -> None:
+            if key in permanent or key not in candidates:
+                return
+            if key in temporary:
+                raise ValueError(f"циклическая зависимость компонентов: {key}")
+            temporary.add(key)
+            manifest = candidates[key]
+            for dependency in manifest.dependencies():
+                dep_key = dependency.normalized()
+                if dependency.type in {"module", "plugin"}:
+                    visit(dep_key)
+            temporary.remove(key)
+            permanent.add(key)
+            result.append(manifest)
+
+        for key in sorted(candidates):
+            visit(key)
+        return result
+
     def validate(self, settings: Settings | None = None) -> list[str]:
         errors: list[str] = []
         manifests = self.all()
-        adapters = {manifest.id: manifest for manifest in manifests if manifest.type == "adapter"}
-        modules = {manifest.id: manifest for manifest in manifests if manifest.type == "module"}
-        plugins = {manifest.id: manifest for manifest in manifests if manifest.type == "plugin"}
-        by_type = {"adapter": adapters, "module": modules, "plugin": plugins}
+        by_type = self._by_type()
+        adapters = by_type["adapter"]
+        modules = by_type["module"]
+        plugins = by_type["plugin"]
         seen: set[str] = set()
 
         for manifest in manifests:
-            key = f"{manifest.type}:{manifest.id}"
+            key = manifest.key()
             if key in seen:
                 errors.append(f"дублирующийся идентификатор manifest: {key}")
             seen.add(key)
@@ -126,6 +162,9 @@ class Registry:
                 for adapter_id in manifest.adapters:
                     if adapter_id not in adapters:
                         errors.append(f"{manifest.type} {manifest.id} ссылается на отсутствующий адаптер {adapter_id}")
+                for raw_dependency in manifest.requires:
+                    if ":" not in raw_dependency:
+                        errors.append(f"{manifest.type} {manifest.id} содержит неявную зависимость {raw_dependency!r}; используйте module:<id>, plugin:<id> или adapter:<id>")
                 for dependency in manifest.dependencies():
                     if dependency.type not in DEPENDENCY_TYPES:
                         errors.append(f"{manifest.type} {manifest.id} содержит неизвестный тип зависимости {dependency.type}")
@@ -136,6 +175,11 @@ class Registry:
                         )
                 if manifest.settings_schema is not None and not isinstance(manifest.settings_schema, dict):
                     errors.append(f"settings_schema у {manifest.type} {manifest.id} должен быть объектом")
+
+        try:
+            self.load_order()
+        except ValueError as exc:
+            errors.append(str(exc))
 
         if settings is not None:
             for module_id in settings.modules_enabled:

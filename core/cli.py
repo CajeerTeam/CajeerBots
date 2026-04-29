@@ -15,15 +15,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run = sub.add_parser("run", help="Запустить выбранный режим платформы.")
+    run = sub.add_parser("run", help="Запустить выбранную цель local-режима или служебный процесс.")
     run.add_argument(
-        "mode",
+        "target",
+        nargs="?",
         choices=["all", "telegram", "discord", "vkontakte", "worker", "api", "bridge"],
-        help="Режим запуска: все адаптеры, отдельный адаптер, рабочий процесс, API или шина событий.",
+        help="Цель запуска: все адаптеры, отдельный адаптер, рабочий процесс, API или bridge.",
     )
 
     doctor = sub.add_parser("doctor", help="Проверить конфигурацию и состояние платформы.")
     doctor.add_argument("--offline", action="store_true", help="Не проверять внешние сервисы и PostgreSQL.")
+    doctor.add_argument("--mode", choices=["local", "distributed"], default="local", help="Проверяемый архитектурный режим.")
 
     sub.add_parser("modules", help="Показать зарегистрированные модули.")
     sub.add_parser("plugins", help="Показать зарегистрированные плагины.")
@@ -31,6 +33,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("commands", help="Показать зарегистрированные команды.")
     sub.add_parser("migrate", help="Показать статус управления схемой БД. Встроенные миграции не используются.")
     sub.add_parser("db-status", help="Показать статус модели БД без выполнения миграций.")
+
+    distributed = sub.add_parser("distributed", help="Команды дополнительного распределённого режима.")
+    distributed_sub = distributed.add_subparsers(dest="distributed_command", required=True)
+    distributed_sub.add_parser("doctor", help="Проверить настройки распределённого режима.").add_argument(
+        "--offline", action="store_true", help="Не проверять внешние сервисы."
+    )
+    distributed_sub.add_parser("protocol", help="Показать версии протоколов distributed mode.")
     return parser
 
 
@@ -62,6 +71,11 @@ def main(argv: list[str] | None = None) -> int:
         print("Команда не изменяет базу данных и безопасна для запуска в любом окружении.")
         return 0
 
+    if args.command == "distributed" and args.distributed_command == "protocol":
+        from distributed.protocol import PROTOCOL_VERSIONS
+        print(_json(PROTOCOL_VERSIONS), flush=True)
+        return 0
+
     from core.config import Settings
     from core.logging import configure_logging
     from core.runtime import Runtime
@@ -72,18 +86,27 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "run":
         import asyncio
-
-        asyncio.run(runtime.run(args.mode))
+        asyncio.run(runtime.run(args.target or settings.default_target))
         return 0
 
     if args.command == "doctor":
-        problems = runtime.doctor(offline=args.offline)
+        problems = runtime.doctor(offline=args.offline, doctor_mode=args.mode)
         if problems:
             print("Проверка Cajeer Bots: есть проблемы")
             for problem in problems:
                 print(f"- {problem}")
             return 1
         print("Проверка Cajeer Bots: успешно")
+        return 0
+
+    if args.command == "distributed" and args.distributed_command == "doctor":
+        problems = runtime.doctor(offline=args.offline, doctor_mode="distributed")
+        if problems:
+            print("Проверка распределённого режима: есть проблемы")
+            for problem in problems:
+                print(f"- {problem}")
+            return 1
+        print("Проверка распределённого режима: успешно")
         return 0
 
     return 2

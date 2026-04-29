@@ -4,7 +4,6 @@ import abc
 import json
 from collections import deque
 from dataclasses import asdict, dataclass, field
-from typing import Any
 
 from core.config import Settings
 from core.events import CajeerEvent, validate_event
@@ -44,11 +43,7 @@ class EventBusBackend(abc.ABC):
 
 @dataclass
 class InMemoryEventBus(EventBusBackend):
-    """Локальная шина событий для одиночного процесса и тестов.
-
-    Для многопроцессного docker-compose режима используйте EVENT_BUS_BACKEND=postgres
-    или EVENT_BUS_BACKEND=redis и внешний контракт БД/очереди из GitHub Wiki.
-    """
+    """Локальная шина событий для одиночного процесса и тестов."""
 
     max_size: int = 1000
     name: str = "memory"
@@ -84,11 +79,7 @@ class InMemoryEventBus(EventBusBackend):
 
 
 class PostgresEventBus(EventBusBackend):
-    """PostgreSQL backend по внешнему контракту БД без встроенных миграций.
-
-    Ожидается таблица shared.event_bus с JSON-полем payload и статусом доставки.
-    Конкретная DDL-схема описывается в GitHub Wiki, а не управляется проектом.
-    """
+    """PostgreSQL backend по внешнему контракту БД без встроенных миграций."""
 
     name = "postgres"
 
@@ -103,7 +94,6 @@ class PostgresEventBus(EventBusBackend):
         if not self.settings.database_url:
             raise RuntimeError("DATABASE_URL не задан для EVENT_BUS_BACKEND=postgres")
         import psycopg
-
         return psycopg.connect(self.settings.database_url, sslmode=self.settings.database_sslmode)
 
     async def publish(self, event: CajeerEvent) -> None:
@@ -131,10 +121,57 @@ class PostgresEventBus(EventBusBackend):
             raise
 
     async def drain(self, limit: int = 100) -> list[CajeerEvent]:
-        # Полная реализация зависит от внешнего DDL-контракта и политики блокировок.
-        # Для каркаса возвращаем диагностический snapshot без изменения БД.
-        self._delivered += len(self._snapshot)
-        return list(self._snapshot)[-limit:]
+        """Забрать новые события с блокировкой строк для нескольких worker/bridge-процессов.
+
+        Ожидаемый внешний DDL-контракт описан в GitHub Wiki: таблица
+        shared.event_bus должна иметь поля event_id, payload, status, created_at,
+        locked_at, delivered_at. Проект не создаёт эти таблицы сам.
+        """
+        events: list[CajeerEvent] = []
+        try:
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"""
+                        WITH picked AS (
+                          SELECT event_id, payload
+                          FROM {self.settings.shared_schema}.event_bus
+                          WHERE status = 'new'
+                          ORDER BY created_at
+                          LIMIT %s
+                          FOR UPDATE SKIP LOCKED
+                        )
+                        UPDATE {self.settings.shared_schema}.event_bus AS bus
+                        SET status = 'processing', locked_at = NOW()
+                        FROM picked
+                        WHERE bus.event_id = picked.event_id
+                        RETURNING picked.event_id, picked.payload
+                        """,
+                        (limit,),
+                    )
+                    rows = cur.fetchall()
+                    ids: list[str] = []
+                    for event_id, payload in rows:
+                        data = payload if isinstance(payload, dict) else json.loads(str(payload))
+                        event = CajeerEvent.from_dict(data)
+                        events.append(event)
+                        ids.append(str(event_id))
+                    if ids:
+                        cur.execute(
+                            f"""
+                            UPDATE {self.settings.shared_schema}.event_bus
+                            SET status = 'delivered', delivered_at = NOW()
+                            WHERE event_id = ANY(%s)
+                            """,
+                            (ids,),
+                        )
+            for event in events:
+                self._snapshot.append(event)
+            self._delivered += len(events)
+            return events
+        except Exception:
+            self._failed += 1
+            raise
 
     def snapshot(self) -> list[CajeerEvent]:
         return list(self._snapshot)
@@ -144,7 +181,7 @@ class PostgresEventBus(EventBusBackend):
 
 
 class RedisEventBus(EventBusBackend):
-    """Redis Streams backend без обязательной зависимости redis в базовой установке."""
+    """Redis Streams backend для многопроцессного local-режима."""
 
     name = "redis"
 
@@ -181,6 +218,7 @@ class RedisEventBus(EventBusBackend):
                 data = json.loads(fields["payload"])
                 event = CajeerEvent.from_dict(data)
                 result.append(event)
+                self._snapshot.append(event)
         self._delivered += len(result)
         return result
 
