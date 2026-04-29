@@ -56,16 +56,21 @@ cajeer-bots run api
 Базовые маршруты:
 
 ```text
-GET /healthz
-GET /readyz
-GET /version
-GET /adapters
-GET /modules
-GET /plugins
-GET /events
-GET /commands
-GET /config/summary
-GET /adapter-status
+GET /healthz          # публично: процесс жив
+GET /readyz           # публично: готовность платформы
+GET /metrics          # публично: Prometheus-метрики
+GET /version          # требует Authorization: Bearer <API_TOKEN>
+GET /adapters         # требует Authorization: Bearer <API_TOKEN>
+GET /modules          # требует Authorization: Bearer <API_TOKEN>
+GET /plugins          # требует Authorization: Bearer <API_TOKEN>
+GET /events           # требует Authorization: Bearer <API_TOKEN>
+GET /routes           # требует Authorization: Bearer <API_TOKEN>
+GET /dead-letters     # требует Authorization: Bearer <API_TOKEN>
+GET /commands         # требует Authorization: Bearer <API_TOKEN>
+GET /config/summary   # требует Authorization: Bearer <API_TOKEN>
+GET /adapter-status   # требует Authorization: Bearer <API_TOKEN>
+GET /worker-status    # требует Authorization: Bearer <API_TOKEN>
+GET /bridge-status    # требует Authorization: Bearer <API_TOKEN>
 ```
 
 ## Структура

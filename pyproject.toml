@@ -10,11 +10,12 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [{name = "TheSkiF4er"}]
-dependencies = ["psycopg[binary]>=3.1.18", "pydantic>=2.7.0"]
+dependencies = ["psycopg[binary]>=3.1.18"]
 
 [project.optional-dependencies]
-api = ["fastapi>=0.110.0", "uvicorn[standard]>=0.29.0"]
+api = []
 adapters = ["python-telegram-bot>=21.0", "discord.py>=2.3.2", "vk-api>=11.9.9"]
+redis = ["redis>=5.0.0"]
 dev = ["pytest>=8.0.0", "ruff>=0.4.0", "mypy>=1.9.0"]
 
 [project.scripts]
