@@ -5,7 +5,7 @@ import asyncio
 import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from core.config import AdapterConfig, Settings
 from core.events import CajeerEvent
@@ -74,15 +74,26 @@ class AdapterRuntimeStatus:
     history: list[tuple[str, str]] = field(default_factory=list)
 
 
+@dataclass
+class AdapterContext:
+    event_bus: Any
+    router: Any
+    dead_letters: Any | None = None
+
+
 class BotAdapter(abc.ABC):
     name: str
     capabilities: AdapterCapabilities = AdapterCapabilities()
 
-    def __init__(self, settings: Settings, config: AdapterConfig) -> None:
+    def __init__(self, settings: Settings, config: AdapterConfig, context: AdapterContext | None = None) -> None:
         self.settings = settings
         self.config = config
+        self.context = context
         self._stopping = asyncio.Event()
         self.status = AdapterRuntimeStatus()
+
+    def set_context(self, context: AdapterContext) -> None:
+        self.context = context
 
     def set_state(self, state: AdapterState, *, error: str | None = None) -> None:
         self.status.state = state
@@ -129,8 +140,20 @@ class BotAdapter(abc.ABC):
 
     async def publish_event(self, event: CajeerEvent) -> None:
         logger.info("%s опубликовал событие: %s", self.name, event.to_json())
-        self.status.processed_events += 1
-        self.status.last_event_at = _utc_iso()
+        try:
+            if self.context is not None:
+                await self.context.event_bus.publish(event)
+                result = await self.context.router.route(event)
+                if not result.handled:
+                    logger.info("событие опубликовано без финального обработчика: %s", result.to_dict())
+            self.status.processed_events += 1
+            self.status.last_event_at = _utc_iso()
+        except Exception as exc:
+            self.status.failed_events += 1
+            self.status.last_error = str(exc)
+            if self.context is not None and self.context.dead_letters is not None:
+                self.context.dead_letters.add(event, str(exc))
+            raise
 
     async def send_message(self, target: str, text: str) -> None:
         logger.info("%s отправляет сообщение target=%s text=%s", self.name, target, text)
