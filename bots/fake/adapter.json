@@ -1,0 +1,9 @@
+{
+  "id": "fake",
+  "name": "Fake",
+  "version": "1.0.0",
+  "type": "adapter",
+  "description": "Тестовый адаптер для smoke-тестов без внешних мессенджеров",
+  "capabilities": ["messages.receive", "messages.send", "health", "events.publish"],
+  "enabled_by_default": false
+}
