@@ -9,9 +9,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from core.cli import main as _main  # noqa: E402
 
+CORE_COMMANDS = {"run", "doctor", "modules", "plugins", "adapters", "commands", "migrate", "db-status", "distributed"}
+
 
 def main() -> int:
-    return _main(["run", "vkontakte"])
+    args = sys.argv[1:]
+    if args and args[0] in CORE_COMMANDS:
+        return _main(args)
+    return _main(["run", "vkontakte", *args])
 
 
 if __name__ == "__main__":
