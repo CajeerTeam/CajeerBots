@@ -12,8 +12,14 @@ class VkontakteAdapter(BotAdapter):
     name = "vkontakte"
     capabilities = AdapterCapabilities(files_receive=True, webhooks=True)
 
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(*args, **kwargs)
+        self._vk_wrapper: VkontakteThinWrapper | None = None
+
     def _wrapper(self) -> VkontakteThinWrapper:
-        return VkontakteThinWrapper(self.config.token, self.config.extra.get("api_version", "5.199"))
+        if self._vk_wrapper is None:
+            self._vk_wrapper = VkontakteThinWrapper(self.config.token, self.config.extra.get("api_version", "5.199"))
+        return self._vk_wrapper
 
     async def on_start(self) -> None:
         if not self.config.token:

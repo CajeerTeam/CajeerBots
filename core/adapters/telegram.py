@@ -14,6 +14,11 @@ class TelegramAdapter(BotAdapter):
     name = "telegram"
     capabilities = AdapterCapabilities(files_receive=True, webhooks=True)
 
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(*args, **kwargs)
+        self._bot: Any | None = None
+        self._dispatcher: Any | None = None
+
     async def on_start(self) -> None:
         if not self.config.token:
             logger.warning("токен Telegram не задан; адаптер запущен в демонстрационном режиме")
@@ -41,8 +46,10 @@ class TelegramAdapter(BotAdapter):
         except ImportError as exc:
             raise RuntimeError("для Telegram установите пакет aiogram: pip install cajeer-bots[adapters]") from exc
 
-        bot = Bot(self.config.token)
+        bot = self._bot or Bot(self.config.token)
+        self._bot = bot
         dispatcher = self._dispatcher()
+        self._dispatcher = dispatcher
         me = await bot.get_me()
         bot_username = me.username or None
 
@@ -71,16 +78,23 @@ class TelegramAdapter(BotAdapter):
             else:
                 await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
         finally:
-            await bot.session.close()
+            if self._bot is not None:
+                await self._bot.session.close()
+                self._bot = None
 
     async def send_message(self, target: str, text: str) -> None:
         if not self.config.token:
             return await super().send_message(target, text)
         from aiogram import Bot
 
-        bot = Bot(self.config.token)
+        temporary = False
+        bot = self._bot
+        if bot is None:
+            bot = Bot(self.config.token)
+            temporary = True
         try:
             await bot.send_message(chat_id=target, text=text)
         finally:
-            await bot.session.close()
+            if temporary:
+                await bot.session.close()
         await super().send_message(target, text)
