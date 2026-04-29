@@ -5,7 +5,7 @@
   "type": "plugin",
   "description": "Минимальный пример расширения платформы без привязки к конкретному проекту.",
   "requires": [
-    "bridge"
+    "module:bridge"
   ],
   "adapters": [
     "telegram",
