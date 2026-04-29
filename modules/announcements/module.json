@@ -4,7 +4,11 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Создание и доставка объявлений в разные каналы.",
-  "requires": [],
+  "requires": [
+    "module:rbac",
+    "module:logs",
+    "module:bridge"
+  ],
   "adapters": [
     "telegram",
     "discord",
