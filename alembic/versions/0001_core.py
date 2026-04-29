@@ -103,6 +103,35 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
         schema="shared",
     )
+
+    op.create_table(
+        "users",
+        sa.Column("user_id", sa.String(64), primary_key=True),
+        sa.Column("display_name", sa.String(255), nullable=True),
+        sa.Column("workspace_user_id", sa.String(128), nullable=True, index=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
+        schema="shared",
+    )
+    op.create_table(
+        "platform_accounts",
+        sa.Column("platform", sa.String(64), primary_key=True),
+        sa.Column("platform_user_id", sa.String(128), primary_key=True),
+        sa.Column("user_id", sa.String(64), nullable=False, index=True),
+        sa.Column("username", sa.String(255), nullable=True),
+        sa.Column("display_name", sa.String(255), nullable=True),
+        sa.Column("profile", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
+        schema="shared",
+    )
+    op.create_table("roles", sa.Column("role_id", sa.String(64), primary_key=True), sa.Column("title", sa.String(255), nullable=False), sa.Column("source", sa.String(64), nullable=False, server_default="local"), sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")), schema="shared")
+    op.create_table("role_permissions", sa.Column("role_id", sa.String(64), primary_key=True), sa.Column("permission", sa.String(128), primary_key=True), schema="shared")
+    op.create_table("user_roles", sa.Column("user_id", sa.String(64), primary_key=True), sa.Column("role_id", sa.String(64), primary_key=True), sa.Column("granted_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")), schema="shared")
+    op.create_table("support_tickets", sa.Column("ticket_id", sa.String(64), primary_key=True), sa.Column("user_id", sa.String(64), nullable=True, index=True), sa.Column("platform", sa.String(64), nullable=False), sa.Column("platform_chat_id", sa.String(128), nullable=False, index=True), sa.Column("status", sa.String(32), nullable=False, server_default="open", index=True), sa.Column("subject", sa.String(255), nullable=False, server_default=""), sa.Column("assigned_to", sa.String(128), nullable=True, index=True), sa.Column("history", postgresql.JSONB(astext_type=sa.Text()), nullable=False), sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")), sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")), schema="shared")
+    op.create_table("moderation_actions", sa.Column("action_id", sa.String(64), primary_key=True), sa.Column("platform", sa.String(64), nullable=False, index=True), sa.Column("target_id", sa.String(128), nullable=False, index=True), sa.Column("action", sa.String(64), nullable=False), sa.Column("reason", sa.Text(), nullable=False, server_default=""), sa.Column("actor_id", sa.String(128), nullable=True), sa.Column("trace_id", sa.String(64), nullable=True, index=True), sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")), schema="shared")
+    op.create_table("announcements", sa.Column("announcement_id", sa.String(64), primary_key=True), sa.Column("status", sa.String(32), nullable=False, server_default="draft", index=True), sa.Column("title", sa.String(255), nullable=False, server_default=""), sa.Column("body", sa.Text(), nullable=False, server_default=""), sa.Column("targets", postgresql.JSONB(astext_type=sa.Text()), nullable=False), sa.Column("scheduled_at", sa.DateTime(timezone=True), nullable=True, index=True), sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")), schema="shared")
+
     op.create_table(
         "adapter_state",
         sa.Column("adapter", sa.String(64), primary_key=True),
@@ -115,5 +144,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    for table in ["adapter_state", "audit_log", "idempotency_keys", "dead_letters", "delivery_queue", "event_bus", "platform_schema"]:
+    for table in ["announcements", "moderation_actions", "support_tickets", "user_roles", "role_permissions", "roles", "platform_accounts", "users", "adapter_state", "audit_log", "idempotency_keys", "dead_letters", "delivery_queue", "event_bus", "platform_schema"]:
         op.drop_table(table, schema="shared")
