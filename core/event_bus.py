@@ -4,6 +4,7 @@ import abc
 import json
 from collections import deque
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from core.config import Settings
@@ -14,6 +15,17 @@ def _sql_text(statement: str):
     from sqlalchemy import text
 
     return text(statement)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@dataclass(frozen=True)
+class ClaimedEvent:
+    event: CajeerEvent
+    lease_id: str | None = None
+    backend_meta: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -35,7 +47,17 @@ class EventBusBackend(abc.ABC):
     async def publish(self, event: CajeerEvent) -> None: ...
 
     @abc.abstractmethod
-    async def drain(self, limit: int = 100) -> list[CajeerEvent]: ...
+    async def claim(self, limit: int = 100, *, consumer: str | None = None, lease_seconds: int = 60) -> list[ClaimedEvent]: ...
+
+    async def ack(self, claimed: ClaimedEvent | CajeerEvent | str) -> None:
+        """Подтвердить обработку события после успешного router/bridge handling."""
+
+    async def nack(self, claimed: ClaimedEvent | CajeerEvent | str, error: str, *, retry: bool = True) -> None:
+        """Вернуть событие в очередь или пометить failed после ошибки обработки."""
+
+    async def drain(self, limit: int = 100) -> list[CajeerEvent]:
+        # Compatibility mode. Новый код должен использовать claim/ack/nack, чтобы не ACK-ать до обработки.
+        return [item.event for item in await self.claim(limit=limit)]
 
     @abc.abstractmethod
     def snapshot(self) -> list[CajeerEvent]: ...
@@ -43,13 +65,20 @@ class EventBusBackend(abc.ABC):
     @abc.abstractmethod
     def metrics(self) -> EventBusMetrics: ...
 
+    def _event_id(self, claimed: ClaimedEvent | CajeerEvent | str) -> str:
+        if isinstance(claimed, ClaimedEvent):
+            return claimed.event.event_id
+        if isinstance(claimed, CajeerEvent):
+            return claimed.event_id
+        return str(claimed)
+
 
 @dataclass
 class InMemoryEventBus(EventBusBackend):
     max_size: int = 1000
     name: str = "memory"
     _events: deque[CajeerEvent] = field(default_factory=deque)
-    _drain_cursor: int = 0
+    _processing: dict[str, CajeerEvent] = field(default_factory=dict)
     _published: int = 0
     _delivered: int = 0
     _failed: int = 0
@@ -63,20 +92,33 @@ class InMemoryEventBus(EventBusBackend):
         self._published += 1
         while len(self._events) > self.max_size:
             self._events.popleft()
-            self._drain_cursor = max(0, self._drain_cursor - 1)
 
-    async def drain(self, limit: int = 100) -> list[CajeerEvent]:
-        events = list(self._events)
-        chunk = events[self._drain_cursor : self._drain_cursor + limit]
-        self._drain_cursor += len(chunk)
-        self._delivered += len(chunk)
-        return chunk
+    async def claim(self, limit: int = 100, *, consumer: str | None = None, lease_seconds: int = 60) -> list[ClaimedEvent]:
+        claimed: list[ClaimedEvent] = []
+        while self._events and len(claimed) < limit:
+            event = self._events.popleft()
+            self._processing[event.event_id] = event
+            claimed.append(ClaimedEvent(event, lease_id=event.event_id, backend_meta={"consumer": consumer or "memory"}))
+        return claimed
+
+    async def ack(self, claimed: ClaimedEvent | CajeerEvent | str) -> None:
+        event_id = self._event_id(claimed)
+        if self._processing.pop(event_id, None) is not None:
+            self._delivered += 1
+
+    async def nack(self, claimed: ClaimedEvent | CajeerEvent | str, error: str, *, retry: bool = True) -> None:
+        event_id = self._event_id(claimed)
+        event = self._processing.pop(event_id, None)
+        if retry and event is not None:
+            self._events.appendleft(event)
+        else:
+            self._failed += 1
 
     def snapshot(self) -> list[CajeerEvent]:
-        return list(self._events)
+        return [*list(self._events), *self._processing.values()]
 
     def metrics(self) -> EventBusMetrics:
-        return EventBusMetrics(self.name, self._published, self._delivered, self._failed, len(self._events))
+        return EventBusMetrics(self.name, self._published, self._delivered, self._failed, len(self._events) + len(self._processing))
 
 
 class PostgresEventBus(EventBusBackend):
@@ -106,11 +148,20 @@ class PostgresEventBus(EventBusBackend):
             raise ValueError("; ".join(errors))
         try:
             async with self._engine_obj().begin() as conn:
-                await conn.execute(_sql_text(f"""INSERT INTO {self.settings.shared_schema}.event_bus
-                    (event_id, trace_id, source, event_type, payload, status, created_at)
-                    VALUES (:event_id, :trace_id, :source, :event_type, CAST(:payload AS jsonb), 'new', NOW())
-                    ON CONFLICT (event_id) DO NOTHING"""),
-                    {"event_id": event.event_id, "trace_id": event.trace_id, "source": event.source, "event_type": event.type, "payload": event.to_json()},
+                await conn.execute(
+                    _sql_text(
+                        f"""INSERT INTO {self.settings.shared_schema}.event_bus
+                        (event_id, trace_id, source, event_type, payload, status, attempts, created_at)
+                        VALUES (:event_id, :trace_id, :source, :event_type, CAST(:payload AS jsonb), 'new', 0, NOW())
+                        ON CONFLICT (event_id) DO NOTHING"""
+                    ),
+                    {
+                        "event_id": event.event_id,
+                        "trace_id": event.trace_id,
+                        "source": event.source,
+                        "event_type": event.type,
+                        "payload": event.to_json(),
+                    },
                 )
             self._snapshot.append(event)
             self._published += 1
@@ -118,31 +169,66 @@ class PostgresEventBus(EventBusBackend):
             self._failed += 1
             raise
 
-    async def drain(self, limit: int = 100) -> list[CajeerEvent]:
+    async def claim(self, limit: int = 100, *, consumer: str | None = None, lease_seconds: int = 60) -> list[ClaimedEvent]:
+        consumer = consumer or self.settings.instance_id or "cajeer-bots-bridge"
+        lease_cutoff = _utcnow() - timedelta(seconds=lease_seconds)
         try:
             async with self._engine_obj().begin() as conn:
-                rows = (await conn.execute(_sql_text(f"""WITH picked AS (
-                    SELECT event_id FROM {self.settings.shared_schema}.event_bus WHERE status='new'
-                    ORDER BY created_at LIMIT :limit FOR UPDATE SKIP LOCKED)
-                    UPDATE {self.settings.shared_schema}.event_bus bus
-                    SET status='processing', locked_at=NOW()
-                    FROM picked WHERE bus.event_id=picked.event_id
-                    RETURNING bus.event_id, bus.payload"""), {"limit": limit})).fetchall()
-                ids: list[str] = []
-                events: list[CajeerEvent] = []
-                for event_id, payload in rows:
-                    data = payload if isinstance(payload, dict) else json.loads(str(payload))
-                    events.append(CajeerEvent.from_dict(data))
-                    ids.append(str(event_id))
-                if ids:
-                    await conn.execute(_sql_text(f"UPDATE {self.settings.shared_schema}.event_bus SET status='delivered', delivered_at=NOW() WHERE event_id = ANY(:ids)"), {"ids": ids})
-            for event in events:
+                rows = (
+                    await conn.execute(
+                        _sql_text(
+                            f"""WITH picked AS (
+                            SELECT event_id FROM {self.settings.shared_schema}.event_bus
+                            WHERE status='new'
+                               OR (status='processing' AND locked_at IS NOT NULL AND locked_at < :lease_cutoff)
+                               OR (status='failed' AND next_attempt_at IS NOT NULL AND next_attempt_at <= NOW())
+                            ORDER BY created_at
+                            LIMIT :limit
+                            FOR UPDATE SKIP LOCKED
+                        )
+                        UPDATE {self.settings.shared_schema}.event_bus bus
+                           SET status='processing', locked_at=NOW(), locked_by=:consumer, attempts=bus.attempts+1
+                          FROM picked
+                         WHERE bus.event_id=picked.event_id
+                     RETURNING bus.event_id, bus.payload"""
+                        ),
+                        {"limit": limit, "consumer": consumer, "lease_cutoff": lease_cutoff},
+                    )
+                ).fetchall()
+            result: list[ClaimedEvent] = []
+            for event_id, payload in rows:
+                data = payload if isinstance(payload, dict) else json.loads(str(payload))
+                event = CajeerEvent.from_dict(data)
                 self._snapshot.append(event)
-            self._delivered += len(events)
-            return events
+                result.append(ClaimedEvent(event, lease_id=str(event_id), backend_meta={"consumer": consumer}))
+            return result
         except Exception:
             self._failed += 1
             raise
+
+    async def ack(self, claimed: ClaimedEvent | CajeerEvent | str) -> None:
+        event_id = self._event_id(claimed)
+        async with self._engine_obj().begin() as conn:
+            await conn.execute(
+                _sql_text(f"UPDATE {self.settings.shared_schema}.event_bus SET status='delivered', delivered_at=NOW(), locked_at=NULL, locked_by=NULL WHERE event_id=:event_id"),
+                {"event_id": event_id},
+            )
+        self._delivered += 1
+
+    async def nack(self, claimed: ClaimedEvent | CajeerEvent | str, error: str, *, retry: bool = True) -> None:
+        event_id = self._event_id(claimed)
+        if retry:
+            statement = f"""UPDATE {self.settings.shared_schema}.event_bus
+                           SET status='failed', last_error=:error, locked_at=NULL, locked_by=NULL,
+                               next_attempt_at=NOW() + INTERVAL '5 seconds'
+                         WHERE event_id=:event_id"""
+        else:
+            statement = f"""UPDATE {self.settings.shared_schema}.event_bus
+                           SET status='failed', last_error=:error, locked_at=NULL, locked_by=NULL
+                         WHERE event_id=:event_id"""
+        async with self._engine_obj().begin() as conn:
+            await conn.execute(_sql_text(statement), {"event_id": event_id, "error": error})
+        self._failed += 1
 
     def snapshot(self) -> list[CajeerEvent]:
         return list(self._snapshot)
@@ -191,26 +277,57 @@ class RedisEventBus(EventBusBackend):
         self._snapshot.append(event)
         self._published += 1
 
-    async def drain(self, limit: int = 100) -> list[CajeerEvent]:
+    async def claim(self, limit: int = 100, *, consumer: str | None = None, lease_seconds: int = 60) -> list[ClaimedEvent]:
         redis = await self._client()
-        records = await redis.xreadgroup(self._group, self._consumer, {self._stream: ">"}, count=limit, block=1)
-        result: list[CajeerEvent] = []
-        ack_ids: list[str] = []
-        for _, items in records:
-            for item_id, fields in items:
-                try:
-                    event = CajeerEvent.from_dict(json.loads(fields["payload"]))
-                    result.append(event)
-                    self._snapshot.append(event)
-                    ack_ids.append(item_id)
-                except Exception as exc:  # pragma: no cover
-                    self._failed += 1
-                    await redis.xadd(self._dlq, {"source_id": item_id, "error": str(exc), **fields})
-                    ack_ids.append(item_id)
-        if ack_ids:
-            await redis.xack(self._stream, self._group, *ack_ids)
-        self._delivered += len(result)
+        consumer = consumer or self._consumer
+        # First reclaim stuck pending messages from crashed consumers, then read fresh ones.
+        claimed_records: list[tuple[str, dict[str, str]]] = []
+        try:
+            reclaimed = await redis.xautoclaim(self._stream, self._group, consumer, lease_seconds * 1000, "0-0", count=limit)
+            for item_id, fields in reclaimed[1]:
+                claimed_records.append((item_id, fields))
+        except Exception:
+            pass
+        remaining = max(0, limit - len(claimed_records))
+        if remaining:
+            records = await redis.xreadgroup(self._group, consumer, {self._stream: ">"}, count=remaining, block=1)
+            for _, items in records:
+                for item_id, fields in items:
+                    claimed_records.append((item_id, fields))
+        result: list[ClaimedEvent] = []
+        for item_id, fields in claimed_records:
+            try:
+                event = CajeerEvent.from_dict(json.loads(fields["payload"]))
+                self._snapshot.append(event)
+                result.append(ClaimedEvent(event, lease_id=item_id, backend_meta={"consumer": consumer}))
+            except Exception as exc:  # pragma: no cover
+                self._failed += 1
+                await redis.xadd(self._dlq, {"source_id": item_id, "error": str(exc), **fields})
+                await redis.xack(self._stream, self._group, item_id)
         return result
+
+    async def ack(self, claimed: ClaimedEvent | CajeerEvent | str) -> None:
+        if isinstance(claimed, ClaimedEvent):
+            item_id = claimed.lease_id
+        else:
+            item_id = str(claimed)
+        if item_id:
+            await (await self._client()).xack(self._stream, self._group, item_id)
+            self._delivered += 1
+
+    async def nack(self, claimed: ClaimedEvent | CajeerEvent | str, error: str, *, retry: bool = True) -> None:
+        if isinstance(claimed, ClaimedEvent):
+            item_id = claimed.lease_id
+            fields = {"event_id": claimed.event.event_id, "payload": claimed.event.to_json(), "error": error}
+        else:
+            item_id = None
+            fields = {"event_id": self._event_id(claimed), "error": error}
+        redis = await self._client()
+        if not retry:
+            await redis.xadd(self._dlq, fields)
+        if item_id:
+            await redis.xack(self._stream, self._group, item_id)
+        self._failed += 1
 
     def snapshot(self) -> list[CajeerEvent]:
         return list(self._snapshot)

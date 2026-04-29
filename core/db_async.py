@@ -32,8 +32,8 @@ class AsyncDatabase:
 
 REQUIRED_TABLES = {
     "platform_schema": {"component", "version", "updated_at"},
-    "event_bus": {"event_id", "trace_id", "source", "event_type", "payload", "status", "created_at", "locked_at", "delivered_at"},
-    "delivery_queue": {"delivery_id", "adapter", "target", "payload", "status", "attempts", "max_attempts", "trace_id", "created_at", "locked_at", "sent_at", "last_error"},
+    "event_bus": {"event_id", "trace_id", "source", "event_type", "payload", "status", "created_at", "locked_at", "locked_by", "delivered_at", "attempts", "next_attempt_at", "last_error"},
+    "delivery_queue": {"delivery_id", "adapter", "target", "payload", "status", "attempts", "max_attempts", "trace_id", "created_at", "locked_at", "locked_by", "next_attempt_at", "sent_at", "failed_at", "last_error", "rate_limit_bucket"},
     "dead_letters": {"dead_letter_id", "event_id", "trace_id", "payload", "reason", "created_at", "retried_at"},
     "idempotency_keys": {"key", "created_at", "expires_at"},
     "audit_log": {"audit_id", "actor_type", "actor_id", "action", "resource", "result", "trace_id", "ip", "user_agent", "message", "created_at"},

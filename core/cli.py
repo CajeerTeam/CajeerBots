@@ -18,12 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="Запустить выбранную цель local-режима или служебный процесс.")
-    run.add_argument(
-        "target",
-        nargs="?",
-        choices=["all", "telegram", "discord", "vkontakte", "fake", "worker", "api", "bridge"],
-        help="Цель запуска: все адаптеры, отдельный адаптер, рабочий процесс, API или bridge.",
-    )
+    run.add_argument("target", nargs="?", choices=["all", "telegram", "discord", "vkontakte", "fake", "worker", "api", "bridge"])
 
     doctor = sub.add_parser("doctor", help="Проверить конфигурацию и состояние платформы.")
     doctor.add_argument("--offline", action="store_true", help="Не проверять внешние сервисы и PostgreSQL.")
@@ -37,6 +32,20 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("adapters", help="Показать зарегистрированные адаптеры.")
     sub.add_parser("components", help="Показать runtime-компоненты с entrypoint.")
     sub.add_parser("commands", help="Показать зарегистрированные команды.")
+
+    update = sub.add_parser("update", help="Безопасные обновления из GitHub Releases или локального tar.gz.")
+    update_sub = update.add_subparsers(dest="update_command", required=True)
+    update_sub.add_parser("status", help="Показать локальный статус updater.")
+    update_sub.add_parser("history", help="Показать историю обновлений.")
+    update_sub.add_parser("check", help="Проверить доступное обновление.")
+    stage = update_sub.add_parser("stage", help="Проверить и распаковать локальный release artifact в staging.")
+    stage.add_argument("artifact", help="Путь к CajeerBots-*.tar.gz")
+    stage.add_argument("--manifest", help="Путь к *.release.json", default="")
+    stage.add_argument("--sha256", help="Ожидаемый sha256", default="")
+    apply = update_sub.add_parser("apply", help="Переключить current на staged release.")
+    apply.add_argument("--version", required=True)
+    apply.add_argument("--staged-path", required=True)
+    update_sub.add_parser("rollback", help="Откатить current на previous.")
 
     secrets = sub.add_parser("secrets", help="Операции с секретами.")
     secrets_sub = secrets.add_subparsers(dest="secrets_command", required=True)
@@ -54,9 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     distributed = sub.add_parser("distributed", help="Команды дополнительного распределённого режима.")
     distributed_sub = distributed.add_subparsers(dest="distributed_command", required=True)
-    distributed_sub.add_parser("doctor", help="Проверить настройки распределённого режима.").add_argument(
-        "--offline", action="store_true", help="Не проверять внешние сервисы."
-    )
+    distributed_sub.add_parser("doctor", help="Проверить настройки распределённого режима.").add_argument("--offline", action="store_true")
     distributed_sub.add_parser("protocol", help="Показать версии протоколов distributed mode.")
     return parser
 
@@ -76,6 +83,16 @@ def _write_env_if_missing(root: Path) -> bool:
     content = content.rstrip() + "\n\n# Сгенерированные секреты\n" + generate_env_block()
     env_path.write_text(content, encoding="utf-8")
     return True
+
+
+def _runtime(project_root: Path):
+    from core.config import Settings
+    from core.logging import configure_logging
+    from core.runtime import Runtime
+
+    settings = Settings.from_env()
+    configure_logging(settings.log_level)
+    return Runtime(settings, project_root=project_root)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -126,6 +143,30 @@ def main(argv: list[str] | None = None) -> int:
         print(_json([item.to_dict() for item in build_default_commands().list()]), flush=True)
         return 0
 
+    if args.command == "update":
+        runtime = _runtime(project_root)
+        if args.update_command == "status":
+            print(_json(runtime.updater.status().to_dict()), flush=True)
+            return 0
+        if args.update_command == "history":
+            print(_json([item.to_dict() for item in runtime.updater.history()]), flush=True)
+            return 0
+        if args.update_command == "check":
+            print(_json(runtime.updater.check()), flush=True)
+            return 0
+        if args.update_command == "stage":
+            from core.updater.manifest import ReleaseManifest
+
+            manifest = ReleaseManifest.from_file(Path(args.manifest)) if args.manifest else None
+            print(_json(runtime.updater.stage_local_artifact(Path(args.artifact), manifest=manifest, expected_sha256=args.sha256 or None)), flush=True)
+            return 0
+        if args.update_command == "apply":
+            print(_json(runtime.updater.apply_staged(args.version, args.staged_path)), flush=True)
+            return 0
+        if args.update_command == "rollback":
+            print(_json(runtime.updater.rollback()), flush=True)
+            return 0
+
     if args.command in {"migrate", "db-status"}:
         print("Схема PostgreSQL управляется Alembic.")
         print("Конфигурация: alembic.ini")
@@ -159,19 +200,13 @@ def main(argv: list[str] | None = None) -> int:
         print(_json(PROTOCOL_VERSIONS), flush=True)
         return 0
 
-    from core.config import Settings
-    from core.logging import configure_logging
-    from core.runtime import Runtime
+    runtime = _runtime(project_root)
 
     if args.command == "doctor" and args.fix_permissions:
         fix_permissions(project_root)
 
-    settings = Settings.from_env()
-    configure_logging(settings.log_level)
-    runtime = Runtime(settings, project_root=project_root)
-
     if args.command == "run":
-        asyncio.run(runtime.run(args.target or settings.default_target))
+        asyncio.run(runtime.run(args.target or runtime.settings.default_target))
         return 0
 
     if args.command == "doctor":

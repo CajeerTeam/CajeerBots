@@ -36,6 +36,8 @@ READONLY_PATHS = {
     "/status/dependencies",
     "/audit",
     "/openapi.json",
+    "/updates/status",
+    "/updates/history",
 }
 
 MAX_BODY_BYTES = 1_048_576
@@ -131,6 +133,10 @@ class ApiServer:
             return 200, {"items": [item.to_dict() for item in runtime.audit.snapshot()]}, "application/json"
         if path == "/openapi.json":
             return 200, self.openapi(), "application/json"
+        if path == "/updates/status":
+            return 200, {"status": runtime.updater.status().to_dict()}, "application/json"
+        if path == "/updates/history":
+            return 200, {"items": [item.to_dict() for item in runtime.updater.history()]}, "application/json"
         return 404, {"ok": False, "error": {"code": "not_found", "message": "маршрут не найден"}}, "application/json"
 
     def _post_payload(self, path: str, body: dict[str, object], *, actor: str = "api") -> tuple[int, dict[str, object], str]:
@@ -172,7 +178,7 @@ class ApiServer:
             return 202, {"ok": True, "queued": count}, "application/json"
         if path == "/events/publish":
             event = CajeerEvent.create(
-                source=str(body.get("source", "system")),  # type: ignore[arg-type]
+                source=str(body.get("source", "system")),
                 type=str(body.get("type", "system.event")),
                 payload=dict(body.get("payload") or {}),
             )
@@ -182,6 +188,16 @@ class ApiServer:
         if path == "/runtime/stop":
             runtime.request_stop()
             return 202, {"ok": True, "message": "запрошена остановка runtime"}, "application/json"
+        if path == "/updates/check":
+            return 200, {"ok": True, "update": runtime.updater.check()}, "application/json"
+        if path == "/updates/apply":
+            version = str(body.get("version") or "").strip()
+            staged_path = str(body.get("staged_path") or "").strip()
+            if not version or not staged_path:
+                return 400, {"ok": False, "error": {"code": "bad_request", "message": "version и staged_path обязательны"}}, "application/json"
+            return 202, runtime.updater.apply_staged(version, staged_path), "application/json"
+        if path == "/updates/rollback":
+            return 202, runtime.updater.rollback(), "application/json"
         if path == "/webhooks/telegram":
             event = telegram_update_to_event(body)
 
@@ -220,6 +236,11 @@ class ApiServer:
                 "/webhooks/telegram": {"post": {"summary": "Принять Telegram webhook update"}},
                 "/webhooks/vkontakte": {"post": {"summary": "Принять VK Callback API update"}},
                 "/audit": {"get": {"summary": "Audit trail"}},
+                "/updates/status": {"get": {"summary": "Статус системы обновлений"}},
+                "/updates/history": {"get": {"summary": "История обновлений"}},
+                "/updates/check": {"post": {"summary": "Проверить обновления"}},
+                "/updates/apply": {"post": {"summary": "Применить staged-обновление"}},
+                "/updates/rollback": {"post": {"summary": "Откатить current -> previous"}},
             },
         }
 
@@ -259,15 +280,7 @@ class ApiServer:
                 path = urlparse(self.path).path
                 scope = server._token_scope(self.headers)
                 if not server._can_get(path, scope):
-                    server.runtime.audit.write(
-                        actor_type="api",
-                        actor_id=scope or "anonymous",
-                        action="http.get",
-                        resource=path,
-                        result="denied",
-                        ip=self.client_address[0] if self.client_address else None,
-                        user_agent=self.headers.get("User-Agent"),
-                    )
+                    server.runtime.audit.write(actor_type="api", actor_id=scope or "anonymous", action="http.get", resource=path, result="denied", ip=self.client_address[0] if self.client_address else None, user_agent=self.headers.get("User-Agent"))
                     self._write(401, {"ok": False, "error": {"code": "unauthorized", "message": "требуется токен"}}, "application/json", request_id)
                     return
                 status, payload, content_type = server._payload(path)
@@ -289,15 +302,7 @@ class ApiServer:
                     self._write(status, payload, content_type, request_id)
                     return
                 if scope != "admin":
-                    server.runtime.audit.write(
-                        actor_type="api",
-                        actor_id=scope or "anonymous",
-                        action="http.post",
-                        resource=path,
-                        result="denied",
-                        ip=self.client_address[0] if self.client_address else None,
-                        user_agent=self.headers.get("User-Agent"),
-                    )
+                    server.runtime.audit.write(actor_type="api", actor_id=scope or "anonymous", action="http.post", resource=path, result="denied", ip=self.client_address[0] if self.client_address else None, user_agent=self.headers.get("User-Agent"))
                     self._write(401, {"ok": False, "error": {"code": "unauthorized", "message": "требуется admin-токен"}}, "application/json", request_id)
                     return
                 try:

@@ -23,7 +23,7 @@ class BridgeService:
         self.status = BridgeStatus()
 
     async def run(self, stop_event: asyncio.Event) -> None:
-        logger.info("режим bridge запущен: маршрутизация событий активна")
+        logger.info("режим bridge запущен: claim/ack маршрутизация событий активна")
         while not stop_event.is_set():
             await self.process_once()
             try:
@@ -34,17 +34,19 @@ class BridgeService:
     async def process_once(self) -> int:
         if not self.runtime.settings.bridge_routing:
             return 0
-        events = await self.runtime.event_bus.drain(limit=100)
-        for event in events:
+        claimed_events = await self.runtime.event_bus.claim(limit=100, consumer=self.runtime.settings.instance_id)
+        for claimed in claimed_events:
+            event = claimed.event
             try:
                 result = await self.runtime.router.route(event)
                 if result.handler == "idempotency":
                     self.status.skipped_events += 1
-                    continue
-                if not result.handled:
+                elif not result.handled:
                     logger.info("событие не обработано окончательно: %s", result.to_dict())
                 self.status.processed_events += 1
+                await self.runtime.event_bus.ack(claimed)
             except Exception as exc:  # pragma: no cover - защитный контур
                 self.status.failed_events += 1
+                await self.runtime.event_bus.nack(claimed, str(exc), retry=True)
                 self.runtime.dead_letters.add(event, str(exc))
-        return len(events)
+        return len(claimed_events)

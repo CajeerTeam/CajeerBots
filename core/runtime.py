@@ -31,6 +31,8 @@ from core.permissions_fix import executable_paths
 from core.registry import Registry
 from core.router import EventRouter
 from core.worker import WorkerService
+from core.rate_limits import build_rate_limiter
+from core.updater import UpdateManager
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,8 @@ class Runtime:
         self.router = EventRouter(self.commands, self.idempotency, components=self.components)
         self.bridge = BridgeService(self)
         self.worker = WorkerService(self)
+        self.updater = UpdateManager(self)
+        self.rate_limiter = build_rate_limiter(settings)
         self._stop_event: asyncio.Event | None = None
         self.version = self._read_version()
         self.event_contract_version = EVENT_CONTRACT_VERSION_ID
@@ -96,6 +100,8 @@ class Runtime:
             audit=self.audit,
             workspace=self.workspace,
             remote_logs=self.remote_logs,
+            rate_limiter=self.rate_limiter,
+            idempotency=self.idempotency,
             inline_routing=self.settings.local_inline_routing,
         )
         return ADAPTER_CLASSES[name](self.settings, self.settings.adapters[name], context=context)
@@ -109,6 +115,41 @@ class Runtime:
 
     def adapter_map(self) -> dict[str, BotAdapter]:
         return {adapter.name: adapter for adapter in self.adapters}
+
+    def make_system_event(self, event_type: str, payload: dict[str, object] | None = None):
+        from core.events import CajeerEvent
+
+        return CajeerEvent.create(source="system", type=event_type, payload=payload or {})
+
+    def _idempotency_key_for_event(self, event) -> str | None:
+        raw = event.payload.get("raw") if isinstance(event.payload, dict) else None
+        raw = raw if isinstance(raw, dict) else {}
+        if event.source == "telegram":
+            update = raw.get("update") if isinstance(raw.get("update"), dict) else {}
+            update_id = update.get("update_id") if isinstance(update, dict) else None
+            return f"telegram:update:{update_id}" if update_id is not None else None
+        if event.source == "discord":
+            for key in ("interaction_id", "message_id"):
+                value = raw.get(key)
+                if value:
+                    return f"discord:{key}:{value}"
+        if event.source == "vkontakte":
+            callback = raw.get("callback") if isinstance(raw.get("callback"), dict) else raw.get("update")
+            if isinstance(callback, dict):
+                value = callback.get("event_id") or callback.get("id") or callback.get("object_id")
+                if value:
+                    return f"vk:event:{value}"
+                return "vk:event:" + ":".join(str(callback.get(k, "")) for k in ("group_id", "type"))
+        return None
+
+    async def _already_processed_platform_event(self, event) -> bool:
+        key = self._idempotency_key_for_event(event)
+        if not key:
+            return False
+        try:
+            return await self.idempotency.seen_async(key)
+        except AttributeError:
+            return self.idempotency.seen(key)
 
     def adapter_health_snapshot(self) -> list[AdapterHealth]:
         return [
@@ -233,6 +274,8 @@ class Runtime:
 
     async def ingest_incoming_event(self, event, *, bot_username: str | None = None) -> list[dict[str, object]]:
         results: list[dict[str, object]] = []
+        if await self._already_processed_platform_event(event):
+            return [{"handled": True, "handler": "idempotency", "details": {"skipped": True, "source": event.source}}]
         await self.event_bus.publish(event)
         results.append((await self.router.route(event)).to_dict())
         command = extract_command(str(event.payload.get("text") or ""), bot_username=bot_username)
@@ -242,7 +285,6 @@ class Runtime:
             await self.event_bus.publish(command_event)
             results.append((await self.router.route(command_event)).to_dict())
         return results
-
     async def run_api(self) -> None:
         from core.api import ApiServer
 
@@ -294,6 +336,9 @@ class Runtime:
             "db_contract_version": self.db_contract_version,
             "workspace_contract_version": self.workspace_contract_version,
             "logs_contract_version": self.logs_contract_version,
+            "update_source": self.updater.source,
+            "update_channel": self.updater.channel,
+            "rate_limiter": self.rate_limiter.__class__.__name__,
         }
 
     def readiness_snapshot(self) -> dict[str, object]:
