@@ -88,6 +88,8 @@ class AdapterContext:
     audit: Any | None = None
     workspace: Any | None = None
     remote_logs: Any | None = None
+    rate_limiter: Any | None = None
+    idempotency: Any | None = None
     inline_routing: bool = True
 
 
@@ -189,13 +191,43 @@ class BotAdapter(abc.ABC):
                 self.context.dead_letters.add(event, str(exc))
             raise
 
+    def _platform_idempotency_key(self, event: CajeerEvent) -> str | None:
+        raw = event.payload.get("raw") if isinstance(event.payload, dict) else None
+        raw = raw if isinstance(raw, dict) else {}
+        if event.source == "telegram":
+            update = raw.get("update") if isinstance(raw.get("update"), dict) else {}
+            update_id = update.get("update_id") if isinstance(update, dict) else None
+            return f"telegram:update:{update_id}" if update_id is not None else None
+        if event.source == "discord":
+            for key in ("interaction_id", "message_id"):
+                value = raw.get(key)
+                if value:
+                    return f"discord:{key}:{value}"
+        if event.source == "vkontakte":
+            callback = raw.get("callback") if isinstance(raw.get("callback"), dict) else raw.get("update")
+            if isinstance(callback, dict):
+                value = callback.get("event_id") or callback.get("id") or callback.get("object_id")
+                if value:
+                    return f"vk:event:{value}"
+                return "vk:event:" + ":".join(str(callback.get(k, "")) for k in ("group_id", "type"))
+        return None
+
     async def handle_incoming_message(self, event: CajeerEvent, *, bot_username: str | None = None) -> None:
+        if self.context is not None and self.context.idempotency is not None:
+            key = self._platform_idempotency_key(event)
+            if key:
+                try:
+                    already = await self.context.idempotency.seen_async(key)
+                except AttributeError:
+                    already = self.context.idempotency.seen(key)
+                if already:
+                    logger.info("%s пропустил дубль platform update: %s", self.name, key)
+                    return
         await self.publish_event(event)
         command = extract_command(str(event.payload.get("text") or ""), bot_username=bot_username)
         if command is not None:
             name, args = command
             await self.publish_event(command_event_from_message(event, name, args))
-
     async def send_message(self, target: str, text: str) -> None:
         logger.info("%s отправляет сообщение target=%s text=%s", self.name, target, text)
         self.status.processed_events += 1
