@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Роли, разрешения и проверки доступа для платформы.",
-  "requires": [],
+  "requires": [
+    "module:identity"
+  ],
   "adapters": [
     "telegram",
     "discord",
