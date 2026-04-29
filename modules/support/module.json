@@ -10,5 +10,12 @@
     "discord",
     "vkontakte"
   ],
-  "enabled_by_default": false
+  "enabled_by_default": false,
+  "settings_schema": {
+    "ticket_auto_close_days": {
+      "type": "integer",
+      "default": 14,
+      "description": "Через сколько дней закрывать неактивные обращения."
+    }
+  }
 }
