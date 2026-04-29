@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [ ! -d .venv ] || . .venv/bin/activate
-exec python -m core migrate "$@"
+exec python -m core db-status "$@"
