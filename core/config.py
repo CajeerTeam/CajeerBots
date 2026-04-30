@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+
+from core.schema import validate_schema_name
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -306,7 +308,7 @@ class Settings:
             database_url=os.getenv("DATABASE_URL", ""),
             database_sslmode=_choice("DATABASE_SSLMODE", "prefer", {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}),
             redis_url=os.getenv("REDIS_URL") or None,
-            shared_schema=os.getenv("DATABASE_SCHEMA_SHARED", "shared"),
+            shared_schema=validate_schema_name(os.getenv("DATABASE_SCHEMA_SHARED", "shared")),
             event_bus_backend=_choice("EVENT_BUS_BACKEND", "memory", {"memory", "postgres", "redis"}),
             local_inline_routing=_bool(os.getenv("LOCAL_INLINE_ROUTING"), True),
             bridge_routing=_bool(os.getenv("BRIDGE_ROUTING"), True),
@@ -360,6 +362,10 @@ class Settings:
             errors.append("DEAD_LETTER_BACKEND=redis требует REDIS_URL")
         if self.storage.idempotency_backend == "redis" and not self.redis_url:
             errors.append("IDEMPOTENCY_BACKEND=redis требует REDIS_URL")
+        try:
+            validate_schema_name(self.shared_schema)
+        except ValueError as exc:
+            errors.append(str(exc))
         errors.extend(self.workspace.validate())
         errors.extend(self.remote_logs.validate())
         if self.api_port < 1 or self.api_port > 65535:

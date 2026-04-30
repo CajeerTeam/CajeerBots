@@ -296,7 +296,7 @@ class Runtime:
         stop_event = asyncio.Event()
         self._stop_event = stop_event
         self._install_signal_handlers(stop_event)
-        server = ApiServer(self)
+        server = ApiServer(self, loop=asyncio.get_running_loop())
         server.start_in_thread()
         try:
             await stop_event.wait()
@@ -346,6 +346,22 @@ class Runtime:
             "api_token_registry_configured": self.settings.api_tokens_file.exists(),
         }
 
+    def _production_security_problems(self) -> list[str]:
+        if self.settings.env != "production":
+            return []
+        problems: list[str] = []
+        if self.settings.api_readonly_token in PLACEHOLDER_SECRETS:
+            problems.append("API_TOKEN_READONLY содержит демонстрационное значение")
+        if self.settings.api_metrics_token in PLACEHOLDER_SECRETS:
+            problems.append("API_TOKEN_METRICS содержит демонстрационное значение")
+        telegram = self.settings.adapters.get("telegram")
+        if telegram and telegram.enabled and telegram.extra.get("mode") == "webhook" and not telegram.extra.get("webhook_secret"):
+            problems.append("TELEGRAM_WEBHOOK_SECRET обязателен для production webhook-режима")
+        vkontakte = self.settings.adapters.get("vkontakte")
+        if vkontakte and vkontakte.enabled and not vkontakte.extra.get("callback_secret"):
+            problems.append("VK_CALLBACK_SECRET обязателен для production VK Callback API")
+        return problems
+
     def readiness_snapshot(self) -> dict[str, object]:
         problems: list[str] = []
         problems.extend(self.settings.validate_runtime(doctor_mode=self.settings.mode))
@@ -354,6 +370,7 @@ class Runtime:
         problems.extend(compat.errors)
         if self.settings.api_token in PLACEHOLDER_SECRETS:
             problems.append("API_TOKEN содержит демонстрационное значение")
+        problems.extend(self._production_security_problems())
         if self.settings.event_signing_secret in PLACEHOLDER_SECRETS:
             problems.append("EVENT_SIGNING_SECRET содержит демонстрационное значение")
         if self.settings.event_bus_backend == "postgres" and not self.settings.storage.async_database_url:
@@ -511,6 +528,7 @@ class Runtime:
             problems.append("EVENT_SIGNING_SECRET содержит демонстрационное значение")
         if self.settings.api_token in PLACEHOLDER_SECRETS:
             problems.append("API_TOKEN содержит демонстрационное значение")
+        problems.extend(self._production_security_problems())
         if not (self.project_root / "core").is_dir():
             problems.append("каталог core не найден")
         if not (self.project_root / "bots").is_dir():

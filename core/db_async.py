@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 
 from core.contracts import DB_CONTRACT_VERSION
 from core.db_models import Base
+from core.schema import validate_schema_name
 
 
 @dataclass
@@ -49,11 +50,12 @@ REQUIRED_TABLES = {
     "user_profiles": {"user_id", "profile", "updated_at"},
     "workspace_links": {"link_id", "user_id", "workspace_user_id", "source", "created_at"},
     "scheduled_jobs": {"job_id", "job_type", "payload", "status", "run_at", "locked_at", "locked_by", "last_error", "created_at"},
-    "outbound_messages": {"message_id", "delivery_id", "adapter", "target", "text_hash", "status", "platform_message_id", "attempts", "last_error", "sent_at", "created_at"},
+    "outbound_messages": {"message_id", "delivery_id", "adapter", "target", "text_hash", "status", "platform_message_id", "attempts", "trace_id", "last_error", "sent_at", "created_at"},
 }
 
 
 async def check_schema(async_dsn: str, schema: str = "shared") -> list[str]:
+    schema = validate_schema_name(schema)
     if not async_dsn:
         return ["DATABASE_ASYNC_URL не задан"]
     db = AsyncDatabase(async_dsn)

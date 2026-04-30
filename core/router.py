@@ -35,8 +35,13 @@ class EventRouter:
         self.history: list[RouteResult] = []
 
     async def route(self, event: CajeerEvent) -> RouteResult:
-        if self.idempotency is not None and self.idempotency.seen(event.event_id):
-            return self._remember(RouteResult(True, "idempotency", {"skipped": True, "event_id": event.event_id}))
+        if self.idempotency is not None:
+            try:
+                duplicate = await self.idempotency.seen_async(event.event_id)
+            except AttributeError:
+                duplicate = self.idempotency.seen(event.event_id)
+            if duplicate:
+                return self._remember(RouteResult(True, "idempotency", {"skipped": True, "event_id": event.event_id}))
 
         if event.type == "command.received":
             command_name = str(event.payload.get("command", "")).strip().lstrip("/")

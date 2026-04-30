@@ -26,11 +26,23 @@ MAX_BODY_BYTES = 1_048_576
 
 
 class ApiServer:
-    def __init__(self, runtime: "Runtime") -> None:
+    def __init__(self, runtime: "Runtime", loop: asyncio.AbstractEventLoop | None = None) -> None:
         self.runtime = runtime
+        self._loop = loop
         self._httpd: ThreadingHTTPServer | None = None
         self._webhook_hits: dict[str, list[float]] = {}
         self._webhook_auth_failures: dict[str, list[float]] = {}
+
+    def _run_async(self, coro):
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+        if self._loop is not None and self._loop.is_running() and running_loop is not self._loop:
+            return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
+        if running_loop is not None and running_loop.is_running():
+            raise RuntimeError("API async operation cannot be executed synchronously inside the runtime event loop")
+        return asyncio.run(coro)
 
     def _token_scope(self, headers: object) -> str | None:
         value = headers.get("Authorization", "")
@@ -147,7 +159,7 @@ class ApiServer:
         if path == "/updates/status":
             return 200, {"status": runtime.updater.status().to_dict()}, "application/json"
         if path == "/updates/plan":
-            return 200, {"plan": runtime.updater.plan("latest")}, "application/json"
+            return 200, {"plan": runtime.updater.plan("latest", refresh_latest=False, record=False)}, "application/json"
         if path == "/updates/history":
             return 200, {"items": [item.to_dict() for item in runtime.updater.history()]}, "application/json"
         return 404, {"ok": False, "error": {"code": "not_found", "message": "маршрут не найден"}}, "application/json"
@@ -163,7 +175,7 @@ class ApiServer:
                 result = await runtime.router.route(event)
                 return result.to_dict()
 
-            result = asyncio.run(run_command())
+            result = self._run_async(run_command())
             runtime.audit.write(actor_type="api", actor_id=actor, action="commands.dispatch", resource=command, trace_id=event.trace_id)
             return 200, {"ok": True, "result": result}, "application/json"
         if path == "/delivery/enqueue":
@@ -175,7 +187,7 @@ class ApiServer:
                     max_attempts=int(body.get("max_attempts", 3)),
                     trace_id=str(body.get("trace_id") or "") or None,
                 )
-            task = asyncio.run(enqueue_task())
+            task = self._run_async(enqueue_task())
             runtime.audit.write(actor_type="api", actor_id=actor, action="delivery.enqueue", resource=task.adapter, trace_id=task.trace_id)
             return 202, {"ok": True, "task": task.to_dict()}, "application/json"
         if path == "/dead-letters/retry":
@@ -186,7 +198,7 @@ class ApiServer:
                     await runtime.event_bus.publish(event)
                 return len(events)
 
-            count = asyncio.run(retry())
+            count = self._run_async(retry())
             runtime.audit.write(actor_type="api", actor_id=actor, action="dead_letters.retry", resource="dead_letters")
             return 202, {"ok": True, "queued": count}, "application/json"
         if path == "/events/publish":
@@ -195,7 +207,7 @@ class ApiServer:
                 type=str(body.get("type", "system.event")),
                 payload=dict(body.get("payload") or {}),
             )
-            asyncio.run(runtime.event_bus.publish(event))
+            self._run_async(runtime.event_bus.publish(event))
             runtime.audit.write(actor_type="api", actor_id=actor, action="events.publish", resource=event.type, trace_id=event.trace_id)
             return 202, {"ok": True, "event": event.to_dict()}, "application/json"
         if path == "/runtime/stop":
@@ -223,7 +235,7 @@ class ApiServer:
             async def ingest() -> list[dict[str, object]]:
                 return await runtime.ingest_incoming_event(event)
 
-            results = asyncio.run(ingest())
+            results = self._run_async(ingest())
             runtime.audit.write(actor_type="webhook", actor_id="telegram", action="webhook.telegram", resource="telegram", trace_id=event.trace_id)
             return 200, {"ok": True, "event": event.to_dict(), "results": results}, "application/json"
         if path == "/webhooks/vkontakte":
@@ -237,7 +249,7 @@ class ApiServer:
                 wrapper = VkontakteThinWrapper(runtime.settings.adapters["vkontakte"].token)
                 event = await wrapper.callback_event(body)
                 return await runtime.ingest_incoming_event(event)
-            results = asyncio.run(ingest_vk())
+            results = self._run_async(ingest_vk())
             runtime.audit.write(actor_type="webhook", actor_id="vkontakte", action="webhook.vkontakte", resource="vkontakte")
             return 200, {"ok": True, "results": results, "response": "ok"}, "application/json"
         return 404, {"ok": False, "error": {"code": "not_found", "message": "маршрут не найден"}}, "application/json"
