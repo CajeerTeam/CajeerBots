@@ -33,6 +33,55 @@ class HybridRbacStore:
         except Exception:
             self._cache = {}
 
+
+    def snapshot(self) -> dict[str, Any]:
+        return self._cache if isinstance(self._cache, dict) else {}
+
+    def save(self) -> None:
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self.cache_path.write_text(
+            json.dumps(self.snapshot(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def bootstrap_owner(
+        self,
+        *,
+        platform: str,
+        platform_user_id: str,
+        display_name: str | None = None,
+        role: str = "owner",
+        permissions: list[str] | set[str] | tuple[str, ...] | None = None,
+    ) -> dict[str, Any]:
+        platform = platform.strip()
+        platform_user_id = platform_user_id.strip()
+        role = (role or "owner").strip()
+        if not platform or not platform_user_id:
+            raise ValueError("platform и user_id обязательны")
+        grants = [str(item).strip() for item in (permissions or ["*"]) if str(item).strip()] or ["*"]
+        cache = self.snapshot()
+        users = cache.setdefault("users", {})
+        roles = cache.setdefault("roles", {})
+        roles[role] = sorted(set(grants))
+        key = f"{platform}:{platform_user_id}"
+        current = users.get(key, {}) if isinstance(users.get(key, {}), dict) else {}
+        users[key] = {
+            "roles": sorted(set([role, *current.get("roles", [])])),
+            "permissions": sorted(set(current.get("permissions", []))),
+            "display_name": display_name or current.get("display_name") or "",
+        }
+        cache["version"] = 1
+        cache["source"] = "local-bootstrap"
+        self._cache = cache
+        self.save()
+        return {
+            "ok": True,
+            "path": str(self.cache_path),
+            "account": key,
+            "role": role,
+            "permissions": sorted(set(grants)),
+        }
+
     def _event_key(self, event: Any) -> str | None:
         actor = getattr(event, "actor", None)
         if actor is None:

@@ -253,6 +253,9 @@ class Settings:
     api_behind_reverse_proxy: bool
     webhook_replay_protection: bool
     webhook_replay_ttl_seconds: int
+    webhook_replay_cache: str
+    webhook_hmac_required: bool
+    webhook_timestamp_required: bool
     api_token: str
     api_readonly_token: str
     api_metrics_token: str
@@ -367,6 +370,9 @@ class Settings:
             api_behind_reverse_proxy=_bool(os.getenv("API_BEHIND_REVERSE_PROXY"), False),
             webhook_replay_protection=_bool(os.getenv("WEBHOOK_REPLAY_PROTECTION"), True),
             webhook_replay_ttl_seconds=_int("WEBHOOK_REPLAY_TTL_SECONDS", 300, minimum=30, maximum=86400),
+            webhook_replay_cache=_choice("WEBHOOK_REPLAY_CACHE", "memory", {"memory", "redis"}),
+            webhook_hmac_required=_bool(os.getenv("WEBHOOK_HMAC_REQUIRED"), False),
+            webhook_timestamp_required=_bool(os.getenv("WEBHOOK_TIMESTAMP_REQUIRED"), False),
             api_token=os.getenv("API_TOKEN", ""),
             api_readonly_token=os.getenv("API_TOKEN_READONLY", ""),
             api_metrics_token=os.getenv("API_TOKEN_METRICS", ""),
@@ -417,6 +423,12 @@ class Settings:
             errors.append(str(exc))
         errors.extend(self.workspace.validate())
         errors.extend(self.remote_logs.validate())
+        if self.webhook_replay_cache == "redis" and not self.redis_url:
+            errors.append("WEBHOOK_REPLAY_CACHE=redis требует REDIS_URL")
+        if self.webhook_hmac_required and not self.event_signing_secret:
+            errors.append("WEBHOOK_HMAC_REQUIRED=true требует EVENT_SIGNING_SECRET")
+        if self.webhook_timestamp_required and not self.webhook_hmac_required:
+            errors.append("WEBHOOK_TIMESTAMP_REQUIRED=true должен использоваться вместе с WEBHOOK_HMAC_REQUIRED=true")
         if self.api_port < 1 or self.api_port > 65535:
             errors.append("API_PORT должен быть числом от 1 до 65535")
         return errors
@@ -455,6 +467,9 @@ class Settings:
             "api_behind_reverse_proxy": self.api_behind_reverse_proxy,
             "webhook_replay_protection": self.webhook_replay_protection,
             "webhook_replay_ttl_seconds": self.webhook_replay_ttl_seconds,
+            "webhook_replay_cache": self.webhook_replay_cache,
+            "webhook_hmac_required": self.webhook_hmac_required,
+            "webhook_timestamp_required": self.webhook_timestamp_required,
             "api_token_configured": bool(self.api_token),
             "api_readonly_token_configured": bool(self.api_readonly_token),
             "api_metrics_token_configured": bool(self.api_metrics_token),

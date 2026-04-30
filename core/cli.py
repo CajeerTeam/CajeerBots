@@ -44,6 +44,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("adapters", help="Показать зарегистрированные адаптеры.")
     sub.add_parser("components", help="Показать runtime-компоненты с entrypoint.")
     sub.add_parser("commands", help="Показать зарегистрированные команды.")
+    rbac = sub.add_parser("rbac", help="Операторский bootstrap и локальный RBAC-cache.")
+    rbac_sub = rbac.add_subparsers(dest="rbac_command", required=True)
+    bootstrap_owner = rbac_sub.add_parser("bootstrap-owner", help="Выдать первому владельцу права через локальный RBAC-cache.")
+    bootstrap_owner.add_argument("--platform", required=True, choices=["telegram", "discord", "vkontakte", "fake"], help="Платформа аккаунта владельца.")
+    bootstrap_owner.add_argument("--user-id", required=True, help="ID пользователя на выбранной платформе.")
+    bootstrap_owner.add_argument("--display-name", default="", help="Отображаемое имя владельца.")
+    bootstrap_owner.add_argument("--permission", action="append", default=[], help="Права владельца. По умолчанию '*'. Можно указывать несколько раз.")
+    bootstrap_owner.add_argument("--role", default="owner", help="Название роли в RBAC-cache.")
+    rbac_sub.add_parser("cache", help="Показать локальный RBAC-cache без внешних зависимостей.")
 
     update = sub.add_parser("update", help="Безопасные обновления из GitHub Releases или локального tar.gz.")
     update_sub = update.add_subparsers(dest="update_command", required=True)
@@ -254,6 +263,27 @@ def main(argv: list[str] | None = None) -> int:
         print(_json([item.to_dict() for item in build_default_commands().list()]), flush=True)
         return 0
 
+
+    if args.command == "rbac":
+        from core.config import Settings
+        from core.rbac_store import HybridRbacStore
+
+        settings = Settings.from_env()
+        store = HybridRbacStore(settings.runtime_dir / "secrets" / "rbac_cache.json")
+        if args.rbac_command == "bootstrap-owner":
+            result = store.bootstrap_owner(
+                platform=args.platform,
+                platform_user_id=args.user_id,
+                display_name=args.display_name or None,
+                role=args.role,
+                permissions=args.permission or ["*"],
+            )
+            print(_json(result), flush=True)
+            return 0
+        if args.rbac_command == "cache":
+            print(_json(store.snapshot()), flush=True)
+            return 0
+
     if args.command == "update":
         runtime = _runtime(project_root)
         if args.update_command == "status":
@@ -372,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "db":
         from core.config import Settings
-        from core.db_async import REQUIRED_TABLES, check_schema
+        from core.db_contract import REQUIRED_TABLES
 
         settings = Settings.from_env()
         if args.db_command == "contract":
@@ -396,6 +426,8 @@ def main(argv: list[str] | None = None) -> int:
             print(completed.stdout, end="", flush=True)
             return completed.returncode
         if args.db_command in {"check", "doctor"}:
+            from core.db_async import check_schema
+
             problems = asyncio.run(check_schema(settings.storage.async_database_url, settings.shared_schema))
             if problems:
                 print("Проверка DB contract: есть проблемы")

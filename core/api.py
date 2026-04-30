@@ -13,6 +13,7 @@ from core.webhook_registry import telegram_update_to_event, vkontakte_callback_e
 from core.contracts import API_CONTRACT_VERSION
 from core.api_routes import KNOWN_SCOPES, ROUTES, canonical_scope, openapi_document, readonly_paths
 from core.events import CajeerEvent
+from core.webhook_security import RedisWebhookReplayGuard, WebhookReplayGuard, replay_key, verify_optional_hmac
 
 if TYPE_CHECKING:
     from core.runtime import Runtime
@@ -31,6 +32,10 @@ class ApiServer:
         self._httpd: ThreadingHTTPServer | None = None
         self._webhook_hits: dict[str, list[float]] = {}
         self._webhook_auth_failures: dict[str, list[float]] = {}
+        if runtime.settings.webhook_replay_cache == "redis":
+            self._replay_guard = RedisWebhookReplayGuard(runtime.settings.redis_url or "", runtime.settings.webhook_replay_ttl_seconds)
+        else:
+            self._replay_guard = WebhookReplayGuard(runtime.settings.webhook_replay_ttl_seconds)
 
     def _run_async(self, coro):
         try:
@@ -103,6 +108,22 @@ class ApiServer:
         if not expected:
             return True
         return hmac.compare_digest(str(body.get("secret") or ""), str(expected))
+
+    def _webhook_security_allowed(self, provider: str, headers: object, raw_body: bytes) -> bool:
+        settings = self.runtime.settings
+        header_map = {str(key): str(value) for key, value in headers.items()}
+        if not verify_optional_hmac(
+            settings.event_signing_secret,
+            header_map,
+            raw_body,
+            required=settings.webhook_hmac_required,
+            timestamp_required=settings.webhook_timestamp_required,
+            timestamp_ttl_seconds=settings.webhook_replay_ttl_seconds,
+        ):
+            return False
+        if not settings.webhook_replay_protection:
+            return True
+        return self._replay_guard.check_and_mark(replay_key(provider, header_map, raw_body))
 
     def _can_get(self, path: str, scope: str | None) -> bool:
         return self._scope_allowed(path, "GET", scope)
@@ -261,17 +282,22 @@ class ApiServer:
         server = self
 
         class Handler(BaseHTTPRequestHandler):
-            def _json_body(self) -> dict[str, object]:
+            def _read_raw_body(self) -> bytes:
                 length = int(self.headers.get("Content-Length", "0") or "0")
                 if length < 0 or length > MAX_BODY_BYTES:
                     raise ValueError("request body слишком большой")
                 if length <= 0:
-                    return {}
-                raw = self.rfile.read(length).decode("utf-8")
-                data = json.loads(raw or "{}")
+                    return b""
+                return self.rfile.read(length)
+
+            def _json_from_raw(self, raw: bytes) -> dict[str, object]:
+                data = json.loads(raw.decode("utf-8") or "{}") if raw else {}
                 if not isinstance(data, dict):
                     raise ValueError("request body должен быть JSON-объектом")
                 return data
+
+            def _json_body(self) -> dict[str, object]:
+                return self._json_from_raw(self._read_raw_body())
 
             def _write(self, status: int, payload: dict[str, object] | str, content_type: str, request_id: str) -> None:
                 if isinstance(payload, str):
@@ -310,13 +336,20 @@ class ApiServer:
                         self._write(429, {"ok": False, "error": {"code": "rate_limited", "message": "webhook rate limit exceeded"}}, "application/json", request_id)
                         return
                     try:
-                        body = self._json_body()
+                        raw_body = self._read_raw_body()
+                        body = self._json_from_raw(raw_body)
+                        provider = path.rsplit("/", 1)[-1]
+                        if not server._webhook_security_allowed(provider, self.headers, raw_body):
+                            server._webhook_rate_limited(f"auth:{path}:{ip}", failed_auth=True)
+                            server.runtime.audit.write(actor_type="webhook", actor_id=provider, action=f"webhook.{provider}.replay_denied", resource=path, result="denied", ip=ip, user_agent=self.headers.get("User-Agent"))
+                            self._write(401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid webhook signature or replay"}}, "application/json", request_id)
+                            return
                         if path == "/webhooks/telegram" and not server._telegram_webhook_authorized(self.headers):
                             server._webhook_rate_limited(f"auth:{path}:{ip}", failed_auth=True)
                             server.runtime.audit.write(actor_type="webhook", actor_id="telegram", action="webhook.telegram.denied", resource=path, result="denied", ip=ip, user_agent=self.headers.get("User-Agent"))
                             self._write(401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid telegram webhook secret"}}, "application/json", request_id)
                             return
-                        status, payload, content_type = server._post_payload(path, body, actor=path.rsplit("/", 1)[-1])
+                        status, payload, content_type = server._post_payload(path, body, actor=provider)
                     except Exception as exc:  # noqa: BLE001
                         status, payload, content_type = 400, {"ok": False, "error": {"code": "bad_request", "message": str(exc)}}, "application/json"
                     self._write(status, payload, content_type, request_id)

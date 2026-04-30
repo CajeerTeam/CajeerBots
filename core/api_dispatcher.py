@@ -9,7 +9,7 @@ from core.api_routes import ROUTES, canonical_scope, openapi_document, readonly_
 from core.contracts import API_CONTRACT_VERSION
 from core.events import CajeerEvent
 from core.sdk.plugins import PluginRequest
-from core.webhook_security import WebhookReplayGuard, replay_key, verify_optional_hmac
+from core.webhook_security import RedisWebhookReplayGuard, WebhookReplayGuard, replay_key, verify_optional_hmac
 
 PUBLIC_PATHS = {"/healthz", "/livez", "/readyz"}
 READONLY_PATHS = readonly_paths() | {"/openapi.json"}
@@ -22,7 +22,10 @@ class AsyncApiDispatcher:
         self.runtime = runtime
         self._webhook_hits: dict[str, list[float]] = {}
         self._webhook_auth_failures: dict[str, list[float]] = {}
-        self._replay_guard = WebhookReplayGuard(runtime.settings.webhook_replay_ttl_seconds)
+        if runtime.settings.webhook_replay_cache == "redis":
+            self._replay_guard = RedisWebhookReplayGuard(runtime.settings.redis_url or "", runtime.settings.webhook_replay_ttl_seconds)
+        else:
+            self._replay_guard = WebhookReplayGuard(runtime.settings.webhook_replay_ttl_seconds)
 
     def _plugin_route(self, path: str, method: str) -> Any | None:
         method = method.upper()
@@ -97,10 +100,18 @@ class AsyncApiDispatcher:
         return hmac.compare_digest(str(body.get("secret") or ""), str(expected))
 
     def webhook_replay_allowed(self, provider: str, headers: Mapping[str, str], raw_body: bytes) -> bool:
-        if not self.runtime.settings.webhook_replay_protection:
-            return True
-        if not verify_optional_hmac(self.runtime.settings.event_signing_secret, headers, raw_body):
+        settings = self.runtime.settings
+        if not verify_optional_hmac(
+            settings.event_signing_secret,
+            headers,
+            raw_body,
+            required=settings.webhook_hmac_required,
+            timestamp_required=settings.webhook_timestamp_required,
+            timestamp_ttl_seconds=settings.webhook_replay_ttl_seconds,
+        ):
             return False
+        if not settings.webhook_replay_protection:
+            return True
         return self._replay_guard.check_and_mark(replay_key(provider, headers, raw_body))
 
     async def _dispatch_plugin_route(self, route: Any, method: str, path: str, body: dict[str, object] | None = None, *, actor: str = "api", headers: Mapping[str, str] | None = None) -> tuple[int, dict[str, object] | str, str]:
