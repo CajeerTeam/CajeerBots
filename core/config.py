@@ -209,6 +209,7 @@ class Settings:
     registry_repo_root_fallback: bool
     api_bind: str
     api_port: int
+    api_server: str
     api_token: str
     api_readonly_token: str
     api_metrics_token: str
@@ -318,6 +319,7 @@ class Settings:
             registry_repo_root_fallback=_bool(os.getenv("REGISTRY_REPO_ROOT_FALLBACK"), True),
             api_bind=os.getenv("API_BIND", "127.0.0.1"),
             api_port=_int("API_PORT", 8088, minimum=1, maximum=65535),
+            api_server=_choice("API_SERVER", "stdlib", {"stdlib", "asgi"}),
             api_token=os.getenv("API_TOKEN", ""),
             api_readonly_token=os.getenv("API_TOKEN_READONLY", ""),
             api_metrics_token=os.getenv("API_TOKEN_METRICS", ""),
@@ -402,6 +404,7 @@ class Settings:
             "registry_repo_root_fallback": self.registry_repo_root_fallback,
             "api_bind": self.api_bind,
             "api_port": self.api_port,
+            "api_server": self.api_server,
             "api_token_configured": bool(self.api_token),
             "api_readonly_token_configured": bool(self.api_readonly_token),
             "api_metrics_token_configured": bool(self.api_metrics_token),

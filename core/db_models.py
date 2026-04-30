@@ -221,8 +221,13 @@ class ScheduledJobRecord(Base):
     run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    max_attempts: Mapped[int] = mapped_column(Integer, server_default="3")
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
 
 class OutboundMessageRecord(Base):
     __tablename__ = "outbound_messages"

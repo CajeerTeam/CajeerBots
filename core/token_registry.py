@@ -3,7 +3,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import secrets
+import tempfile
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,9 +54,52 @@ class ApiTokenRegistry:
         except Exception:
             self.records = []
 
+    @contextmanager
+    def _file_lock(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self.path.with_suffix(self.path.suffix + ".lock")
+        with lock_path.open("a+", encoding="utf-8") as lock_file:
+            try:
+                import fcntl  # type: ignore
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            except Exception:
+                pass
+            try:
+                yield
+            finally:
+                try:
+                    import fcntl  # type: ignore
+
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                except Exception:
+                    pass
+
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"tokens": [item.to_dict() for item in self.records]}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        payload = json.dumps({"tokens": [item.to_dict() for item in self.records]}, ensure_ascii=False, indent=2) + "\n"
+        with self._file_lock():
+            fd, temp_name = tempfile.mkstemp(prefix=self.path.name + ".", suffix=".tmp", dir=str(self.path.parent))
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temp_name, self.path)
+            finally:
+                if os.path.exists(temp_name):
+                    os.unlink(temp_name)
+
+    @staticmethod
+    def _should_touch_last_used(previous: str | None, now: str, *, interval_seconds: int = 60) -> bool:
+        if not previous:
+            return True
+        try:
+            before = datetime.fromisoformat(previous)
+            current = datetime.fromisoformat(now)
+            return (current - before).total_seconds() >= interval_seconds
+        except ValueError:
+            return True
 
     @staticmethod
     def hash_token(token: str) -> str:
@@ -80,10 +126,11 @@ class ApiTokenRegistry:
             if record.prefix and not token.startswith(record.prefix):
                 continue
             if hmac.compare_digest(record.sha256, digest):
-                record.last_used_at = now
-                record.last_used_ip = ip or record.last_used_ip
-                record.last_used_user_agent = user_agent or record.last_used_user_agent
-                self._save()
+                if self._should_touch_last_used(record.last_used_at, now):
+                    record.last_used_at = now
+                    record.last_used_ip = ip or record.last_used_ip
+                    record.last_used_user_agent = user_agent or record.last_used_user_agent
+                    self._save()
                 return record.id, set(record.scopes), record.prefix
         return None, set(), None
 

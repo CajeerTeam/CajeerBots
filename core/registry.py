@@ -18,6 +18,7 @@ KNOWN_CAPABILITIES = {
     "reactions",
     "webhooks",
     "slash_commands",
+    "headless_send",
     "health",
     "events.publish",
 }

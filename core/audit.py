@@ -38,12 +38,19 @@ class AuditLog:
         self._records: deque[AuditRecord] = deque(maxlen=max_size)
         self.backend = backend
 
-    async def write_async(self, record: AuditRecord) -> None:
+    def _append_memory(self, record: AuditRecord) -> None:
         self._records.append(record)
+
+    async def _write_backend_async(self, record: AuditRecord) -> None:
+        return None
+
+    async def write_async(self, record: AuditRecord) -> None:
+        self._append_memory(record)
+        await self._write_backend_async(record)
 
     def write(self, *, actor_type: str, actor_id: str, action: str, resource: str, result: str = "ok", trace_id: str | None = None, ip: str | None = None, user_agent: str | None = None, message: str = "") -> AuditRecord:
         record = AuditRecord(str(uuid4()), actor_type, actor_id, action, resource, result, trace_id, ip, user_agent, message, datetime.now(timezone.utc).isoformat())
-        self._records.append(record)
+        self._append_memory(record)
         return record
 
     def snapshot(self) -> list[AuditRecord]:
@@ -65,20 +72,19 @@ class RedisAuditLog(AuditLog):
             self._redis = Redis.from_url(self.redis_url, decode_responses=True)
         return self._redis
 
-    async def write_async(self, record: AuditRecord) -> None:
-        await super().write_async(record)
+    async def _write_backend_async(self, record: AuditRecord) -> None:
         redis = await self._client()
         await redis.lpush(self.key, json.dumps(record.to_dict(), ensure_ascii=False))
         await redis.ltrim(self.key, 0, self.max_size - 1)
 
     def write(self, **kwargs: Any) -> AuditRecord:
         record = AuditRecord(str(uuid4()), kwargs.get("actor_type", "system"), kwargs.get("actor_id", "unknown"), kwargs.get("action", "unknown"), kwargs.get("resource", "unknown"), kwargs.get("result", "ok"), kwargs.get("trace_id"), kwargs.get("ip"), kwargs.get("user_agent"), kwargs.get("message", ""), datetime.now(timezone.utc).isoformat())
-        self._records.append(record)
+        self._append_memory(record)
         try:
-            asyncio.get_running_loop().create_task(self.write_async(record))
+            asyncio.get_running_loop().create_task(self._write_backend_async(record))
         except RuntimeError:
             try:
-                asyncio.run(self.write_async(record))
+                asyncio.run(self._write_backend_async(record))
             except Exception:
                 pass
         return record
@@ -98,8 +104,7 @@ class PostgresAuditLog(AuditLog):
             self._engine = create_async_engine(self.async_dsn, pool_pre_ping=True)
         return self._engine
 
-    async def write_async(self, record: AuditRecord) -> None:
-        await super().write_async(record)
+    async def _write_backend_async(self, record: AuditRecord) -> None:
         async with self._engine_obj().begin() as conn:
             await conn.execute(
                 _sql_text(
@@ -113,12 +118,12 @@ class PostgresAuditLog(AuditLog):
 
     def write(self, **kwargs: Any) -> AuditRecord:
         record = AuditRecord(str(uuid4()), kwargs.get("actor_type", "system"), kwargs.get("actor_id", "unknown"), kwargs.get("action", "unknown"), kwargs.get("resource", "unknown"), kwargs.get("result", "ok"), kwargs.get("trace_id"), kwargs.get("ip"), kwargs.get("user_agent"), kwargs.get("message", ""), datetime.now(timezone.utc).isoformat())
-        self._records.append(record)
+        self._append_memory(record)
         try:
-            asyncio.get_running_loop().create_task(self.write_async(record))
+            asyncio.get_running_loop().create_task(self._write_backend_async(record))
         except RuntimeError:
             try:
-                asyncio.run(self.write_async(record))
+                asyncio.run(self._write_backend_async(record))
             except Exception:
                 pass
         return record

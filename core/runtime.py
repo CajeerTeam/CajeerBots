@@ -290,12 +290,29 @@ class Runtime:
             results.append((await self.router.route(command_event)).to_dict())
         return results
     async def run_api(self) -> None:
-        from core.api import ApiServer
-
         logger.info("режим API запущен на %s:%s", self.settings.api_bind, self.settings.api_port)
         stop_event = asyncio.Event()
         self._stop_event = stop_event
         self._install_signal_handlers(stop_event)
+        if getattr(self.settings, "api_server", "stdlib") == "asgi":
+            try:
+                import uvicorn  # type: ignore
+            except ImportError as exc:  # pragma: no cover - зависит от optional dependency
+                raise RuntimeError("API_SERVER=asgi требует пакет uvicorn: pip install cajeer-bots[api]") from exc
+            from core.asgi import create_app
+
+            config = uvicorn.Config(create_app(self), host=self.settings.api_bind, port=self.settings.api_port, log_level=self.settings.log_level.lower())
+            server = uvicorn.Server(config)
+            task = asyncio.create_task(server.serve(), name="api:asgi")
+            try:
+                await stop_event.wait()
+            finally:
+                server.should_exit = True
+                await asyncio.gather(task, return_exceptions=True)
+            return
+
+        from core.api import ApiServer
+
         server = ApiServer(self, loop=asyncio.get_running_loop())
         server.start_in_thread()
         try:
@@ -506,6 +523,9 @@ class Runtime:
             "# HELP cajeerbots_delivery_failed_total Количество ошибок доставки.",
             "# TYPE cajeerbots_delivery_failed_total counter",
             f"cajeerbots_delivery_failed_total {self.delivery.failed_total}",
+            "# HELP cajeerbots_outbound_trace_failed_total Количество ошибок записи outbound trace.",
+            "# TYPE cajeerbots_outbound_trace_failed_total counter",
+            f"cajeerbots_outbound_trace_failed_total {getattr(self.delivery, 'outbound_trace_failed_total', 0)}",
             "# HELP cajeerbots_audit_records_total Количество audit-записей в runtime.",
             "# TYPE cajeerbots_audit_records_total gauge",
             f"cajeerbots_audit_records_total {len(self.audit.snapshot())}",
@@ -518,17 +538,34 @@ class Runtime:
             lines.append(f'cajeerbots_adapter_restarts_total{{adapter="{adapter.name}"}} {adapter.restart_count}')
         return "\n".join(lines) + "\n"
 
-    def doctor(self, offline: bool = False, *, doctor_mode: str = "local") -> list[str]:
+    def doctor(self, offline: bool = False, *, doctor_mode: str = "local", profile: str | None = None) -> list[str]:
+        profile = profile or ("production" if self.settings.env == "production" else "dev")
         problems: list[str] = []
         warnings: list[str] = []
         problems.extend(self.settings.validate_runtime(doctor_mode=doctor_mode))
-        if not self.settings.event_signing_secret:
-            problems.append("EVENT_SIGNING_SECRET не задан")
-        if self.settings.event_signing_secret in PLACEHOLDER_SECRETS:
-            problems.append("EVENT_SIGNING_SECRET содержит демонстрационное значение")
-        if self.settings.api_token in PLACEHOLDER_SECRETS:
-            problems.append("API_TOKEN содержит демонстрационное значение")
-        problems.extend(self._production_security_problems())
+
+        strict_secrets = profile in {"staging", "production", "release-artifact"}
+        if strict_secrets:
+            if not self.settings.event_signing_secret:
+                problems.append("EVENT_SIGNING_SECRET не задан")
+            if self.settings.event_signing_secret in PLACEHOLDER_SECRETS:
+                problems.append("EVENT_SIGNING_SECRET содержит демонстрационное значение")
+            if self.settings.api_token in PLACEHOLDER_SECRETS:
+                problems.append("API_TOKEN содержит демонстрационное значение")
+        elif not self.settings.event_signing_secret:
+            warnings.append("EVENT_SIGNING_SECRET не задан; допустимо только для dev-профиля")
+
+        if profile == "production":
+            problems.extend(self._production_security_problems())
+            if self.settings.api_bind in {"0.0.0.0", "::"} and not self.settings.metrics_public:
+                warnings.append("API_BIND открыт на все интерфейсы; убедитесь, что API закрыт reverse proxy/TLS/allowlist")
+        if profile == "release-artifact":
+            for required in ["README.md", "LICENSE", "VERSION", "pyproject.toml", ".env.example", "Dockerfile", "docker-compose.yml", "alembic.ini"]:
+                if not (self.project_root / required).exists():
+                    problems.append(f"release artifact неполный: отсутствует {required}")
+            if (self.project_root / ".env").exists():
+                problems.append("release artifact не должен содержать .env")
+
         if not (self.project_root / "core").is_dir():
             problems.append("каталог core не найден")
         if not (self.project_root / "bots").is_dir():

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 DeliveryStatus = Literal["pending", "processing", "sent", "failed"]
 
@@ -95,6 +98,7 @@ class DeliveryService:
     failed_total: int = 0
     backend: str = "memory"
     retry_backoff_seconds: int = 5
+    outbound_trace_failed_total: int = 0
 
     def enqueue(self, adapter: str, target: str, text: str, *, max_attempts: int = 3, trace_id: str | None = None) -> DeliveryTask:
         task = DeliveryTask(adapter=adapter, target=target, text=text, created_at=_now(), max_attempts=max_attempts, trace_id=trace_id)
@@ -149,6 +153,28 @@ class DeliveryService:
                 self.failed_total += 1
             return
 
+    def _platform_message_id(self, result: Any = None) -> str:
+        if result is None:
+            return ""
+        if hasattr(result, "platform_message_id"):
+            return str(getattr(result, "platform_message_id") or "")
+        if isinstance(result, dict):
+            for key in ("platform_message_id", "message_id", "id"):
+                if result.get(key) is not None:
+                    return str(result.get(key) or "")
+        return str(result)
+
+    def _report_outbound_trace_error(self, adapter: Any, task: DeliveryTask, stage: str, error: Exception) -> None:
+        self.outbound_trace_failed_total += 1
+        logger.warning("ошибка записи outbound trace stage=%s delivery_id=%s: %s", stage, task.delivery_id, error)
+        context = getattr(adapter, "context", None)
+        audit = getattr(context, "audit", None) if context is not None else None
+        if audit is not None:
+            try:
+                audit.write(actor_type="system", actor_id="delivery", action="outbound.trace.failed", resource=task.delivery_id, result="error", trace_id=task.trace_id, message=f"{stage}: {error}")
+            except Exception:  # pragma: no cover - audit degradation must not break delivery
+                logger.debug("audit write for outbound trace failure failed", exc_info=True)
+
     async def _record_outbound_sending(self, adapter: Any, task: DeliveryTask) -> None:
         settings = getattr(adapter, "settings", None)
         async_dsn = getattr(getattr(settings, "storage", None), "async_database_url", "") if settings is not None else ""
@@ -157,20 +183,20 @@ class DeliveryService:
             try:
                 from core.repositories.outbound import OutboundMessageRepository
                 await OutboundMessageRepository(async_dsn, schema).mark_sending(delivery_id=task.delivery_id, adapter=task.adapter, target=task.target, text=task.text, trace_id=task.trace_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._report_outbound_trace_error(adapter, task, "sending", exc)
 
     async def _record_outbound_sent(self, adapter: Any, task: DeliveryTask, result: Any = None) -> None:
         settings = getattr(adapter, "settings", None)
         async_dsn = getattr(getattr(settings, "storage", None), "async_database_url", "") if settings is not None else ""
         schema = getattr(settings, "shared_schema", "shared") if settings is not None else "shared"
-        platform_message_id = str(result) if result is not None else ""
+        platform_message_id = self._platform_message_id(result)
         if self.backend == "postgres" and async_dsn:
             try:
                 from core.repositories.outbound import OutboundMessageRepository
                 await OutboundMessageRepository(async_dsn, schema).mark_sent(delivery_id=task.delivery_id, platform_message_id=platform_message_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._report_outbound_trace_error(adapter, task, "sent", exc)
 
     async def _record_outbound_failed(self, adapter: Any, task: DeliveryTask, error: str) -> None:
         settings = getattr(adapter, "settings", None)
@@ -180,8 +206,8 @@ class DeliveryService:
             try:
                 from core.repositories.outbound import OutboundMessageRepository
                 await OutboundMessageRepository(async_dsn, schema).mark_failed(delivery_id=task.delivery_id, error=error)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._report_outbound_trace_error(adapter, task, "failed", exc)
 
     async def process_for_adapter(self, adapter: Any) -> int:
         processed = 0
@@ -331,7 +357,7 @@ class RedisDeliveryService(DeliveryService):
                     await adapter.context.rate_limiter.acquire(f"{task.adapter}:{task.target}")
                 await self._record_outbound_sending(adapter, task)
                 result = await adapter.send_message(task.target, task.text)
-                await redis.set(sent_key, str(result or "sent"), ex=86400)
+                await redis.set(sent_key, self._platform_message_id(result) or "sent", ex=86400)
                 await redis.delete(started_key)
                 await self.mark_sent(task.delivery_id)
                 await self._record_outbound_sent(adapter, task, result)

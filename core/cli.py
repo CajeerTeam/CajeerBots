@@ -23,7 +23,15 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="Проверить конфигурацию и состояние платформы.")
     doctor.add_argument("--offline", action="store_true", help="Не проверять внешние сервисы и PostgreSQL.")
     doctor.add_argument("--mode", choices=["local", "distributed"], default="local", help="Проверяемый архитектурный режим.")
+    doctor.add_argument("--profile", choices=["dev", "staging", "production", "release-artifact"], default=None, help="Профиль строгости doctor-проверок.")
     doctor.add_argument("--fix-permissions", action="store_true", help="Исправить права shell/python entrypoints перед проверкой.")
+
+    release = sub.add_parser("release", help="Проверка и обслуживание release artifacts.")
+    release_sub = release.add_subparsers(dest="release_command", required=True)
+    release_verify = release_sub.add_parser("verify", help="Проверить tar.gz/zip release artifact.")
+    release_verify.add_argument("artifact")
+    release_verify.add_argument("--deep", action="store_true", help="Распаковать артефакт и выполнить syntax/doctor/smoke проверки.")
+    release_verify.add_argument("--python", default="python3", help="Python interpreter для deep-проверок.")
 
     sub.add_parser("init", help="Создать .env, runtime-каталоги и базовые секреты.")
     sub.add_parser("fix-permissions", help="Исправить права запускаемых файлов.")
@@ -267,6 +275,13 @@ def main(argv: list[str] | None = None) -> int:
             print(_json(runtime.updater.unlock_stale()), flush=True)
             return 0
 
+    if args.command == "release" and args.release_command == "verify":
+        from core.release_verify import verify_release_artifact
+
+        result = verify_release_artifact(Path(args.artifact), deep=args.deep, python_bin=args.python)
+        print(_json(result.to_dict()), flush=True)
+        return 0 if result.ok else 1
+
     if args.command == "logs":
         runtime = _runtime(project_root)
         if args.logs_command == "flush":
@@ -362,7 +377,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "doctor":
-        problems = runtime.doctor(offline=args.offline, doctor_mode=args.mode)
+        problems = runtime.doctor(offline=args.offline, doctor_mode=args.mode, profile=args.profile)
         if problems:
             print("Проверка Cajeer Bots: есть проблемы")
             for problem in problems:
