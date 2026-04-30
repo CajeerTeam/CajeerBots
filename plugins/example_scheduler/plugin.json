@@ -1,1 +1,21 @@
-
+{
+  "id": "example_scheduler",
+  "name": "Пример scheduler-плагина",
+  "version": "1.0.0",
+  "type": "plugin",
+  "description": "Показывает регистрацию scheduled job без изменения ядра.",
+  "entrypoint": "runtime:ExampleSchedulerPlugin",
+  "enabled_by_default": false,
+  "capabilities": [
+    "events.publish"
+  ],
+  "permissions": [
+    "scheduler.jobs.register",
+    "events.publish"
+  ],
+  "compatibility": {
+    "db_contract": "cajeer.bots.db.v1",
+    "event_contract": "cajeer.bots.event.v1",
+    "platform": ">=0.10,<1.0"
+  }
+}
