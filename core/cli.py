@@ -35,8 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("init", help="Создать .env, runtime-каталоги и базовые секреты.")
     sub.add_parser("fix-permissions", help="Исправить права запускаемых файлов.")
-    sub.add_parser("modules", help="Показать зарегистрированные модули.")
-    sub.add_parser("plugins", help="Показать зарегистрированные плагины.")
+    modules_cmd = sub.add_parser("modules", help="Показать зарегистрированные модули или проверить module.json.")
+    modules_cmd.add_argument("--validate", metavar="PATH", default="", help="Проверить module.json без запуска runtime.")
+    plugins_cmd = sub.add_parser("plugins", help="Показать зарегистрированные плагины или проверить plugin.json.")
+    plugins_cmd.add_argument("--validate", metavar="PATH", default="", help="Проверить plugin.json без запуска runtime.")
     sub.add_parser("adapters", help="Показать зарегистрированные адаптеры.")
     sub.add_parser("components", help="Показать runtime-компоненты с entrypoint.")
     sub.add_parser("commands", help="Показать зарегистрированные команды.")
@@ -98,12 +100,17 @@ def build_parser() -> argparse.ArgumentParser:
     db_backup.add_argument("--schema", default="")
     db_backup.add_argument("--no-compress", action="store_true")
     db_backup.add_argument("--keep-last", type=int, default=10)
+    db_restore = db_sub.add_parser("restore", help="Проверить или выполнить восстановление PostgreSQL из backup-файла.")
+    db_restore.add_argument("backup_file")
+    db_restore.add_argument("--dry-run", action="store_true", help="Только проверить наличие файла и команд восстановления.")
     db_upgrade = db_sub.add_parser("upgrade", help="Выполнить alembic upgrade.")
     db_upgrade.add_argument("revision", nargs="?", default="head")
 
     sub.add_parser("migrate", help="Показать статус управления схемой БД через Alembic.")
     sub.add_parser("db-status", help="Показать статус модели БД без выполнения миграций.")
-    sub.add_parser("self-test", help="Операторская комплексная самопроверка runtime.")
+    self_test = sub.add_parser("self-test", help="Операторская комплексная самопроверка runtime.")
+    self_test.add_argument("--profile", choices=["local-memory", "staging", "production"], default="local-memory")
+    self_test.add_argument("--offline", action="store_true", help="Не проверять внешние зависимости.")
 
     catalog = sub.add_parser("catalog", help="Управление runtime catalog.")
     catalog_sub = catalog.add_subparsers(dest="catalog_command", required=True)
@@ -214,8 +221,16 @@ def main(argv: list[str] | None = None) -> int:
         settings = Settings.from_env()
         registry = Registry(project_root, settings=settings)
         if args.command == "modules":
+            if getattr(args, "validate", ""):
+                errors = registry.validate_manifest_path(Path(args.validate), expected_type="module")
+                print(_json({"ok": not errors, "errors": errors}), flush=True)
+                return 0 if not errors else 1
             print(_json([item.to_dict() for item in registry.modules()]), flush=True)
         elif args.command == "plugins":
+            if getattr(args, "validate", ""):
+                errors = registry.validate_manifest_path(Path(args.validate), expected_type="plugin")
+                print(_json({"ok": not errors, "errors": errors}), flush=True)
+                return 0 if not errors else 1
             print(_json([item.to_dict() for item in registry.plugins()]), flush=True)
         else:
             print(_json([item.to_dict() for item in registry.adapters()]), flush=True)
@@ -303,9 +318,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "self-test":
         runtime = _runtime(project_root)
-        result = {"doctor": runtime.doctor(offline=False), "ready": runtime.readiness_snapshot(), "dependencies": runtime.dependency_health_snapshot(), "updates": runtime.updater.status().to_dict()}
+        doctor_profile = "production" if args.profile == "production" else "staging" if args.profile == "staging" else "dev"
+        result = {
+            "profile": args.profile,
+            "doctor": runtime.doctor(offline=args.offline or args.profile == "local-memory", profile=doctor_profile),
+            "ready": runtime.readiness_snapshot(),
+            "dependencies": runtime.dependency_health_snapshot() if not args.offline else {"checks": []},
+            "updates": runtime.updater.status().to_dict(),
+            "metrics": {
+                "events": runtime.event_bus.metrics().to_dict(),
+                "delivery_backend": getattr(runtime.delivery, "backend", "memory"),
+                "audit_backend": getattr(runtime.audit, "backend", "memory"),
+            },
+        }
         print(_json(result), flush=True)
-        return 0 if not result["doctor"] and result["ready"].get("ok") else 1
+        return 0 if not result["doctor"] and (args.profile == "local-memory" or result["ready"].get("ok")) else 1
 
     if args.command == "catalog":
         from core.catalog import CatalogEntry, RuntimeCatalogLock
@@ -344,6 +371,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.db_command == "backup":
             from core.db_tools import backup_database
             print(_json(backup_database(settings.database_url, settings.runtime_dir / "backups" / "db", fmt=args.format, schema=args.schema or None, compress=not args.no_compress, keep_last=args.keep_last)), flush=True)
+            return 0
+        if args.db_command == "restore":
+            from core.db_tools import restore_database
+            print(_json(restore_database(settings.database_url, Path(args.backup_file), dry_run=args.dry_run)), flush=True)
             return 0
         if args.db_command in {"current", "history", "upgrade"}:
             import subprocess

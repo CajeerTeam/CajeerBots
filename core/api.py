@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from core.runtime import Runtime
 
 
-PUBLIC_PATHS = {"/healthz", "/readyz"}
+PUBLIC_PATHS = {"/livez", "/healthz", "/readyz"}
 READONLY_PATHS = readonly_paths() | {"/openapi.json"}
 
 MAX_BODY_BYTES = 1_048_576
@@ -110,6 +110,8 @@ class ApiServer:
 
     def _payload(self, path: str) -> tuple[int, dict[str, object] | str, str]:
         runtime = self.runtime
+        if path == "/livez":
+            return 200, {"ok": True, "status": "процесс жив", "version": runtime.version}, "application/json"
         if path == "/healthz":
             return 200, {"ok": True, "status": "процесс работает", "version": runtime.version}, "application/json"
         if path == "/readyz":

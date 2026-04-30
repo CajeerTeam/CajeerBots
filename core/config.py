@@ -210,6 +210,9 @@ class Settings:
     api_bind: str
     api_port: int
     api_server: str
+    api_behind_reverse_proxy: bool
+    webhook_replay_protection: bool
+    webhook_replay_ttl_seconds: int
     api_token: str
     api_readonly_token: str
     api_metrics_token: str
@@ -320,6 +323,9 @@ class Settings:
             api_bind=os.getenv("API_BIND", "127.0.0.1"),
             api_port=_int("API_PORT", 8088, minimum=1, maximum=65535),
             api_server=_choice("API_SERVER", "stdlib", {"stdlib", "asgi"}),
+            api_behind_reverse_proxy=_bool(os.getenv("API_BEHIND_REVERSE_PROXY"), False),
+            webhook_replay_protection=_bool(os.getenv("WEBHOOK_REPLAY_PROTECTION"), True),
+            webhook_replay_ttl_seconds=_int("WEBHOOK_REPLAY_TTL_SECONDS", 300, minimum=30, maximum=86400),
             api_token=os.getenv("API_TOKEN", ""),
             api_readonly_token=os.getenv("API_TOKEN_READONLY", ""),
             api_metrics_token=os.getenv("API_TOKEN_METRICS", ""),
@@ -405,6 +411,9 @@ class Settings:
             "api_bind": self.api_bind,
             "api_port": self.api_port,
             "api_server": self.api_server,
+            "api_behind_reverse_proxy": self.api_behind_reverse_proxy,
+            "webhook_replay_protection": self.webhook_replay_protection,
+            "webhook_replay_ttl_seconds": self.webhook_replay_ttl_seconds,
             "api_token_configured": bool(self.api_token),
             "api_readonly_token_configured": bool(self.api_readonly_token),
             "api_metrics_token_configured": bool(self.api_metrics_token),

@@ -40,6 +40,7 @@ class RouteSpec:
 
 
 ROUTES: tuple[RouteSpec, ...] = (
+    RouteSpec("GET", "/livez", "Проверка живости процесса", "public"),
     RouteSpec("GET", "/healthz", "Проверка процесса", "public"),
     RouteSpec("GET", "/readyz", "Проверка готовности", "public"),
     RouteSpec("GET", "/metrics", "Prometheus metrics", "system.metrics"),

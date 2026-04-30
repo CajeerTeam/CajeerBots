@@ -70,6 +70,8 @@ class Runtime:
         self.idempotency = build_idempotency_store(settings)
         self.commands: CommandRegistry = build_default_commands(self)
         self.audit = build_audit_log(settings)
+        self.plugin_routes: list[object] = []
+        self.plugin_scheduled_jobs: list[dict[str, object]] = []
         self.components = ComponentManager(self, self.registry)
         self.router = EventRouter(self.commands, self.idempotency, components=self.components)
         self.bridge = BridgeService(self)
@@ -367,10 +369,18 @@ class Runtime:
         if self.settings.env != "production":
             return []
         problems: list[str] = []
+        if not self.settings.api_token and not self.settings.api_tokens_file.exists():
+            problems.append("production требует API_TOKEN или API_TOKENS_FILE с scoped token registry")
         if self.settings.api_readonly_token in PLACEHOLDER_SECRETS:
             problems.append("API_TOKEN_READONLY содержит демонстрационное значение")
         if self.settings.api_metrics_token in PLACEHOLDER_SECRETS:
             problems.append("API_TOKEN_METRICS содержит демонстрационное значение")
+        if self.settings.metrics_public:
+            problems.append("METRICS_PUBLIC=true запрещён для production по умолчанию")
+        if self.settings.api_bind in {"0.0.0.0", "::"} and not self.settings.api_behind_reverse_proxy:
+            problems.append("API_BIND открыт наружу: задайте API_BEHIND_REVERSE_PROXY=true только за TLS/reverse proxy/allowlist")
+        if not self.settings.webhook_replay_protection:
+            problems.append("WEBHOOK_REPLAY_PROTECTION=false запрещён для production")
         telegram = self.settings.adapters.get("telegram")
         if telegram and telegram.enabled and telegram.extra.get("mode") == "webhook" and not telegram.extra.get("webhook_secret"):
             problems.append("TELEGRAM_WEBHOOK_SECRET обязателен для production webhook-режима")
@@ -395,6 +405,41 @@ class Runtime:
         if self.settings.event_bus_backend == "redis" and not self.settings.redis_url:
             problems.append("Redis требуется для EVENT_BUS_BACKEND=redis")
         dependency_checks = self.dependency_health_snapshot()
+        for check in dependency_checks.get("checks", []):
+            if isinstance(check, dict) and not check.get("ok"):
+                problems.append(str(check.get("message") or check.get("name")))
+        return {
+            "ok": not problems,
+            "problems": problems,
+            "dependencies": self.dependencies_snapshot(),
+            "event_bus": self.event_bus.metrics().to_dict(),
+            "registry": {
+                "adapters": len(self.registry.adapters()),
+                "modules": len(self.registry.modules()),
+                "plugins": len(self.registry.plugins()),
+                "load_order": [item.to_dict() for item in self.registry.load_order()],
+            },
+            "components": self.components.snapshot(),
+            "dependency_checks": dependency_checks,
+        }
+
+
+    async def readiness_snapshot_async(self) -> dict[str, object]:
+        problems: list[str] = []
+        problems.extend(self.settings.validate_runtime(doctor_mode=self.settings.mode))
+        problems.extend(self.registry.validate(settings=self.settings))
+        compat = check_compatibility(self.project_root, self.version, registry=self.registry)
+        problems.extend(compat.errors)
+        if self.settings.api_token in PLACEHOLDER_SECRETS:
+            problems.append("API_TOKEN содержит демонстрационное значение")
+        problems.extend(self._production_security_problems())
+        if self.settings.event_signing_secret in PLACEHOLDER_SECRETS:
+            problems.append("EVENT_SIGNING_SECRET содержит демонстрационное значение")
+        if self.settings.event_bus_backend == "postgres" and not self.settings.storage.async_database_url:
+            problems.append("DATABASE_ASYNC_URL требуется для EVENT_BUS_BACKEND=postgres")
+        if self.settings.event_bus_backend == "redis" and not self.settings.redis_url:
+            problems.append("Redis требуется для EVENT_BUS_BACKEND=redis")
+        dependency_checks = await self.dependency_health_snapshot_async()
         for check in dependency_checks.get("checks", []):
             if isinstance(check, dict) and not check.get("ok"):
                 problems.append(str(check.get("message") or check.get("name")))
@@ -557,8 +602,6 @@ class Runtime:
 
         if profile == "production":
             problems.extend(self._production_security_problems())
-            if self.settings.api_bind in {"0.0.0.0", "::"} and not self.settings.metrics_public:
-                warnings.append("API_BIND открыт на все интерфейсы; убедитесь, что API закрыт reverse proxy/TLS/allowlist")
         if profile == "release-artifact":
             for required in ["README.md", "LICENSE", "VERSION", "pyproject.toml", ".env.example", "Dockerfile", "docker-compose.yml", "alembic.ini"]:
                 if not (self.project_root / required).exists():

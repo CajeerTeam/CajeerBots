@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 from core.config import Settings
+from core.manifest_schema import KNOWN_PERMISSIONS, validate_manifest_file
 
 ManifestKind = Literal["module", "plugin", "adapter"]
 
@@ -53,6 +54,10 @@ class Manifest:
     requires: tuple[str, ...] = ()
     adapters: tuple[str, ...] = ()
     capabilities: tuple[str, ...] = ()
+    permissions: tuple[str, ...] = ()
+    migrations: tuple[str, ...] = ()
+    lifecycle: dict[str, str] | None = None
+    compatibility: dict[str, str] | None = None
     enabled_by_default: bool = False
     settings_schema: dict[str, object] | None = None
     entrypoint: str | None = None
@@ -70,6 +75,8 @@ class Manifest:
         data["requires"] = list(self.requires)
         data["adapters"] = list(self.adapters)
         data["capabilities"] = list(self.capabilities)
+        data["permissions"] = list(self.permissions)
+        data["migrations"] = list(self.migrations)
         return data
 
 
@@ -101,6 +108,10 @@ class Registry:
             requires=tuple(str(item) for item in data.get("requires", []) or []),
             adapters=tuple(str(item) for item in data.get("adapters", []) or []),
             capabilities=tuple(str(item) for item in data.get("capabilities", []) or []),
+            permissions=tuple(str(item) for item in data.get("permissions", []) or []),
+            migrations=tuple(str(item) for item in data.get("migrations", []) or []),
+            lifecycle={str(k): str(v) for k, v in (data.get("lifecycle") or {}).items()} if isinstance(data.get("lifecycle"), dict) else None,
+            compatibility={str(k): str(v) for k, v in (data.get("compatibility") or data.get("requires_contracts") or {}).items()} if isinstance(data.get("compatibility") or data.get("requires_contracts"), dict) else None,
             enabled_by_default=bool(data.get("enabled_by_default", False)),
             settings_schema=data.get("settings_schema") if isinstance(data.get("settings_schema"), dict) else None,
             entrypoint=str(data.get("entrypoint") or "") or None,
@@ -214,6 +225,9 @@ class Registry:
             visit(key)
         return result
 
+    def validate_manifest_path(self, path: Path, *, expected_type: ManifestKind | None = None) -> list[str]:
+        return validate_manifest_file(path, expected_type=expected_type)
+
     def validate(self, settings: Settings | None = None) -> list[str]:
         errors: list[str] = []
         manifests = self.all()
@@ -225,6 +239,9 @@ class Registry:
 
         for manifest in manifests:
             key = manifest.key()
+            manifest_file = manifest.path / {"module": "module.json", "plugin": "plugin.json", "adapter": "adapter.json"}.get(manifest.type, "")
+            if manifest_file.exists():
+                errors.extend(validate_manifest_file(manifest_file, expected_type=manifest.type))
             if key in seen:
                 errors.append(f"дублирующийся идентификатор manifest: {key}")
             seen.add(key)
@@ -253,6 +270,9 @@ class Registry:
                         errors.append(
                             f"{manifest.type} {manifest.id} зависит от отсутствующего компонента {dependency.normalized()}"
                         )
+                unknown_permissions = sorted(set(manifest.permissions) - KNOWN_PERMISSIONS)
+                if unknown_permissions:
+                    errors.append(f"{manifest.type} {manifest.id} содержит неизвестные permissions: {', '.join(unknown_permissions)}")
                 if manifest.settings_schema is not None and not isinstance(manifest.settings_schema, dict):
                     errors.append(f"settings_schema у {manifest.type} {manifest.id} должен быть объектом")
                 if manifest.entrypoint is not None and ":" not in manifest.entrypoint:

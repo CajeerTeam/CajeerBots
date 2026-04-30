@@ -32,6 +32,7 @@ REQUIRED_TOP_LEVEL = {
     "ops",
     "wiki",
     "alembic",
+    "schemas",
     "install.sh",
     "run.sh",
     "setup_wizard.py",
@@ -48,6 +49,12 @@ EXECUTABLE_PATHS = {
     "scripts/run.sh",
     "scripts/smoke.sh",
     "scripts/smoke_integrations.sh",
+    "scripts/check_docs.sh",
+    "scripts/check_secrets.sh",
+    "scripts/load_webhooks.py",
+    "scripts/load_delivery.py",
+    "scripts/load_event_bus.py",
+    "scripts/fault_drill.sh",
 }
 
 FORBIDDEN_PARTS = {
@@ -157,6 +164,9 @@ def _run_deep_checks(root: Path, *, python_bin: str = "python3") -> dict[str, ob
     env.setdefault("API_TOKEN_METRICS", "release-verify-metrics")
     commands = [
         [python_bin, "scripts/check_syntax.py"],
+        [python_bin, "scripts/check_architecture.py"],
+        ["bash", "scripts/check_docs.sh"],
+        ["bash", "scripts/check_secrets.sh"],
         [python_bin, "-m", "core", "doctor", "--offline", "--profile", "release-artifact"],
         ["bash", "scripts/smoke_integrations.sh"],
     ]

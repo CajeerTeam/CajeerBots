@@ -34,3 +34,21 @@ def backup_database(database_url: str, backups_dir: Path, *, fmt: str = "custom"
     completed = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=int(os.getenv("DB_BACKUP_TIMEOUT_SECONDS", "300")), check=False)
     removed = _prune_old(backups_dir, int(os.getenv("DB_BACKUP_KEEP_LAST", str(keep_last or 10))))
     return {"ok": completed.returncode == 0, "path": str(target), "output": completed.stdout.strip(), "format": fmt, "schema": schema or "all", "removed_old": removed}
+
+
+def restore_database(database_url: str, backup_file: Path, *, dry_run: bool = True) -> dict[str, object]:
+    if not database_url:
+        return {"ok": False, "error": "DATABASE_URL не задан"}
+    if not backup_file.exists() or not backup_file.is_file():
+        return {"ok": False, "error": f"backup-файл не найден: {backup_file}"}
+    suffix = backup_file.suffix.lower()
+    if suffix == ".dump":
+        command = ["pg_restore", "--clean", "--if-exists", "--dbname", database_url, str(backup_file)]
+    elif suffix == ".sql":
+        command = ["psql", database_url, "-f", str(backup_file)]
+    else:
+        return {"ok": False, "error": "поддерживаются только .dump и .sql backup-файлы"}
+    if dry_run:
+        return {"ok": True, "dry_run": True, "command": command, "path": str(backup_file)}
+    completed = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=int(os.getenv("DB_RESTORE_TIMEOUT_SECONDS", "600")), check=False)
+    return {"ok": completed.returncode == 0, "dry_run": False, "command": command, "output": completed.stdout.strip()}
