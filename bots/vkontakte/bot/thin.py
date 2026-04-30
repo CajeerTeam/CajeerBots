@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from typing import Any, Awaitable, Callable
 
 from core.events import CajeerEvent, message_event
@@ -41,7 +42,7 @@ class VkontakteThinWrapper:
         from vkbottle.bot import Bot
 
         bot = Bot(token=self.token)
-        message_id = await bot.api.messages.send(peer_id=peer_id, message=text, random_id=0)
+        message_id = await bot.api.messages.send(peer_id=peer_id, message=text, random_id=random.randint(1, 2_147_483_647))
         return {"ok": True, "message_id": message_id, "peer_id": peer_id}
 
     async def callback_event(self, payload: dict[str, object]) -> CajeerEvent:
