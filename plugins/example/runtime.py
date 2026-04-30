@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from core.events import CajeerEvent
+from core.sdk import CajeerEvent
 
 
 class ExamplePlugin:
