@@ -1,0 +1,21 @@
+{
+  "id": "example_api_route",
+  "name": "Пример API route-плагина",
+  "version": "1.0.0",
+  "type": "plugin",
+  "description": "Демонстрирует декларацию API route через SDK.",
+  "entrypoint": "runtime:ExampleApiRoutePlugin",
+  "enabled_by_default": false,
+  "capabilities": [
+    "health"
+  ],
+  "permissions": [
+    "api.route.register",
+    "config.read"
+  ],
+  "compatibility": {
+    "db_contract": "cajeer.bots.db.v1",
+    "event_contract": "cajeer.bots.event.v1",
+    "platform": ">=0.10,<1.0"
+  }
+}
