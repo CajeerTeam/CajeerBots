@@ -1,4 +1,4 @@
-version: 1
+version: 2
 required_gates:
   - syntax
   - architecture
@@ -16,6 +16,19 @@ artifacts:
   - provenance.json
   - spdx.json
   - cyclonedx.json
+drill_commands:
+  - id: local_memory_fault_drill
+    command: bash scripts/fault_drill.sh
+  - id: syntax
+    command: python3 -S scripts/check_syntax.py
+  - id: architecture
+    command: python3 -S scripts/check_architecture.py
+  - id: docs
+    command: bash scripts/check_docs.sh
+  - id: secrets
+    command: bash scripts/check_secrets.sh
+  - id: smoke_integrations
+    command: bash scripts/smoke_integrations.sh
 production_drills:
   - install
   - migrate
