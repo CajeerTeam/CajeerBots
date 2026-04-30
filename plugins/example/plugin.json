@@ -19,5 +19,9 @@
       "default": "Пример плагина включён.",
       "description": "Сообщение для демонстрационного события плагина."
     }
-  }
+  },
+  "entrypoint": "runtime:ExamplePlugin",
+  "capabilities": [
+    "events.publish"
+  ]
 }
