@@ -19,12 +19,14 @@ jobs:
       - run: pip install -e .[dev,adapters,redis]
       - run: ./scripts/release.sh
         env:
-          RELEASE_SIGNATURE_REQUIRED: 'false'
+          RELEASE_SIGNATURE_REQUIRED: 'true'
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/CajeerBots-*.tar.gz
             dist/CajeerBots-*.tar.gz.sha256
+            dist/CajeerBots-*.sig
             dist/CajeerBots-*.zip
             dist/CajeerBots-*.zip.sha256
             dist/CajeerBots-*.release.json
