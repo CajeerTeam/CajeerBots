@@ -1,4 +1,4 @@
-platform: 0.10.0
+platform: 0.10.1
 event_contract: 1
 db_contract: alembic
 python: ">=3.11"
