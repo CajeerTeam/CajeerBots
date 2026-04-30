@@ -7,7 +7,7 @@ name = "cajeer-bots"
 version = "0.10.1"
 description = "Универсальная платформа для запуска и расширения ботов"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 license = {text = "Apache-2.0"}
 authors = [{name = "TheSkiF4er"}]
 dependencies = [

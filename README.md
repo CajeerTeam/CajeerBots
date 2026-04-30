@@ -2,6 +2,8 @@
 
 Текущая линия: **0.10.1 — Runtime Foundation**.
 
+Поддерживаемые версии Python: **3.11–3.12**. Python 3.13 пока не входит в production support matrix.
+
 **Cajeer Bots** — универсальная русскоязычная платформа для запуска, управления и расширения ботов в разных мессенджерах и сервисах.
 
 ## Архитектурные правила
@@ -46,6 +48,21 @@ cajeer-bots plugins
 - Для production используйте копию `.env.example`, включайте только нужные адаптеры и обязательно заменяйте все `change-me`/placeholder-секреты.
 - Для webhook-режима в production обязательны `TELEGRAM_WEBHOOK_SECRET` и/или `VK_CALLBACK_SECRET`.
 - `API_SERVER=asgi` — рекомендуемый production API-режим.
+
+
+## Source archive и production release artifact
+
+Архив вида `CajeerBots-main.zip`, скачанный из GitHub или переданный как исходники, считается **source archive**, а не production-релизом. В таком архиве ZIP-формат может потерять Unix executable-bit у `*.sh` и `setup_wizard.py`.
+
+Production artifact собирается только через release pipeline:
+
+```bash
+./scripts/release.sh
+python3 -m core release verify dist/CajeerBots-0.10.1.zip --deep
+python3 -m core release verify dist/CajeerBots-0.10.1.tar.gz --deep
+```
+
+Именно `dist/CajeerBots-<version>.zip` и `dist/CajeerBots-<version>.tar.gz` являются проверяемыми артефактами для публикации.
 
 ## Миграции БД
 
