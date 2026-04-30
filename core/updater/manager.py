@@ -254,6 +254,10 @@ class UpdateManager:
                 problems.append(f"Event contract несовместим: {manifest.event_contract} != {EVENT_CONTRACT_VERSION_ID}")
             if manifest.requires_migration and self.block_on_required_migration and not self.auto_migrate:
                 problems.append("release требует миграцию БД; установите CAJEER_UPDATE_AUTO_MIGRATE=true или выполните миграцию вручную")
+            required_revision = getattr(manifest, "required_alembic_revision", "")
+            current_revision = os.getenv("CAJEER_DB_CURRENT_REVISION", "")
+            if required_revision and current_revision and required_revision != current_revision:
+                problems.append(f"Alembic revision не готова: {current_revision} != {required_revision}")
         problems.extend(self.runtime.doctor(offline=True))
         if record:
             self._record("preflight", "ok" if not problems else "error", manifest.version if manifest else None, "; ".join(problems[:5]), preflight_result="ok" if not problems else "error")
@@ -322,7 +326,7 @@ class UpdateManager:
         state_manifest = self._read_state().get("manifest")
         return ReleaseManifest.from_dict(state_manifest) if isinstance(state_manifest, dict) else None
 
-    def apply_staged(self, version: str, staged_path: str) -> dict[str, object]:
+    def apply_staged(self, version: str, staged_path: str, *, dry_run: bool = False) -> dict[str, object]:
         started = time.time()
         with FileUpdateLock(self.lock_path):
             if not staged_path:
@@ -334,6 +338,9 @@ class UpdateManager:
             if migration_problems:
                 self._record("apply_blocked", "error", version, "; ".join(migration_problems), old_version=self.runtime.version, new_version=version)
                 return {"ok": False, "error": "migration_required", "problems": migration_problems}
+            if dry_run:
+                plan = self.plan(version)
+                return {"ok": True, "dry_run": True, "plan": plan, "staged_path": staged_path}
             services = build_service_manager()
             stop_results = services.stop()
             self.releases_dir.mkdir(parents=True, exist_ok=True)
@@ -361,13 +368,13 @@ class UpdateManager:
                 return {"ok": False, "current": str(current), "release": str(release_path), "service_results": [r.to_dict() for r in [*stop_results, *reload_results, *start_results, *health_results]], "rollback": rollback}
             return {"ok": True, "current": str(current), "release": str(release_path), "service_results": [r.to_dict() for r in [*stop_results, *reload_results, *start_results, *health_results]]}
 
-    def apply_latest(self) -> dict[str, object]:
+    def apply_latest(self, *, dry_run: bool = False) -> dict[str, object]:
         staged = self.stage_latest()
         if not staged.get("staged_path"):
             return {"ok": False, "error": staged.get("error", "stage_latest failed"), "stage": staged}
         manifest = staged.get("manifest") if isinstance(staged.get("manifest"), dict) else {}
         version = str(manifest.get("version") or self._read_state().get("available_version") or self.runtime.version)
-        result = self.apply_staged(version, str(staged["staged_path"]))
+        result = self.apply_staged(version, str(staged["staged_path"]), dry_run=dry_run)
         result["downloaded"] = True
         result["staged_path"] = staged["staged_path"]
         result["applied_version"] = version
