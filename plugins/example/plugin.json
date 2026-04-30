@@ -25,6 +25,7 @@
     "events.publish"
   ],
   "permissions": [
+    "events.read",
     "events.publish"
   ],
   "compatibility": {
