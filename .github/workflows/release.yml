@@ -1,0 +1,32 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e .[dev,adapters,redis]
+      - run: ./scripts/release.sh
+        env:
+          RELEASE_SIGNATURE_REQUIRED: 'false'
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/CajeerBots-*.tar.gz
+            dist/CajeerBots-*.tar.gz.sha256
+            dist/CajeerBots-*.zip
+            dist/CajeerBots-*.zip.sha256
+            dist/CajeerBots-*.release.json
+            dist/CajeerBots-*.spdx.json
+            dist/CajeerBots-*.cyclonedx.json
