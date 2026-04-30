@@ -1,1 +1,25 @@
-
+version: 1
+required_gates:
+  - syntax
+  - architecture
+  - docs
+  - secrets
+  - doctor_release_artifact
+  - pytest
+  - release_verify_tar_deep
+  - release_verify_zip_deep
+artifacts:
+  - tar.gz
+  - zip
+  - sha256
+  - release.json
+  - provenance.json
+  - spdx.json
+  - cyclonedx.json
+production_drills:
+  - install
+  - migrate
+  - backup
+  - update
+  - rollback
+  - disaster_recovery
