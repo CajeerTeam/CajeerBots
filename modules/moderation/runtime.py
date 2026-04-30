@@ -40,6 +40,8 @@ class ModerationModule:
                 trace_id=event.trace_id,
                 message=str(exc),
             )
+            if context.runtime.settings.moderation_strict_persistence:
+                return {"ok": False, "error": "persistence_failed", "message": str(exc), "trace_id": event.trace_id}
         await context.runtime.workspace.report_event(context.runtime.make_system_event("cajeer.bots.moderation.action", {"action_id": action_id, "action": action, "target": target, "reason": reason, "actor": actor, "trace_id": event.trace_id}))
         return {"ok": True, "message": f"Модерационное действие {action} зарегистрировано для {target}. Причина: {reason}", "action_id": action_id, "action": action, "target": target, "reason": reason, "trace_id": event.trace_id}
 

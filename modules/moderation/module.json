@@ -22,5 +22,12 @@
       "description": "Включить строгий режим модерации."
     }
   },
-  "entrypoint": "modules.moderation.runtime:ModerationModule"
+  "entrypoint": "modules.moderation.runtime:ModerationModule",
+  "permissions": [
+    "bots.moderation.warn",
+    "bots.moderation.mute",
+    "bots.moderation.ban",
+    "bots.moderation.kick",
+    "bots.moderation.manage"
+  ]
 }
