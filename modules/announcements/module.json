@@ -22,5 +22,10 @@
       "description": "Количество повторных попыток доставки объявления."
     }
   },
-  "entrypoint": "modules.announcements.runtime:AnnouncementsModule"
+  "entrypoint": "modules.announcements.runtime:AnnouncementsModule",
+  "permissions": [
+    "bots.announce.create",
+    "bots.announce.publish",
+    "bots.announce.manage"
+  ]
 }

@@ -45,6 +45,8 @@ class AnnouncementsModule:
                 trace_id=event.trace_id,
                 message=str(exc),
             )
+            if context.runtime.settings.announcements_strict_persistence:
+                return {"ok": False, "error": "persistence_failed", "message": str(exc), "trace_id": event.trace_id}
         await context.runtime.workspace.report_event(context.runtime.make_system_event("cajeer.bots.announcement.created", {"announcement_id": announcement_id, "status": status, "targets": targets, "scheduled_at": scheduled_at, "trace_id": event.trace_id}))
         return {"ok": True, "message": f"Объявление {announcement_id} создано со статусом {status}.", "announcement_id": announcement_id, "status": status, "text": text, "targets": targets, "scheduled_at": scheduled_at, "trace_id": event.trace_id}
 
