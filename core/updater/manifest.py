@@ -26,6 +26,7 @@ class ReleaseManifest:
     db_contract: str
     event_contract: str
     requires_migration: bool
+    required_alembic_revision: str = ""
     artifacts: list[ReleaseArtifact] = field(default_factory=list)
 
     @classmethod
@@ -39,6 +40,7 @@ class ReleaseManifest:
             db_contract=str(data.get("db_contract") or ""),
             event_contract=str(data.get("event_contract") or ""),
             requires_migration=bool(data.get("requires_migration", False)),
+            required_alembic_revision=str(data.get("required_alembic_revision") or ""),
             artifacts=artifacts,
         )
 

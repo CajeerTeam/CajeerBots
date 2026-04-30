@@ -245,6 +245,25 @@ class UpdateManager:
             "signature_message": signature_message,
         }
 
+    def _current_alembic_revision(self) -> str:
+        configured = os.getenv("CAJEER_DB_CURRENT_REVISION", "").strip()
+        if configured:
+            return configured
+        try:
+            completed = subprocess.run(
+                ["alembic", "-c", str(self.runtime.settings.storage.alembic_config), "current"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=15,
+                check=False,
+            )
+            if completed.returncode == 0:
+                return completed.stdout.strip().split()[0] if completed.stdout.strip() else ""
+        except Exception:
+            return ""
+        return ""
+
     def preflight(self, manifest: ReleaseManifest | None = None, *, record: bool = True) -> list[str]:
         problems: list[str] = []
         if manifest:
@@ -255,8 +274,8 @@ class UpdateManager:
             if manifest.requires_migration and self.block_on_required_migration and not self.auto_migrate:
                 problems.append("release требует миграцию БД; установите CAJEER_UPDATE_AUTO_MIGRATE=true или выполните миграцию вручную")
             required_revision = getattr(manifest, "required_alembic_revision", "")
-            current_revision = os.getenv("CAJEER_DB_CURRENT_REVISION", "")
-            if required_revision and current_revision and required_revision != current_revision:
+            current_revision = self._current_alembic_revision()
+            if required_revision and required_revision != "head" and current_revision and required_revision != current_revision:
                 problems.append(f"Alembic revision не готова: {current_revision} != {required_revision}")
         problems.extend(self.runtime.doctor(offline=True))
         if record:
@@ -272,10 +291,10 @@ class UpdateManager:
             resolved = (target / member.name).resolve()
             if target_resolved not in resolved.parents and resolved != target_resolved:
                 raise ValueError(f"архив пытается записать вне staging: {member.name}")
-            if member.issym() or member.islnk():
-                link = Path(member.linkname)
-                if link.is_absolute() or ".." in link.parts:
-                    raise ValueError(f"небезопасная ссылка в архиве: {member.name} -> {member.linkname}")
+            if member.issym() or member.islnk() or member.isdev() or member.isfifo():
+                raise ValueError(f"release artifact содержит запрещённый тип файла: {member.name}")
+            if not (member.isdir() or member.isfile()):
+                raise ValueError(f"release artifact содержит неподдерживаемый тип файла: {member.name}")
         tf.extractall(target)
 
     def _normalized_staged_root(self, target: Path) -> Path:
@@ -283,6 +302,31 @@ class UpdateManager:
         if len(children) == 1 and children[0].is_dir() and (children[0] / "VERSION").exists() and (children[0] / "core").is_dir():
             return children[0]
         return target
+
+    def _staged_preflight(self, staged_root: Path, manifest: ReleaseManifest | None) -> list[str]:
+        problems = []
+        required = ["VERSION", "core"]
+        for item in required:
+            if not (staged_root / item).exists():
+                problems.append(f"staged release не содержит {item}")
+        if (staged_root / "scripts" / "check_syntax.py").exists():
+            try:
+                completed = subprocess.run(
+                    [os.getenv("PYTHON_BIN", "python3"), "-S", "scripts/check_syntax.py"],
+                    cwd=staged_root,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    timeout=30,
+                    check=False,
+                    env={**os.environ, "EVENT_SIGNING_SECRET": os.getenv("EVENT_SIGNING_SECRET", "staged-secret"), "API_TOKEN": os.getenv("API_TOKEN", "staged-token")},
+                )
+                if completed.returncode != 0:
+                    problems.append("staged syntax check failed: " + completed.stdout.strip()[:500])
+            except Exception as exc:
+                problems.append(f"staged syntax check не выполнен: {exc}")
+        problems.extend(self.preflight(manifest, record=False))
+        return problems
 
     def stage_local_artifact(self, artifact_path: Path, manifest: ReleaseManifest | None = None, expected_sha256: str | None = None) -> dict[str, object]:
         with FileUpdateLock(self.lock_path):
@@ -292,9 +336,6 @@ class UpdateManager:
             verify = self.verify(artifact_path, expected_sha256)
             if not verify["ok"]:
                 raise ValueError("checksum/signature artifact не совпадает")
-            problems = self.preflight(manifest)
-            if problems:
-                raise RuntimeError("preflight не пройден: " + "; ".join(problems))
             self.staging_dir.mkdir(parents=True, exist_ok=True)
             target = self.staging_dir / artifact_path.name.replace(".tar.gz", "")
             if target.exists():
@@ -303,9 +344,13 @@ class UpdateManager:
             with tarfile.open(artifact_path, "r:gz") as tf:
                 self._safe_extract(tf, target)
             staged_root = self._normalized_staged_root(target)
+            problems = self._staged_preflight(staged_root, manifest)
+            if problems:
+                self._write_state(stage="preflight_failed", staged_path=str(staged_root), raw_staging_path=str(target), manifest=manifest.to_dict() if manifest else None, preflight={"ok": False, "problems": problems})
+                raise RuntimeError("staged preflight не пройден: " + "; ".join(problems))
             if manifest:
                 (staged_root / ".cajeer-update-manifest.json").write_text(manifest.to_json() + "\n", encoding="utf-8")
-            result = {"staged_path": str(staged_root), "raw_staging_path": str(target), "manifest": manifest.to_dict() if manifest else None, "verify": verify}
+            result = {"staged_path": str(staged_root), "raw_staging_path": str(target), "manifest": manifest.to_dict() if manifest else None, "verify": verify, "preflight": {"ok": True, "problems": []}}
             self._write_state(stage="staged", staged_path=str(staged_root), raw_staging_path=str(target), manifest=manifest.to_dict() if manifest else None, verify=verify)
             self._record("staged", "ok", manifest.version if manifest else None, str(staged_root), artifact_name=artifact_path.name, artifact_sha256=str(verify["sha256"]))
             return result
@@ -325,6 +370,21 @@ class UpdateManager:
             return ReleaseManifest.from_file(manifest_file)
         state_manifest = self._read_state().get("manifest")
         return ReleaseManifest.from_dict(state_manifest) if isinstance(state_manifest, dict) else None
+
+    def _replace_link_or_path(self, path: Path, backup_name: str | None = None) -> None:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.exists():
+            target = (self.install_root / (backup_name or f"{path.name}.backup-{int(time.time())}"))
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.move(str(path), str(target))
+
+    def _atomic_symlink(self, link: Path, target: Path) -> None:
+        tmp = link.with_name(link.name + ".new")
+        self._replace_link_or_path(tmp)
+        tmp.symlink_to(target, target_is_directory=True)
+        os.replace(tmp, link)
 
     def apply_staged(self, version: str, staged_path: str, *, dry_run: bool = False) -> dict[str, object]:
         started = time.time()
@@ -351,11 +411,9 @@ class UpdateManager:
             current = self.install_root / "current"
             previous = self.install_root / "previous"
             if current.exists() or current.is_symlink():
-                if previous.exists() or previous.is_symlink():
-                    previous.unlink()
+                self._replace_link_or_path(previous, backup_name=f"previous.backup-{int(time.time())}")
                 previous.symlink_to(current.resolve(), target_is_directory=True)
-                current.unlink()
-            current.symlink_to(release_path, target_is_directory=True)
+            self._atomic_symlink(current, release_path)
             reload_results = services.reload()
             start_results = services.start()
             health_results = services.healthcheck()
@@ -389,9 +447,7 @@ class UpdateManager:
             return {"ok": False, "error": "previous release отсутствует"}
         services = build_service_manager()
         stop_results = services.stop()
-        if current.exists() or current.is_symlink():
-            current.unlink()
-        current.symlink_to(previous.resolve(), target_is_directory=True)
+        self._atomic_symlink(current, previous.resolve())
         reload_results = services.reload()
         start_results = services.start()
         health_results = services.healthcheck()
@@ -402,5 +458,21 @@ class UpdateManager:
         return {"ok": ok, "current": str(current), "target": str(previous.resolve()), "service_results": [r.to_dict() for r in [*stop_results, *reload_results, *start_results, *health_results]]}
 
     def rollback(self) -> dict[str, object]:
-        with FileUpdateLock(self.lock_path):
+        with FileUpdateLock(self.lock_path, operation="rollback"):
             return self._rollback_unlocked()
+
+    def unlock_stale(self) -> dict[str, object]:
+        lock = FileUpdateLock(self.lock_path)
+        removed = lock.unlock_stale()
+        return {"ok": True, "removed": removed, "path": str(self.lock_path), "metadata": lock.read_metadata()}
+
+    def resume(self) -> dict[str, object]:
+        state = self._read_state()
+        stage = str(state.get("stage") or "idle")
+        staged_path = str(state.get("staged_path") or "")
+        target_version = str(state.get("available_version") or state.get("applied_version") or self.runtime.version)
+        if stage in {"staged", "ready_to_apply"} and staged_path:
+            return self.apply_staged(target_version, staged_path)
+        if stage in {"applying", "apply_failed", "rollback_failed"}:
+            return self.rollback()
+        return {"ok": True, "stage": stage, "message": "нет незавершённого обновления"}

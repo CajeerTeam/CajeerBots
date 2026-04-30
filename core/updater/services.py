@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
+import urllib.request
 from dataclasses import dataclass
 
 
@@ -15,6 +17,26 @@ class ServiceResult:
         return {"ok": self.ok, "action": self.action, "message": self.message}
 
 
+def _http_health_gate() -> list[ServiceResult]:
+    url = os.getenv("CAJEER_UPDATE_HEALTH_URL", "").strip()
+    if not url:
+        return []
+    timeout_seconds = max(1, int(os.getenv("CAJEER_UPDATE_HEALTH_TIMEOUT_SECONDS", "30")))
+    deadline = time.time() + timeout_seconds
+    last_error = ""
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=3) as response:  # noqa: S310 - operator-configured local health URL
+                body = response.read(512).decode("utf-8", errors="replace")
+                if 200 <= response.status < 300:
+                    return [ServiceResult(True, "http-health", f"{response.status} {body[:120]}")]
+                last_error = f"{response.status} {body[:120]}"
+        except Exception as exc:  # pragma: no cover - environment-specific
+            last_error = str(exc)
+        time.sleep(1)
+    return [ServiceResult(False, "http-health", last_error or "health timeout")]
+
+
 class BaseServiceManager:
     def stop(self) -> list[ServiceResult]:
         return [ServiceResult(True, "stop", "noop")]
@@ -26,7 +48,7 @@ class BaseServiceManager:
         return [ServiceResult(True, "reload", "noop")]
 
     def healthcheck(self) -> list[ServiceResult]:
-        return [ServiceResult(True, "healthcheck", "noop")]
+        return [ServiceResult(True, "healthcheck", "noop"), *_http_health_gate()]
 
 
 class SystemdServiceManager(BaseServiceManager):
@@ -50,7 +72,7 @@ class SystemdServiceManager(BaseServiceManager):
         return [self._run("daemon-reload", ["systemctl", "daemon-reload"])]
 
     def healthcheck(self) -> list[ServiceResult]:
-        return [self._run(f"is-active:{svc}", ["systemctl", "is-active", "--quiet", svc]) for svc in self.services]
+        return [self._run(f"is-active:{svc}", ["systemctl", "is-active", "--quiet", svc]) for svc in self.services] + _http_health_gate()
 
 
 def build_service_manager() -> BaseServiceManager:
