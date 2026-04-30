@@ -4,6 +4,8 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any
 
+from core.schema import validate_schema_name
+
 
 def _sql_text(statement: str):
     from sqlalchemy import text
@@ -15,6 +17,9 @@ class OutboundMessageRepository:
     async_dsn: str
     schema: str = "shared"
     _engine: Any | None = None
+
+    def __post_init__(self) -> None:
+        self.schema = validate_schema_name(self.schema)
 
     def _engine_obj(self) -> Any:
         if self._engine is None:

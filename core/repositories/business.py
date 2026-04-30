@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from core.schema import validate_schema_name
+
 
 def _sql_text(statement: str):
     from sqlalchemy import text
@@ -13,7 +15,7 @@ def _sql_text(statement: str):
 class BusinessStateRepository:
     def __init__(self, async_dsn: str, schema: str = "shared") -> None:
         self.async_dsn = async_dsn
-        self.schema = schema
+        self.schema = validate_schema_name(schema)
         self._engine: Any | None = None
 
     def _engine_obj(self) -> Any:
