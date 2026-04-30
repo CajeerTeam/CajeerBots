@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import time
-from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable
+from uuid import uuid5, NAMESPACE_URL
 
 JobCallable = Callable[[], Awaitable[None] | None]
 
@@ -18,6 +19,42 @@ class ScheduledJob:
     next_run_at: float = field(default_factory=lambda: time.time())
     last_error: str | None = None
     runs: int = 0
+
+
+async def dispatch_scheduled_job(runtime, job: dict[str, object]) -> None:
+    from core.events import CajeerEvent
+
+    payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+    payload = dict(payload or {})
+    job_type = str(job.get("job_type") or "")
+    trace_id = str(payload.get("trace_id") or job.get("job_id") or job.get("name") or "")
+    if job_type in {"delivery.enqueue", "delivery"}:
+        await runtime.delivery.enqueue_async(
+            adapter=str(payload.get("adapter") or ""),
+            target=str(payload.get("target") or ""),
+            text=str(payload.get("text") or ""),
+            max_attempts=int(payload.get("max_attempts") or 3),
+            trace_id=trace_id or None,
+        )
+        return
+    if job_type in {"event.publish", "event"}:
+        event = CajeerEvent.create(
+            source=str(payload.get("source") or job.get("plugin_id") or "scheduler"),
+            type=str(payload.get("type") or "scheduler.event"),
+            payload=dict(payload.get("payload") or {}),
+        )
+        await runtime.event_bus.publish(event)
+        await runtime.router.route(event)
+        return
+    if job_type in {"command.dispatch", "command", "manual"}:
+        args = str(payload.get("args") or payload.get("command") or "").strip()
+        command = args.lstrip("/").split(maxsplit=1)[0] if args else "scheduler"
+        command_args = args.split(maxsplit=1)[1] if len(args.split(maxsplit=1)) > 1 else ""
+        event = CajeerEvent.create(source="scheduler", type="command.received", payload={"command": command, "args": command_args, "job_id": str(job.get("job_id") or "")})
+        await runtime.event_bus.publish(event)
+        await runtime.router.route(event)
+        return
+    raise ValueError(f"неизвестный job_type: {job_type}")
 
 
 class Scheduler:
@@ -61,11 +98,7 @@ class Scheduler:
 
 
 class PersistentScheduler:
-    """PostgreSQL-backed scheduler loop for production jobs.
-
-    It uses shared.scheduled_jobs and leases due jobs so several workers can run
-    without executing the same job concurrently.
-    """
+    """PostgreSQL-backed scheduler loop for production jobs."""
 
     def __init__(self, async_dsn: str, schema: str = "shared", instance_id: str = "cajeer-bots") -> None:
         self.async_dsn = async_dsn
@@ -79,6 +112,37 @@ class PersistentScheduler:
             self._engine = create_async_engine(self.async_dsn, pool_pre_ping=True)
         return self._engine
 
+    def stable_plugin_job_id(self, job: dict[str, object]) -> str:
+        basis = f"{job.get('plugin_id')}:{job.get('name') or job.get('job_type')}:{json.dumps(job.get('payload') or {}, sort_keys=True, ensure_ascii=False)}"
+        return str(uuid5(NAMESPACE_URL, basis))
+
+    async def upsert_plugin_job(self, job: dict[str, object]) -> str:
+        from sqlalchemy import text
+        job_id = str(job.get("job_id") or self.stable_plugin_job_id(job))
+        payload = dict(job.get("payload") or {})
+        payload.setdefault("plugin_id", job.get("plugin_id"))
+        async with self._engine_obj().begin() as conn:
+            await conn.execute(
+                text(
+                    f"""INSERT INTO {self.schema}.scheduled_jobs
+                    (job_id, job_type, payload, status, run_at, attempts, max_attempts, created_at, updated_at)
+                    VALUES (:job_id, :job_type, CAST(:payload AS jsonb), 'pending', NOW(), 0, :max_attempts, NOW(), NOW())
+                    ON CONFLICT (job_id) DO UPDATE SET
+                      job_type=EXCLUDED.job_type,
+                      payload=EXCLUDED.payload,
+                      max_attempts=EXCLUDED.max_attempts,
+                      updated_at=NOW()
+                    """
+                ),
+                {
+                    "job_id": job_id,
+                    "job_type": str(job.get("job_type") or "event.publish"),
+                    "payload": json.dumps(payload, ensure_ascii=False),
+                    "max_attempts": int(job.get("max_attempts") or 3),
+                },
+            )
+        return job_id
+
     async def claim_due(self, limit: int = 10) -> list[dict[str, object]]:
         from sqlalchemy import text
         async with self._engine_obj().begin() as conn:
@@ -86,7 +150,8 @@ class PersistentScheduler:
                 text(
                     f"""WITH picked AS (
                         SELECT job_id FROM {self.schema}.scheduled_jobs
-                         WHERE status='pending' AND run_at <= NOW()
+                         WHERE (status='pending' AND run_at <= NOW())
+                            OR (status='processing' AND locked_at IS NOT NULL AND locked_at < NOW() - INTERVAL '5 minutes')
                          ORDER BY run_at
                          LIMIT :limit
                          FOR UPDATE SKIP LOCKED
@@ -123,35 +188,7 @@ class PersistentScheduler:
             )
 
     async def _dispatch_job(self, runtime, job: dict[str, object]) -> None:
-        from core.events import CajeerEvent
-
-        payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
-        payload = dict(payload or {})
-        job_type = str(job.get("job_type") or "")
-        trace_id = str(payload.get("trace_id") or job.get("job_id") or "")
-        if job_type in {"delivery.enqueue", "delivery"}:
-            await runtime.delivery.enqueue_async(
-                adapter=str(payload.get("adapter") or ""),
-                target=str(payload.get("target") or ""),
-                text=str(payload.get("text") or ""),
-                max_attempts=int(payload.get("max_attempts") or 3),
-                trace_id=trace_id or None,
-            )
-            return
-        if job_type in {"event.publish", "event"}:
-            event = CajeerEvent.create(source=str(payload.get("source") or "scheduler"), type=str(payload.get("type") or "scheduler.event"), payload=dict(payload.get("payload") or {}))
-            await runtime.event_bus.publish(event)
-            await runtime.router.route(event)
-            return
-        if job_type in {"command.dispatch", "command", "manual"}:
-            args = str(payload.get("args") or payload.get("command") or "").strip()
-            command = args.lstrip("/").split(maxsplit=1)[0] if args else "scheduler"
-            command_args = args.split(maxsplit=1)[1] if len(args.split(maxsplit=1)) > 1 else ""
-            event = CajeerEvent.create(source="scheduler", type="command.received", payload={"command": command, "args": command_args, "job_id": str(job.get("job_id") or "")})
-            await runtime.event_bus.publish(event)
-            await runtime.router.route(event)
-            return
-        raise ValueError(f"неизвестный job_type: {job_type}")
+        await dispatch_scheduled_job(runtime, job)
 
     async def process_due(self, runtime, limit: int = 10) -> tuple[int, int]:
         processed = 0

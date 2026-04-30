@@ -98,6 +98,7 @@ class DeliveryService:
     failed_total: int = 0
     backend: str = "memory"
     retry_backoff_seconds: int = 5
+    lease_seconds: int = 60
     outbound_trace_failed_total: int = 0
 
     def enqueue(self, adapter: str, target: str, text: str, *, max_attempts: int = 3, trace_id: str | None = None) -> DeliveryTask:
@@ -111,13 +112,23 @@ class DeliveryService:
     def snapshot(self) -> list[DeliveryTask]:
         return list(self._tasks)
 
+    def _lease_expired(self, task: DeliveryTask) -> bool:
+        if task.status != "processing" or not task.locked_at:
+            return False
+        try:
+            return datetime.fromisoformat(task.locked_at) < _now_dt() - timedelta(seconds=self.lease_seconds)
+        except ValueError:
+            return True
+
     async def claim(self, adapter: str, limit: int = 50, *, consumer: str | None = None) -> list[DeliveryTask]:
         claimed: list[DeliveryTask] = []
         for task in self._tasks:
-            if task.adapter != adapter or task.status != "pending" or not task.due():
+            claimable = task.status == "pending" or self._lease_expired(task)
+            if task.adapter != adapter or not claimable or not task.due():
                 continue
             task.status = "processing"
             task.attempts += 1
+            task.lease_id = str(uuid4())
             task.locked_by = consumer or adapter
             task.locked_at = _now()
             claimed.append(task)
@@ -275,7 +286,7 @@ class RedisDeliveryService(DeliveryService):
         consumer = consumer or adapter
         claimed: list[tuple[str, dict[str, str]]] = []
         try:
-            reclaimed = await redis.xautoclaim(self._stream(adapter), self.group, consumer, 60_000, "0-0", count=limit)
+            reclaimed = await redis.xautoclaim(self._stream(adapter), self.group, consumer, int(self.lease_seconds * 1000), "0-0", count=limit)
             claimed.extend(reclaimed[1])
         except Exception:
             pass
@@ -294,6 +305,7 @@ class RedisDeliveryService(DeliveryService):
                 continue
             task.status = "processing"
             task.attempts += 1
+            task.lease_id = str(uuid4())
             task.locked_by = consumer
             task.locked_at = _now()
             task.rate_limit_bucket = task.rate_limit_bucket or f"{adapter}:{task.target}"
@@ -458,12 +470,17 @@ class PostgresDeliveryService(DeliveryService):
 def build_delivery_service(settings: Any) -> DeliveryService:
     backend = settings.storage.delivery_backend
     backoff = getattr(settings.storage, "delivery_retry_backoff_seconds", 5)
+    lease_seconds = getattr(settings.storage, "delivery_lease_seconds", 60)
     if backend == "redis":
         if not settings.redis_url:
             raise RuntimeError("DELIVERY_BACKEND=redis требует REDIS_URL")
-        return RedisDeliveryService(settings.redis_url, settings.storage.redis_queue_prefix, retry_backoff_seconds=backoff)
+        service = RedisDeliveryService(settings.redis_url, settings.storage.redis_queue_prefix, retry_backoff_seconds=backoff)
+        service.lease_seconds = lease_seconds
+        return service
     if backend == "postgres":
         if not settings.storage.async_database_url:
             raise RuntimeError("DELIVERY_BACKEND=postgres требует DATABASE_ASYNC_URL")
-        return PostgresDeliveryService(settings.storage.async_database_url, settings.shared_schema, retry_backoff_seconds=backoff)
-    return DeliveryService(retry_backoff_seconds=backoff)
+        service = PostgresDeliveryService(settings.storage.async_database_url, settings.shared_schema, retry_backoff_seconds=backoff)
+        service.lease_seconds = lease_seconds
+        return service
+    return DeliveryService(retry_backoff_seconds=backoff, lease_seconds=lease_seconds)

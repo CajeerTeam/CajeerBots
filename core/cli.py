@@ -32,6 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
     release_verify.add_argument("artifact")
     release_verify.add_argument("--deep", action="store_true", help="Распаковать артефакт и выполнить syntax/doctor/smoke проверки.")
     release_verify.add_argument("--python", default="python3", help="Python interpreter для deep-проверок.")
+    release_checklist = release_sub.add_parser("checklist", help="Запустить исполняемые release checklist/drill проверки.")
+    release_checklist.add_argument("--file", default="release/checklist.yaml")
 
     sub.add_parser("init", help="Создать .env, runtime-каталоги и базовые секреты.")
     sub.add_parser("fix-permissions", help="Исправить права запускаемых файлов.")
@@ -294,6 +296,13 @@ def main(argv: list[str] | None = None) -> int:
         from core.release_verify import verify_release_artifact
 
         result = verify_release_artifact(Path(args.artifact), deep=args.deep, python_bin=args.python)
+        print(_json(result.to_dict()), flush=True)
+        return 0 if result.ok else 1
+
+    if args.command == "release" and args.release_command == "checklist":
+        from core.release_checklist import run_release_drills
+
+        result = run_release_drills(args.file)
         print(_json(result.to_dict()), flush=True)
         return 0 if result.ok else 1
 

@@ -55,6 +55,7 @@ EXECUTABLE_PATHS = {
     "scripts/load_delivery.py",
     "scripts/load_event_bus.py",
     "scripts/fault_drill.sh",
+    "scripts/run_drills.sh",
 }
 
 FORBIDDEN_PARTS = {
@@ -158,16 +159,27 @@ def _extract_artifact(artifact: Path, destination: Path) -> Path:
 
 def _run_deep_checks(root: Path, *, python_bin: str = "python3") -> dict[str, object]:
     env = os.environ.copy()
+    python_flags = env.get("CAJEER_RELEASE_VERIFY_PYTHON_FLAGS", "-S").split()
+    pycmd = [python_bin, *python_flags]
+    env.setdefault("CAJEER_BOTS_ENV", "test")
     env.setdefault("EVENT_SIGNING_SECRET", "release-verify-secret")
     env.setdefault("API_TOKEN", "release-verify-token")
     env.setdefault("API_TOKEN_READONLY", "release-verify-readonly")
     env.setdefault("API_TOKEN_METRICS", "release-verify-metrics")
+    env.setdefault("TELEGRAM_ENABLED", "false")
+    env.setdefault("DISCORD_ENABLED", "false")
+    env.setdefault("VKONTAKTE_ENABLED", "false")
+    env.setdefault("FAKE_ENABLED", "true")
+    env.setdefault("EVENT_BUS_BACKEND", "memory")
+    env.setdefault("DELIVERY_BACKEND", "memory")
+    env.setdefault("DEAD_LETTER_BACKEND", "memory")
+    env.setdefault("IDEMPOTENCY_BACKEND", "memory")
     commands = [
-        [python_bin, "scripts/check_syntax.py"],
-        [python_bin, "scripts/check_architecture.py"],
+        [*pycmd, "scripts/check_syntax.py"],
+        [*pycmd, "scripts/check_architecture.py"],
         ["bash", "scripts/check_docs.sh"],
         ["bash", "scripts/check_secrets.sh"],
-        [python_bin, "-m", "core", "doctor", "--offline", "--profile", "release-artifact"],
+        [*pycmd, "-m", "core", "doctor", "--offline", "--profile", "release-artifact"],
         ["bash", "scripts/smoke_integrations.sh"],
     ]
     results: list[dict[str, object]] = []

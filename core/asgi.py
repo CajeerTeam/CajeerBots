@@ -91,7 +91,7 @@ def create_app(runtime: Any):
                 runtime.audit.write(actor_type="api", actor_id=scope_value or "anonymous", action="http.get", resource=path, result="denied", ip=client_ip, user_agent=headers.get("user-agent"))
                 await _send_response(send, 401, {"ok": False, "error": {"code": "unauthorized", "message": "требуется токен"}}, "application/json", request_id)
                 return
-            status, payload, content_type = await dispatcher.get(path)
+            status, payload, content_type = await dispatcher.get(path, headers=headers, actor=scope_value or "api")
             await _send_response(send, status, payload, content_type, request_id)
             return
 
@@ -115,7 +115,7 @@ def create_app(runtime: Any):
                         runtime.audit.write(actor_type="webhook", actor_id="telegram", action="webhook.telegram.denied", resource=path, result="denied", ip=client_ip, user_agent=headers.get("user-agent"))
                         await _send_response(send, 401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid telegram webhook secret"}}, "application/json", request_id)
                         return
-                    status, payload, content_type = await dispatcher.post(path, body, actor=provider)
+                    status, payload, content_type = await dispatcher.post(path, body, actor=provider, headers=headers)
                 except Exception as exc:  # noqa: BLE001
                     status, payload, content_type = 400, {"ok": False, "error": {"code": "bad_request", "message": str(exc)}}, "application/json"
                 await _send_response(send, status, payload, content_type, request_id)
@@ -127,7 +127,7 @@ def create_app(runtime: Any):
                 return
             try:
                 body = _json_body(await _read_body(receive))
-                status, payload, content_type = await dispatcher.post(path, body, actor=scope_value or "api")
+                status, payload, content_type = await dispatcher.post(path, body, actor=scope_value or "api", headers=headers)
             except Exception as exc:  # noqa: BLE001
                 status, payload, content_type = 400, {"ok": False, "error": {"code": "bad_request", "message": str(exc)}}, "application/json"
             await _send_response(send, status, payload, content_type, request_id)

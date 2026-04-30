@@ -9,6 +9,7 @@ from bots.vkontakte.bot.thin import VkontakteThinWrapper
 from core.api_routes import ROUTES, canonical_scope, openapi_document, readonly_paths
 from core.contracts import API_CONTRACT_VERSION
 from core.events import CajeerEvent
+from core.sdk.plugins import PluginRequest
 from core.webhook_security import WebhookReplayGuard, replay_key, verify_optional_hmac
 
 PUBLIC_PATHS = {"/healthz", "/livez", "/readyz"}
@@ -16,18 +17,20 @@ READONLY_PATHS = readonly_paths() | {"/openapi.json"}
 
 
 class AsyncApiDispatcher:
-    """Async-native HTTP dispatcher for ASGI and future API frontends.
-
-    Stdlib ApiServer remains available for bootstrap/dev. Production should run
-    API_SERVER=asgi so event-bus, delivery, scheduler and webhook ingestion stay
-    inside one asyncio control flow without thread wrappers.
-    """
+    """Async-native HTTP dispatcher for ASGI and future API frontends."""
 
     def __init__(self, runtime: Any) -> None:
         self.runtime = runtime
         self._webhook_hits: dict[str, list[float]] = {}
         self._webhook_auth_failures: dict[str, list[float]] = {}
         self._replay_guard = WebhookReplayGuard(runtime.settings.webhook_replay_ttl_seconds)
+
+    def _plugin_route(self, path: str, method: str) -> Any | None:
+        method = method.upper()
+        for route in getattr(self.runtime, "plugin_routes", []) or []:
+            if getattr(route, "method", "").upper() == method and getattr(route, "path", "") == path:
+                return route
+        return None
 
     def token_scope(self, headers: Mapping[str, str]) -> str | None:
         value = headers.get("authorization", headers.get("Authorization", ""))
@@ -51,15 +54,20 @@ class AsyncApiDispatcher:
         return None
 
     def scope_allowed(self, path: str, method: str, scope: str | None) -> bool:
+        method = method.upper()
         if scope in {"admin", "system.admin"}:
             return True
         if path in PUBLIC_PATHS and method == "GET":
             return True
         if path == "/metrics":
             return self.runtime.settings.metrics_public or scope in {"admin", "metrics", "system.admin", "system.metrics"}
-        if path in READONLY_PATHS and method == "GET":
-            return scope in {"admin", "readonly", "system.admin", "system.read", "system.update.read"}
-        wanted = next((item.auth_scope for item in ROUTES if item.path == path and item.method == method), "admin")
+        plugin_route = self._plugin_route(path, method)
+        if plugin_route is not None:
+            wanted = str(getattr(plugin_route, "auth_scope", "system.admin"))
+        else:
+            if path in READONLY_PATHS and method == "GET":
+                return scope in {"admin", "readonly", "system.admin", "system.read", "system.update.read"}
+            wanted = next((item.auth_scope for item in ROUTES if item.path == path and item.method == method), "admin")
         if wanted in {"public", "webhook"}:
             return True
         if not scope:
@@ -96,8 +104,23 @@ class AsyncApiDispatcher:
             return False
         return self._replay_guard.check_and_mark(replay_key(provider, headers, raw_body))
 
-    async def get(self, path: str) -> tuple[int, dict[str, object] | str, str]:
+    async def _dispatch_plugin_route(self, route: Any, method: str, path: str, body: dict[str, object] | None = None, *, actor: str = "api", headers: Mapping[str, str] | None = None) -> tuple[int, dict[str, object] | str, str]:
+        request = PluginRequest(method=method.upper(), path=path, body=body or {}, actor=actor, headers=headers or {})
+        try:
+            payload = await route.call(request)
+            return 200, payload, "application/json"
+        except PermissionError as exc:
+            self.runtime.audit.write(actor_type="plugin", actor_id=getattr(route, "plugin_id", "unknown"), action="plugin.route.denied", resource=path, result="denied", message=str(exc))
+            return 403, {"ok": False, "error": {"code": "forbidden", "message": str(exc)}}, "application/json"
+        except Exception as exc:  # noqa: BLE001
+            self.runtime.audit.write(actor_type="plugin", actor_id=getattr(route, "plugin_id", "unknown"), action="plugin.route.failed", resource=path, result="error", message=str(exc))
+            return 500, {"ok": False, "error": {"code": "plugin_route_failed", "message": str(exc)}}, "application/json"
+
+    async def get(self, path: str, *, headers: Mapping[str, str] | None = None, actor: str = "api") -> tuple[int, dict[str, object] | str, str]:
         runtime = self.runtime
+        plugin_route = self._plugin_route(path, "GET")
+        if plugin_route is not None:
+            return await self._dispatch_plugin_route(plugin_route, "GET", path, actor=actor, headers=headers)
         if path == "/livez":
             return 200, {"ok": True, "status": "процесс жив", "version": runtime.version}, "application/json"
         if path == "/healthz":
@@ -127,7 +150,7 @@ class AsyncApiDispatcher:
         if path == "/events":
             return 200, {"items": [event.to_dict() for event in runtime.event_bus.snapshot()]}, "application/json"
         if path == "/routes":
-            return 200, {"items": [item.to_dict() for item in runtime.router.snapshot()]}, "application/json"
+            return 200, {"items": [item.to_dict() for item in runtime.router.snapshot()], "plugin_routes": [item.to_dict() for item in getattr(runtime, "plugin_routes", [])]}, "application/json"
         if path == "/dead-letters":
             return 200, {"items": [item.to_dict() for item in runtime.dead_letters.snapshot()]}, "application/json"
         if path == "/commands":
@@ -145,7 +168,7 @@ class AsyncApiDispatcher:
         if path == "/audit":
             return 200, {"items": [item.to_dict() for item in runtime.audit.snapshot()]}, "application/json"
         if path == "/openapi.json":
-            return 200, openapi_document(runtime.version, API_CONTRACT_VERSION), "application/json"
+            return 200, openapi_document(runtime.version, API_CONTRACT_VERSION, getattr(runtime, "plugin_routes", [])), "application/json"
         if path == "/updates/status":
             return 200, {"status": runtime.updater.status().to_dict()}, "application/json"
         if path == "/updates/plan":
@@ -154,8 +177,11 @@ class AsyncApiDispatcher:
             return 200, {"items": [item.to_dict() for item in runtime.updater.history()]}, "application/json"
         return 404, {"ok": False, "error": {"code": "not_found", "message": "маршрут не найден"}}, "application/json"
 
-    async def post(self, path: str, body: dict[str, object], *, actor: str = "api") -> tuple[int, dict[str, object], str]:
+    async def post(self, path: str, body: dict[str, object], *, actor: str = "api", headers: Mapping[str, str] | None = None) -> tuple[int, dict[str, object] | str, str]:
         runtime = self.runtime
+        plugin_route = self._plugin_route(path, "POST")
+        if plugin_route is not None:
+            return await self._dispatch_plugin_route(plugin_route, "POST", path, body, actor=actor, headers=headers)
         if path == "/commands/dispatch":
             command = str(body.get("command", "")).strip().lstrip("/")
             event = CajeerEvent.create(source="system", type="command.received", payload={"command": command, **dict(body.get("payload") or {})})

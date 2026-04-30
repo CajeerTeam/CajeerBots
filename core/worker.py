@@ -78,4 +78,6 @@ class WorkerService:
             processed, failed = await scheduler.process_due(self.runtime, limit=self.runtime.settings.storage.delivery_claim_limit)
             self.status.scheduler_processed_total += processed
             self.status.scheduler_failed_total += failed
+        elif getattr(self.runtime, "scheduler", None) is not None:
+            self.status.scheduler_processed_total += await self.runtime.scheduler.run_once()
         logger.debug("worker tick выполнен: %s", self.status.to_dict())

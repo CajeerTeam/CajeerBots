@@ -30,6 +30,7 @@ from core.modules.runtime import ComponentManager
 from core.permissions_fix import executable_paths
 from core.registry import Registry
 from core.router import EventRouter
+from core.scheduler import Scheduler, PersistentScheduler, dispatch_scheduled_job
 from core.worker import WorkerService
 from core.rate_limits import build_rate_limiter
 from core.updater import UpdateManager
@@ -72,6 +73,7 @@ class Runtime:
         self.audit = build_audit_log(settings)
         self.plugin_routes: list[object] = []
         self.plugin_scheduled_jobs: list[dict[str, object]] = []
+        self.scheduler = Scheduler()
         self.components = ComponentManager(self, self.registry)
         self.router = EventRouter(self.commands, self.idempotency, components=self.components)
         self.bridge = BridgeService(self)
@@ -175,6 +177,23 @@ class Runtime:
             for adapter in self.adapters
         ]
 
+
+    async def register_plugin_scheduled_job(self, manifest, job: dict[str, object]) -> None:
+        normalized = {**job, "plugin_id": getattr(manifest, "id", str(job.get("plugin_id") or "plugin"))}
+        normalized.setdefault("job_type", "event.publish")
+        normalized.setdefault("payload", {})
+        normalized.setdefault("interval_seconds", 60)
+        normalized.setdefault("name", f"plugin.{normalized['plugin_id']}.{normalized.get('job_type')}")
+        self.plugin_scheduled_jobs.append(normalized)
+
+        async def _callback(job_ref: dict[str, object] = normalized) -> None:
+            await dispatch_scheduled_job(self, job_ref)
+
+        self.scheduler.every(str(normalized["name"]), int(normalized.get("interval_seconds") or 60), _callback)
+        if self.settings.storage.async_database_url:
+            scheduler = PersistentScheduler(self.settings.storage.async_database_url, self.settings.shared_schema, self.settings.instance_id)
+            await scheduler.upsert_plugin_job(normalized)
+
     async def run(self, target: str | None = None) -> None:
         target = target or self.settings.default_target
         logger.info("запуск Cajeer Bots, режим=%s, цель=%s", self.settings.mode, target)
@@ -237,6 +256,7 @@ class Runtime:
         tasks = [asyncio.create_task(self._adapter_supervisor(adapter), name=f"adapter:{adapter.name}") for adapter in adapters]
         stop_task = asyncio.create_task(self._stop_event.wait(), name="runtime:stop")
         heartbeat_task = asyncio.create_task(self._workspace_heartbeat_loop(), name="workspace:heartbeat")
+        scheduler_task = asyncio.create_task(self.scheduler.run_forever(self._stop_event), name="scheduler:local") if self.scheduler.jobs else None
         try:
             done, _ = await asyncio.wait([*tasks, stop_task], return_when=asyncio.FIRST_COMPLETED)
             for task in done:
@@ -249,9 +269,11 @@ class Runtime:
                 logger.info("получен сигнал остановки")
         finally:
             heartbeat_task.cancel()
+            if scheduler_task is not None:
+                scheduler_task.cancel()
             await self._stop_adapters(tasks)
             stop_task.cancel()
-            await asyncio.gather(heartbeat_task, return_exceptions=True)
+            await asyncio.gather(heartbeat_task, *( [scheduler_task] if scheduler_task is not None else [] ), return_exceptions=True)
 
     async def _workspace_heartbeat_loop(self) -> None:
         while not (self._stop_event and self._stop_event.is_set()):

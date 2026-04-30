@@ -8,6 +8,46 @@ from pathlib import Path
 from typing import Iterable
 
 
+
+_DOTENV_LOADED = False
+
+
+def load_dotenv(path: str | Path = ".env", *, override: bool = False) -> bool:
+    env_path = Path(path)
+    if not env_path.exists() or not env_path.is_file():
+        return False
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key or key.startswith("#"):
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        if override or key not in os.environ:
+            os.environ[key] = value
+    return True
+
+
+def load_default_dotenv_once() -> None:
+    global _DOTENV_LOADED
+    if _DOTENV_LOADED:
+        return
+    _DOTENV_LOADED = True
+    explicit = os.getenv("CAJEER_BOTS_ENV_FILE")
+    if explicit:
+        load_dotenv(explicit)
+        return
+    load_dotenv(Path.cwd() / ".env")
+
+
 class SettingsError(ValueError):
     """Ошибка чтения или проверки конфигурации окружения."""
 
@@ -231,6 +271,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        load_default_dotenv_once()
         telegram_mode = _choice("TELEGRAM_MODE", "polling", {"polling", "webhook"})
         adapters = {
             "telegram": AdapterConfig("telegram", _bool(os.getenv("TELEGRAM_ENABLED"), True), os.getenv("TELEGRAM_BOT_TOKEN", ""), {"mode": telegram_mode, "webhook_url": os.getenv("TELEGRAM_WEBHOOK_URL", ""), "webhook_secret": os.getenv("TELEGRAM_WEBHOOK_SECRET", "")}),
@@ -273,7 +314,7 @@ class Settings:
             token=os.getenv("REMOTE_LOGS_TOKEN", ""),
             project=os.getenv("REMOTE_LOGS_PROJECT", "CajeerBots"),
             bot=os.getenv("REMOTE_LOGS_BOT", "CajeerBots"),
-            environment=os.getenv("REMOTE_LOGS_ENVIRONMENT", os.getenv("CAJEER_BOTS_ENV", "production")),
+            environment=os.getenv("REMOTE_LOGS_ENVIRONMENT", os.getenv("CAJEER_BOTS_ENV", "development")),
             level=os.getenv("REMOTE_LOGS_LEVEL", "INFO"),
             batch_size=_int("REMOTE_LOGS_BATCH_SIZE", 25, minimum=1, maximum=100),
             flush_interval=_int("REMOTE_LOGS_FLUSH_INTERVAL", 5, minimum=1, maximum=3600),
@@ -303,7 +344,7 @@ class Settings:
             restart_backoff_seconds=_int("ADAPTER_RESTART_BACKOFF_SECONDS", 10, minimum=0, maximum=3600),
         )
         return cls(
-            env=_choice("CAJEER_BOTS_ENV", "production", {"production", "staging", "development", "test"}),
+            env=_choice("CAJEER_BOTS_ENV", "development", {"production", "staging", "development", "test"}),
             mode=_choice("CAJEER_BOTS_MODE", "local", {"local", "distributed"}),
             default_target=_choice("CAJEER_BOTS_DEFAULT_TARGET", "all", {"all", "telegram", "discord", "vkontakte", "fake", "worker", "api", "bridge"}),
             instance_id=os.getenv("CAJEER_BOTS_INSTANCE_ID", "cajeer-bots-local"),
