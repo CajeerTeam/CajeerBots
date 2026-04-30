@@ -1,4 +1,4 @@
-.PHONY: install doctor doctor-online run run-all api worker bridge telegram discord vk vkontakte adapters modules plugins commands db-status lint docs security architecture test integration ci release clean
+.PHONY: install doctor doctor-online run run-all api worker bridge telegram discord vk vkontakte adapters modules plugins commands db-status lint docs security architecture test integration ci release release-check clean
 
 PYTHON ?= python
 
@@ -70,7 +70,10 @@ test: ## Запустить тесты каркаса
 integration: ## Запустить compose integration profile
 	docker compose --profile integration up --build --abort-on-container-exit
 
-ci: lint architecture docs security doctor adapters modules plugins commands test ## Запустить локальный CI-набор
+ci: lint architecture docs security doctor adapters modules plugins commands test release-check ## Запустить локальный CI-набор
+
+release-check: ## Проверить релизный контракт без сборки dist
+	./scripts/release.sh --dry-run
 
 release: ## Собрать релизный архив
 	./scripts/release.sh

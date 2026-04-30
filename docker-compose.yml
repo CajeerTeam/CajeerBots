@@ -32,7 +32,8 @@ services:
     user: "cajeer"
     tmpfs:
       - /tmp
-      - /app/runtime
+    volumes:
+      - cajeerbots_runtime:/app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -58,7 +59,8 @@ services:
     user: "cajeer"
     tmpfs:
       - /tmp
-      - /app/runtime
+    volumes:
+      - cajeerbots_runtime:/app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -81,7 +83,8 @@ services:
     user: "cajeer"
     tmpfs:
       - /tmp
-      - /app/runtime
+    volumes:
+      - cajeerbots_runtime:/app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -113,7 +116,8 @@ services:
     user: "cajeer"
     tmpfs:
       - /tmp
-      - /app/runtime
+    volumes:
+      - cajeerbots_runtime:/app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -143,7 +147,8 @@ services:
     user: "cajeer"
     tmpfs:
       - /tmp
-      - /app/runtime
+    volumes:
+      - cajeerbots_runtime:/app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -173,7 +178,8 @@ services:
     user: "cajeer"
     tmpfs:
       - /tmp
-      - /app/runtime
+    volumes:
+      - cajeerbots_runtime:/app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -203,7 +209,8 @@ services:
     user: "cajeer"
     tmpfs:
       - /tmp
-      - /app/runtime
+    volumes:
+      - cajeerbots_runtime:/app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -233,7 +240,8 @@ services:
     user: "cajeer"
     tmpfs:
       - /tmp
-      - /app/runtime
+    volumes:
+      - cajeerbots_runtime:/app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -263,7 +271,8 @@ services:
     user: "cajeer"
     tmpfs:
       - /tmp
-      - /app/runtime
+    volumes:
+      - cajeerbots_runtime:/app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -285,7 +294,8 @@ services:
     user: "cajeer"
     tmpfs:
       - /tmp
-      - /app/runtime
+    volumes:
+      - cajeerbots_runtime:/app/runtime
     profiles: ["integration"]
     env_file: .env
     environment:
@@ -313,3 +323,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  cajeerbots_runtime:

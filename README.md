@@ -18,6 +18,19 @@
 8. Каждый адаптер может запускаться отдельно через `cajeer-bots run <adapter>`, `python -m core run <adapter>` или standalone-пакет `bot` внутри каталога адаптера.
 9. Основная документация готовится для GitHub Wiki в каталоге `wiki/`.
 
+
+## Контракт запуска
+
+Проект использует **scripts-only layout**. Корневые `run.sh`, `install.sh`, `setup_wizard.py` намеренно отсутствуют; используйте:
+
+```bash
+./scripts/install.sh
+./scripts/run.sh all
+python scripts/setup_wizard.py
+```
+
+Release/test/permissions-контракты проверяют именно `scripts/*`.
+
 ## Быстрый старт
 
 ```bash
@@ -52,7 +65,7 @@ cajeer-bots plugins
 
 ## Source archive и production release artifact
 
-Архив вида `CajeerBots-main.zip`, скачанный из GitHub или переданный как исходники, считается **source archive**, а не production-релизом. В таком архиве ZIP-формат может потерять Unix executable-bit у `*.sh` и `setup_wizard.py`.
+Архив вида `CajeerBots-main.zip`, скачанный из GitHub или переданный как исходники, считается **source archive**, а не production-релизом. В таком архиве ZIP-формат может потерять Unix executable-bit у `scripts/*.sh` и `scripts/setup_wizard.py`.
 
 Production artifact собирается только через release pipeline:
 
