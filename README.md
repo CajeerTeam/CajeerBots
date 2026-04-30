@@ -43,8 +43,9 @@ cajeer-bots plugins
 ## Шаблоны окружения
 
 - `.env.example` — безопасный development/local шаблон: реальные адаптеры выключены, `fake` включён.
-- `.env.production.example` — production-заготовка: включайте только нужные адаптеры и обязательно заменяйте все `change-me`/placeholder-секреты.
+- Для production используйте копию `.env.example`, включайте только нужные адаптеры и обязательно заменяйте все `change-me`/placeholder-секреты.
 - Для webhook-режима в production обязательны `TELEGRAM_WEBHOOK_SECRET` и/или `VK_CALLBACK_SECRET`.
+- `API_SERVER=asgi` — рекомендуемый production API-режим.
 
 ## Миграции БД
 
@@ -59,9 +60,10 @@ cajeer-bots db check
 
 ```bash
 ./scripts/smoke_integrations.sh
+docker compose --profile integration up --build --abort-on-container-exit
 ```
 
-Скрипт сам пропускает Redis/PostgreSQL-проверки, если `REDIS_URL` или `DATABASE_ASYNC_URL` не заданы.
+Скрипт сам пропускает Redis/PostgreSQL-проверки, если `REDIS_URL` или `DATABASE_ASYNC_URL` не заданы. Compose-профиль `integration` поднимает PostgreSQL, Redis, миграции и pytest-проверки storage-контуров.
 
 ## Local mode
 
@@ -171,6 +173,9 @@ cajeer-bots db contract
 cajeer-bots db check
 cajeer-bots components
 cajeer-bots run fake
+cajeer-bots plugins --validate plugins/example/plugin.json
+cajeer-bots modules --validate modules/support/module.json
+cajeer-bots self-test --profile local-memory --offline
 ```
 
 Интеграции:
@@ -180,6 +185,19 @@ cajeer-bots run fake
 - Redis: слой для cache/FSM/queue primitives.
 - Alembic: базовый контракт таблиц `shared.event_bus`, `shared.delivery_queue`, `shared.dead_letters`, `shared.idempotency_keys`, `shared.audit_log`.
 
-## 1.0.0 readiness
+## Release / production gates
 
-Перед выпуском 1.0.0 обязательны: staged update с проверкой Alembic revision, подписи stable-релиза, строгий `/readyz`, трассировка `outbound_messages`, append-only буфер Cajeer Logs и integration-smoke Redis/PostgreSQL. См. `wiki/1.0-Readiness.md`.
+Перед выпуском релиза обязательны:
+
+```bash
+python3 scripts/check_syntax.py
+python3 scripts/check_architecture.py
+./scripts/check_docs.sh
+./scripts/check_secrets.sh
+python3 -m pytest -q
+./scripts/release.sh
+python3 -m core release verify dist/CajeerBots-0.10.1.tar.gz --deep
+python3 -m core release verify dist/CajeerBots-0.10.1.zip --deep
+```
+
+Production readiness фиксируется через Wiki runbooks: установка, обновление, откат, PostgreSQL, Redis, webhooks и disaster recovery.

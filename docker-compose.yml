@@ -26,6 +26,10 @@ services:
 
   local:
     build: .
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     profiles: ["local"]
     env_file: .env
     environment:
@@ -41,6 +45,10 @@ services:
 
   migrate:
     build: .
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     profiles: ["migrate", "all"]
     env_file: .env
     environment:
@@ -53,6 +61,10 @@ services:
 
   api:
     build: .
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     profiles: ["api", "all"]
     env_file: .env
     environment:
@@ -72,6 +84,10 @@ services:
 
   worker:
     build: .
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     profiles: ["worker", "all"]
     env_file: .env
     environment:
@@ -91,6 +107,10 @@ services:
 
   bridge:
     build: .
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     profiles: ["bridge", "all"]
     env_file: .env
     environment:
@@ -110,6 +130,10 @@ services:
 
   telegram:
     build: .
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     profiles: ["telegram", "all"]
     env_file: .env
     environment:
@@ -129,6 +153,10 @@ services:
 
   discord:
     build: .
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     profiles: ["discord", "all"]
     env_file: .env
     environment:
@@ -148,6 +176,10 @@ services:
 
   vkontakte:
     build: .
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     profiles: ["vkontakte", "vk", "all"]
     env_file: .env
     environment:
@@ -167,6 +199,10 @@ services:
 
   fake:
     build: .
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     profiles: ["fake", "smoke"]
     env_file: .env
     environment:
@@ -174,6 +210,33 @@ services:
       FAKE_ENABLED: "true"
       FAKE_SCRIPT: "/status|/help"
     command: ["cajeer-bots", "run", "fake"]
+
+
+  integration-tests:
+    build: .
+    profiles: ["integration"]
+    env_file: .env
+    environment:
+      CAJEER_BOTS_ENV: test
+      EVENT_SIGNING_SECRET: integration-secret
+      API_TOKEN: integration-token
+      API_TOKEN_READONLY: integration-readonly
+      API_TOKEN_METRICS: integration-metrics
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+      DATABASE_ASYNC_URL: postgresql+asyncpg://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+      EVENT_BUS_BACKEND: postgres
+      DELIVERY_BACKEND: postgres
+      DEAD_LETTER_BACKEND: postgres
+      IDEMPOTENCY_BACKEND: postgres
+      REDIS_URL: redis://redis:6379/0
+    command: ["bash", "-lc", "cajeer-bots db check && python -m pytest -q tests/integration"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:
