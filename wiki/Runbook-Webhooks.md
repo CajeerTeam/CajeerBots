@@ -17,3 +17,8 @@ Webhook endpoints принимают Telegram/VK события через API.
 curl -f http://127.0.0.1:8088/livez
 curl -f http://127.0.0.1:8088/readyz
 ```
+
+
+## Strict webhook mode
+
+При `WEBHOOK_HMAC_REQUIRED=true` запрос без подписи отклоняется. При `WEBHOOK_TIMESTAMP_REQUIRED=true` устаревшие и повторные запросы отклоняются replay-защитой. Для нескольких экземпляров используйте Redis replay cache.
