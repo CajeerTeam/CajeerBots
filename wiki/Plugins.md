@@ -125,3 +125,23 @@ from core.sdk.plugins import PluginRoute, PluginRequest
 ```
 
 Не рекомендуется импортировать внутренние модули `core.runtime`, `core.delivery`, `core.event_bus` напрямую: такие импорты не считаются стабильным контрактом.
+
+
+## Import policy и signed catalog
+
+Плагины считаются переносимыми только если импортируют публичный SDK:
+
+```python
+from core.sdk import PluginBase, CajeerEvent
+from core.sdk.plugins import PluginRoute
+```
+
+Прямые импорты `core.runtime`, `core.delivery`, `bots.*`, `modules.*` и `distributed.*` блокируются `scripts/check_architecture.py` и `cajeer-bots plugins --validate`.
+
+Runtime catalog поддерживает подпись записей через HMAC SHA-256. Для проверяемого каталога задайте:
+
+```env
+PLUGIN_CATALOG_SIGNING_SECRET=<long-random-secret>
+```
+
+Поле `signature` в `catalog.lock` проверяется вместе с `sha256`. Для локальных доверенных плагинов допускаются `source=local` или `source=manual`, но для стороннего каталога должны использоваться `sha256` и `signature`.

@@ -119,3 +119,27 @@ docker compose --profile integration up --build --abort-on-container-exit
 ```
 
 Если drill не проходит, релиз нельзя считать production-ready.
+
+
+## Source archive vs release artifact
+
+`CajeerBots-main.zip` — исходный архив, а не production artifact. Он может не хранить Unix executable-bit. Production-релиз должен собираться только через `scripts/release.sh`, после чего оба артефакта проверяются:
+
+```bash
+python3 -m core release verify dist/CajeerBots-<version>.zip --deep
+python3 -m core release verify dist/CajeerBots-<version>.tar.gz --deep
+```
+
+## Python support policy
+
+Production support matrix ограничена Python 3.11–3.12. Python 3.13 не заявлен в `requires-python` до прохождения отдельной CI matrix и compatibility-drill.
+
+## Исполняемые chaos/drill-тесты
+
+`release/checklist.yaml` содержит исполняемые `drill_commands`. Они запускаются через:
+
+```bash
+./scripts/run_drills.sh
+```
+
+В состав входят проверки версии, архитектуры, документации, secret-scan, smoke integrations, worker crash/lease reclaim/retry и preflight для storage chaos.

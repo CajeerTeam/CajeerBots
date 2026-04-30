@@ -110,3 +110,20 @@ python3 -m core release checklist --file release/checklist.yaml
 ```
 
 Release artifact не должен содержать `.env`, `__pycache__`, `.pytest_cache`, `*.pyc` и должен сохранять executable-bit у entrypoints.
+
+
+## Adapter/Webhook registry
+
+`core` не импортирует конкретные Telegram/VK/Discord реализации напрямую. Runtime получает adapter class через `core.adapter_registry`, а webhook mapping — через `core.webhook_registry`. Это сохраняет правило: ядро знает только идентификатор адаптера и контракт фабрики, но не зависит от `bots.*` на уровне статических импортов.
+
+Проверка выполняется командой:
+
+```bash
+python3 -S scripts/check_architecture.py
+```
+
+Она блокирует:
+- прямые импорты `bots.*` из `core`;
+- прямые импорты `modules`/`plugins` из `core`;
+- импорт внутренних `core.*` API из плагинов, кроме `core.sdk.*`;
+- возврат `ADAPTER_CLASSES` в `core/runtime.py`.
