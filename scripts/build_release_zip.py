@@ -6,6 +6,9 @@ import sys
 import zipfile
 from pathlib import Path
 
+FORBIDDEN_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".git"}
+FORBIDDEN_SUFFIXES = (".pyc", ".pyo")
+
 EXECUTABLES = {
     'run.sh',
     'install.sh',
@@ -26,6 +29,10 @@ def add_tree(source_dir: Path, zip_path: Path, archive_root: str) -> None:
             if path.is_dir():
                 continue
             rel = path.relative_to(source_dir).as_posix()
+            if set(path.relative_to(source_dir).parts) & FORBIDDEN_PARTS or path.name.endswith(FORBIDDEN_SUFFIXES):
+                continue
+            if rel == ".env" or rel.startswith("dist/"):
+                continue
             info = zipfile.ZipInfo.from_file(path, f'{archive_root}/{rel}')
             mode = 0o755 if rel in EXECUTABLES or (rel.startswith('scripts/') and rel.endswith(('.sh', '.py'))) else 0o644
             info.external_attr = (stat.S_IFREG | mode) << 16

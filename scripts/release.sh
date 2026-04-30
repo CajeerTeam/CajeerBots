@@ -46,6 +46,7 @@ done
 "$PYTHON_BIN" scripts/check_architecture.py
 ./scripts/check_docs.sh
 ./scripts/check_secrets.sh
+./scripts/run_drills.sh
 EVENT_SIGNING_SECRET="${EVENT_SIGNING_SECRET:-release-secret}" API_TOKEN="${API_TOKEN:-release-token}" "$PYTHON_BIN" -m core doctor --offline --profile release-artifact
 "$PYTHON_BIN" -m core adapters >/dev/null
 "$PYTHON_BIN" -m core modules >/dev/null
