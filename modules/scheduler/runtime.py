@@ -36,6 +36,8 @@ class SchedulerModule:
                 trace_id=event.trace_id,
                 message=str(exc),
             )
+            if context.runtime.settings.scheduler_strict_persistence:
+                return {"ok": False, "error": "persistence_failed", "message": str(exc), "trace_id": event.trace_id}
         return {"ok": True, "message": f"Планировщик принял задачу {job_id}.", "job_id": job_id, "args": args, "trace_id": event.trace_id}
 
     async def on_stop(self, context) -> None:
