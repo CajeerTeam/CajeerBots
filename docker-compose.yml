@@ -25,7 +25,9 @@ services:
       retries: 10
 
   local:
-    build: .
+    build:
+      context: .
+      target: runtime
     read_only: true
     user: "cajeer"
     tmpfs:
@@ -49,7 +51,9 @@ services:
         condition: service_healthy
 
   migrate:
-    build: .
+    build:
+      context: .
+      target: runtime
     read_only: true
     user: "cajeer"
     tmpfs:
@@ -70,7 +74,9 @@ services:
         condition: service_healthy
 
   api:
-    build: .
+    build:
+      context: .
+      target: runtime
     read_only: true
     user: "cajeer"
     tmpfs:
@@ -87,6 +93,8 @@ services:
       DATABASE_ASYNC_URL: postgresql+asyncpg://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
       EVENT_BUS_BACKEND: ${EVENT_BUS_BACKEND:-redis}
       REDIS_URL: redis://redis:6379/0
+      API_BIND: 0.0.0.0
+      API_BEHIND_REVERSE_PROXY: "true"
     command: ["cajeer-bots", "run", "api"]
     ports: ["8088:8088"]
     depends_on:
@@ -98,7 +106,9 @@ services:
         condition: service_completed_successfully
 
   worker:
-    build: .
+    build:
+      context: .
+      target: runtime
     read_only: true
     user: "cajeer"
     tmpfs:
@@ -126,7 +136,9 @@ services:
         condition: service_completed_successfully
 
   bridge:
-    build: .
+    build:
+      context: .
+      target: runtime
     read_only: true
     user: "cajeer"
     tmpfs:
@@ -154,7 +166,9 @@ services:
         condition: service_completed_successfully
 
   telegram:
-    build: .
+    build:
+      context: .
+      target: runtime
     read_only: true
     user: "cajeer"
     tmpfs:
@@ -182,7 +196,9 @@ services:
         condition: service_completed_successfully
 
   discord:
-    build: .
+    build:
+      context: .
+      target: runtime
     read_only: true
     user: "cajeer"
     tmpfs:
@@ -210,7 +226,9 @@ services:
         condition: service_completed_successfully
 
   vkontakte:
-    build: .
+    build:
+      context: .
+      target: runtime
     read_only: true
     user: "cajeer"
     tmpfs:
@@ -238,7 +256,9 @@ services:
         condition: service_completed_successfully
 
   fake:
-    build: .
+    build:
+      context: .
+      target: runtime
     read_only: true
     user: "cajeer"
     tmpfs:
@@ -258,7 +278,9 @@ services:
 
 
   integration-tests:
-    build: .
+    build:
+      context: .
+      target: test
     read_only: true
     user: "cajeer"
     tmpfs:
