@@ -29,8 +29,17 @@ class ModerationModule:
             if context.runtime.settings.storage.async_database_url:
                 from core.repositories.business import BusinessStateRepository
                 await BusinessStateRepository(context.runtime.settings.storage.async_database_url, context.runtime.settings.shared_schema).create_moderation_action(action_id=action_id, platform=event.source, target_id=target, action=action, reason=reason, actor_id=actor, trace_id=event.trace_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            context.logger.warning("ошибка записи состояния в БД: %s", exc)
+            context.runtime.audit.write(
+                actor_type="module",
+                actor_id=self.id,
+                action=f"{self.id}.db_write_failed",
+                resource=event.trace_id,
+                result="error",
+                trace_id=event.trace_id,
+                message=str(exc),
+            )
         await context.runtime.workspace.report_event(context.runtime.make_system_event("cajeer.bots.moderation.action", {"action_id": action_id, "action": action, "target": target, "reason": reason, "actor": actor, "trace_id": event.trace_id}))
         return {"ok": True, "message": f"Модерационное действие {action} зарегистрировано для {target}. Причина: {reason}", "action_id": action_id, "action": action, "target": target, "reason": reason, "trace_id": event.trace_id}
 
