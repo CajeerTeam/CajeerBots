@@ -49,7 +49,7 @@ fi
 
 rm -rf dist
 mkdir -p "dist/${NAME}"
-cp -a README.md LICENSE VERSION pyproject.toml .env.example .env.production.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini \
+cp -a README.md LICENSE VERSION pyproject.toml .env.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini \
   core bots modules plugins distributed scripts ops wiki alembic install.sh run.sh setup_wizard.py \
   "dist/${NAME}/"
 chmod +x "dist/${NAME}/run.sh" "dist/${NAME}/install.sh" "dist/${NAME}/setup_wizard.py" "dist/${NAME}/scripts"/*.sh

@@ -16,6 +16,7 @@ EXECUTABLES = {
     'scripts/release.sh',
     'scripts/run.sh',
     'scripts/smoke.sh',
+    'scripts/smoke_integrations.sh',
 }
 
 
