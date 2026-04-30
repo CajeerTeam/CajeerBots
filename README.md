@@ -11,7 +11,7 @@
 3. Telegram, Discord и ВКонтакте — транспортные адаптеры, а не отдельные продукты.
 4. Общая логика находится в `modules` и `plugins`.
 5. Все пользовательские тексты, документация, CLI-описания и примеры должны быть на русском языке.
-6. PostgreSQL используется как единая база данных платформы. Встроенные миграции не поставляются: схема управляется внешним эксплуатационным слоем по контракту из GitHub Wiki.
+6. PostgreSQL используется как единая база данных платформы. Встроенные миграции поставляются через Alembic и должны применяться перед production-запуском.
 7. Межботовое взаимодействие строится вокруг единого контракта событий и шины событий.
 8. Каждый адаптер может запускаться отдельно через `cajeer-bots run <adapter>`, `python -m core run <adapter>` или standalone-пакет `bot` внутри каталога адаптера.
 9. Основная документация готовится для GitHub Wiki в каталоге `wiki/`.
@@ -22,6 +22,7 @@
 cp .env.example .env
 ./scripts/install.sh
 ./scripts/doctor.sh --offline
+./scripts/migrate.sh head
 ./scripts/run.sh all
 ```
 
@@ -36,6 +37,31 @@ cajeer-bots plugins
 ```
 
 `python -m core ...` остаётся техническим режимом для разработки и аварийного запуска без установки пакета.
+
+
+
+## Шаблоны окружения
+
+- `.env.example` — безопасный development/local шаблон: реальные адаптеры выключены, `fake` включён.
+- `.env.production.example` — production-заготовка: включайте только нужные адаптеры и обязательно заменяйте все `change-me`/placeholder-секреты.
+- Для webhook-режима в production обязательны `TELEGRAM_WEBHOOK_SECRET` и/или `VK_CALLBACK_SECRET`.
+
+## Миграции БД
+
+```bash
+./scripts/migrate.sh head
+cajeer-bots db check
+```
+
+`DATABASE_SCHEMA_SHARED` должен быть безопасным PostgreSQL-идентификатором в нижнем регистре: `^[a-z_][a-z0-9_]*$`.
+
+## Интеграционный smoke
+
+```bash
+./scripts/smoke_integrations.sh
+```
+
+Скрипт сам пропускает Redis/PostgreSQL-проверки, если `REDIS_URL` или `DATABASE_ASYNC_URL` не заданы.
 
 ## Local mode
 
