@@ -268,6 +268,11 @@ class Settings:
     distributed: DistributedSettings
     workspace: WorkspaceSettings
     remote_logs: RemoteLogsSettings
+    module_strict_persistence: bool
+    support_strict_persistence: bool
+    moderation_strict_persistence: bool
+    announcements_strict_persistence: bool
+    scheduler_strict_persistence: bool
     storage: StorageSettings
     supervisor: SupervisorSettings
     adapters: dict[str, AdapterConfig]
@@ -366,7 +371,7 @@ class Settings:
             registry_repo_root_fallback=_bool(os.getenv("REGISTRY_REPO_ROOT_FALLBACK"), True),
             api_bind=os.getenv("API_BIND", "127.0.0.1"),
             api_port=_int("API_PORT", 8088, minimum=1, maximum=65535),
-            api_server=_choice("API_SERVER", "stdlib", {"stdlib", "asgi"}),
+            api_server=_choice("API_SERVER", "asgi", {"stdlib", "asgi"}),
             api_behind_reverse_proxy=_bool(os.getenv("API_BEHIND_REVERSE_PROXY"), False),
             webhook_replay_protection=_bool(os.getenv("WEBHOOK_REPLAY_PROTECTION"), True),
             webhook_replay_ttl_seconds=_int("WEBHOOK_REPLAY_TTL_SECONDS", 300, minimum=30, maximum=86400),
@@ -385,6 +390,11 @@ class Settings:
             distributed=distributed,
             workspace=workspace,
             remote_logs=remote_logs,
+            module_strict_persistence=_bool(os.getenv("MODULE_STRICT_PERSISTENCE"), False),
+            support_strict_persistence=_bool(os.getenv("SUPPORT_STRICT_PERSISTENCE"), _bool(os.getenv("MODULE_STRICT_PERSISTENCE"), False)),
+            moderation_strict_persistence=_bool(os.getenv("MODERATION_STRICT_PERSISTENCE"), _bool(os.getenv("MODULE_STRICT_PERSISTENCE"), False)),
+            announcements_strict_persistence=_bool(os.getenv("ANNOUNCEMENTS_STRICT_PERSISTENCE"), _bool(os.getenv("MODULE_STRICT_PERSISTENCE"), False)),
+            scheduler_strict_persistence=_bool(os.getenv("SCHEDULER_STRICT_PERSISTENCE"), _bool(os.getenv("MODULE_STRICT_PERSISTENCE"), False)),
             storage=storage,
             supervisor=supervisor,
             adapters=adapters,
@@ -484,6 +494,13 @@ class Settings:
             "remote_logs_enabled": self.remote_logs.enabled,
             "remote_logs_url_configured": bool(self.remote_logs.url),
             "remote_logs_token_configured": bool(self.remote_logs.token),
+            "strict_persistence": {
+                "global": self.module_strict_persistence,
+                "support": self.support_strict_persistence,
+                "moderation": self.moderation_strict_persistence,
+                "announcements": self.announcements_strict_persistence,
+                "scheduler": self.scheduler_strict_persistence,
+            },
             "worker_tick_seconds": self.worker_tick_seconds,
             "supervisor": {
                 "restart_policy": self.supervisor.restart_policy,

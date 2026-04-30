@@ -10,6 +10,18 @@ SEMVER_LIKE_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9_.-]+)?$")
 
 KNOWN_MANIFEST_TYPES = {"module", "plugin", "adapter"}
 KNOWN_PERMISSIONS = {
+    "bots.announce.create",
+    "bots.announce.publish",
+    "bots.announce.manage",
+    "bots.support.create",
+    "bots.support.reply",
+    "bots.support.assign",
+    "bots.support.manage",
+    "bots.moderation.warn",
+    "bots.moderation.mute",
+    "bots.moderation.ban",
+    "bots.moderation.kick",
+    "bots.moderation.manage",
     "events.read",
     "events.publish",
     "delivery.enqueue",

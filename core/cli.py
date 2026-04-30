@@ -46,12 +46,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("commands", help="Показать зарегистрированные команды.")
     rbac = sub.add_parser("rbac", help="Операторский bootstrap и локальный RBAC-cache.")
     rbac_sub = rbac.add_subparsers(dest="rbac_command", required=True)
-    bootstrap_owner = rbac_sub.add_parser("bootstrap-owner", help="Выдать первому владельцу права через локальный RBAC-cache.")
+    bootstrap_owner = rbac_sub.add_parser("bootstrap-owner", help="Выдать первому владельцу права через DB-backed RBAC или локальный cache.")
     bootstrap_owner.add_argument("--platform", required=True, choices=["telegram", "discord", "vkontakte", "fake"], help="Платформа аккаунта владельца.")
     bootstrap_owner.add_argument("--user-id", required=True, help="ID пользователя на выбранной платформе.")
     bootstrap_owner.add_argument("--display-name", default="", help="Отображаемое имя владельца.")
     bootstrap_owner.add_argument("--permission", action="append", default=[], help="Права владельца. По умолчанию '*'. Можно указывать несколько раз.")
-    bootstrap_owner.add_argument("--role", default="owner", help="Название роли в RBAC-cache.")
+    bootstrap_owner.add_argument("--role", default="owner", help="Название роли в RBAC.")
+    bootstrap_owner.add_argument("--backend", choices=["auto", "db", "cache"], default="auto", help="Куда записать bootstrap: auto сначала пробует PostgreSQL, затем cache.")
     rbac_sub.add_parser("cache", help="Показать локальный RBAC-cache без внешних зависимостей.")
 
     update = sub.add_parser("update", help="Безопасные обновления из GitHub Releases или локального tar.gz.")
@@ -143,7 +144,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     maintenance = sub.add_parser("maintenance", help="Операционное обслуживание runtime.")
     maintenance_sub = maintenance.add_subparsers(dest="maintenance_command", required=True)
-    maintenance_sub.add_parser("cleanup", help="Очистить устаревшие runtime-записи по retention policy.")
+    cleanup = maintenance_sub.add_parser("cleanup", help="Очистить устаревшие runtime-записи по retention policy.")
+    cleanup.add_argument("--dry-run", action="store_true", default=True, help="Показать кандидаты на очистку без удаления; режим по умолчанию.")
+    cleanup.add_argument("--apply", action="store_true", help="Реально удалить найденные записи.")
 
     distributed = sub.add_parser("distributed", help="Команды дополнительного распределённого режима.")
     distributed_sub = distributed.add_subparsers(dest="distributed_command", required=True)
@@ -271,13 +274,38 @@ def main(argv: list[str] | None = None) -> int:
         settings = Settings.from_env()
         store = HybridRbacStore(settings.runtime_dir / "secrets" / "rbac_cache.json")
         if args.rbac_command == "bootstrap-owner":
+            permissions = args.permission or ["*"]
+            fallback_reason = ""
+            if args.backend in {"auto", "db"} and settings.storage.async_database_url:
+                try:
+                    from core.rbac_store import bootstrap_owner_db
+                    result = asyncio.run(bootstrap_owner_db(
+                        async_dsn=settings.storage.async_database_url,
+                        schema=settings.shared_schema,
+                        platform=args.platform,
+                        platform_user_id=args.user_id,
+                        display_name=args.display_name or None,
+                        role=args.role,
+                        permissions=permissions,
+                    ))
+                    print(_json(result), flush=True)
+                    return 0
+                except Exception as exc:
+                    if args.backend == "db":
+                        raise
+                    fallback_reason = str(exc)
+            elif args.backend == "db":
+                raise SystemExit("--backend=db требует DATABASE_ASYNC_URL")
             result = store.bootstrap_owner(
                 platform=args.platform,
                 platform_user_id=args.user_id,
                 display_name=args.display_name or None,
                 role=args.role,
-                permissions=args.permission or ["*"],
+                permissions=permissions,
             )
+            if fallback_reason:
+                result["backend"] = "cache"
+                result["db_fallback_reason"] = fallback_reason
             print(_json(result), flush=True)
             return 0
         if args.rbac_command == "cache":
@@ -356,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
         from core.maintenance import cleanup_runtime
 
         settings = Settings.from_env()
-        print(_json(cleanup_runtime(project_root, settings)), flush=True)
+        print(_json(cleanup_runtime(project_root, settings, dry_run=not args.apply)), flush=True)
         return 0
 
     if args.command == "self-test":

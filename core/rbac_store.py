@@ -112,3 +112,78 @@ class HybridRbacStore:
         grants, source = self.grants_for_event(event)
         allowed = "*" in grants or permission in grants
         return RbacDecision(allowed, grants, source)
+
+
+
+async def bootstrap_owner_db(
+    *,
+    async_dsn: str,
+    schema: str,
+    platform: str,
+    platform_user_id: str,
+    display_name: str | None = None,
+    role: str = "owner",
+    permissions: list[str] | set[str] | tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    """Bootstrap the first owner directly in PostgreSQL-backed RBAC tables."""
+    import hashlib
+    from uuid import uuid4
+
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from core.schema import validate_schema_name
+
+    schema_name = validate_schema_name(schema)
+    platform = platform.strip()
+    platform_user_id = platform_user_id.strip()
+    role = (role or "owner").strip()
+    if not platform or not platform_user_id:
+        raise ValueError("platform и user_id обязательны")
+    grants = [str(item).strip() for item in (permissions or ["*"]) if str(item).strip()] or ["*"]
+    digest = hashlib.sha256(f"{platform}:{platform_user_id}".encode("utf-8")).hexdigest()[:24]
+    user_id = f"usr_{digest}"
+    account_id = f"acc_{digest}"
+    role_id = f"role_{role}"
+    engine = create_async_engine(async_dsn, pool_pre_ping=True)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(f"""
+                INSERT INTO {schema_name}.users(id, display_name, created_at, updated_at)
+                VALUES (:user_id, :display_name, NOW(), NOW())
+                ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name, updated_at = NOW()
+            """), {"user_id": user_id, "display_name": display_name or platform_user_id})
+            await conn.execute(text(f"""
+                INSERT INTO {schema_name}.platform_accounts(id, user_id, platform, platform_user_id, created_at, updated_at)
+                VALUES (:account_id, :user_id, :platform, :platform_user_id, NOW(), NOW())
+                ON CONFLICT (platform, platform_user_id) DO UPDATE SET user_id = EXCLUDED.user_id, updated_at = NOW()
+            """), {"account_id": account_id, "user_id": user_id, "platform": platform, "platform_user_id": platform_user_id})
+            await conn.execute(text(f"""
+                INSERT INTO {schema_name}.roles(id, name, description, created_at, updated_at)
+                VALUES (:role_id, :role, :description, NOW(), NOW())
+                ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, updated_at = NOW()
+            """), {"role_id": role_id, "role": role, "description": "Bootstrap owner role"})
+            for permission in grants:
+                permission_id = f"perm_{hashlib.sha256(permission.encode('utf-8')).hexdigest()[:24]}"
+                await conn.execute(text(f"""
+                    INSERT INTO {schema_name}.permissions(id, name, description, created_at, updated_at)
+                    VALUES (:permission_id, :permission, :description, NOW(), NOW())
+                    ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description, updated_at = NOW()
+                """), {"permission_id": permission_id, "permission": permission, "description": "Bootstrap permission"})
+                await conn.execute(text(f"""
+                    INSERT INTO {schema_name}.role_permissions(role_id, permission_id, created_at)
+                    SELECT :role_id, id, NOW() FROM {schema_name}.permissions WHERE name = :permission
+                    ON CONFLICT (role_id, permission_id) DO NOTHING
+                """), {"role_id": role_id, "permission": permission})
+            await conn.execute(text(f"""
+                INSERT INTO {schema_name}.user_roles(user_id, role_id, created_at)
+                VALUES (:user_id, :role_id, NOW())
+                ON CONFLICT (user_id, role_id) DO NOTHING
+            """), {"user_id": user_id, "role_id": role_id})
+            await conn.execute(text(f"""
+                INSERT INTO {schema_name}.audit_log(id, actor_type, actor_id, action, resource, result, trace_id, message, created_at)
+                VALUES (:id, 'system', 'cli', 'rbac.bootstrap_owner', :resource, 'ok', :trace_id, :message, NOW())
+            """), {"id": "aud_" + uuid4().hex, "resource": f"{platform}:{platform_user_id}", "trace_id": "cli", "message": f"role={role};permissions={','.join(grants)}"})
+    finally:
+        await engine.dispose()
+    return {"ok": True, "backend": "postgres", "schema": schema_name, "account": f"{platform}:{platform_user_id}", "user_id": user_id, "role": role, "permissions": sorted(set(grants))}

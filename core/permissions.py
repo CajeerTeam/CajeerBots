@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -15,19 +18,32 @@ CORE_PERMISSIONS = [
     Permission("bots.events.read", "Чтение событий платформы"),
     Permission("bots.events.retry", "Повторная обработка ошибочных событий"),
     Permission("bots.logs.read", "Чтение журналов"),
-    Permission("bots.announce.create", "Создание объявлений"),
+    Permission("bots.announce.create", "Создание объявления"),
+    Permission("bots.announce.publish", "Публикация объявления"),
+    Permission("bots.announce.manage", "Управление объявлениями"),
+    Permission("bots.support.create", "Создание обращения поддержки"),
     Permission("bots.support.reply", "Ответы на обращения поддержки"),
-    Permission("bots.moderation.manage", "Управление модерацией"),
+    Permission("bots.support.assign", "Назначение обращений поддержки"),
+    Permission("bots.support.manage", "Управление обращениями поддержки"),
+    Permission("bots.moderation.warn", "Модерация: предупреждение"),
+    Permission("bots.moderation.mute", "Модерация: mute"),
+    Permission("bots.moderation.ban", "Модерация: ban"),
+    Permission("bots.moderation.kick", "Модерация: kick"),
+    Permission("bots.moderation.manage", "Полное управление модерацией"),
 ]
+
+PERMISSIONS = {item.key for item in CORE_PERMISSIONS}
 
 
 def has_permission(grants: set[str], permission: str) -> bool:
     return "*" in grants or permission in grants
 
 
-def grants_from_event(event) -> set[str]:  # type: ignore[no-untyped-def]
+def grants_from_event(event: Any) -> set[str]:
     payload = getattr(event, "payload", {}) or {}
-    raw = payload.get("permissions") or payload.get("grants") or []
+    if not isinstance(payload, dict):
+        return set()
+    raw = payload.get("rbac_grants") or payload.get("permissions") or payload.get("grants") or []
     if isinstance(raw, str):
         return {item.strip() for item in raw.split(",") if item.strip()}
     if isinstance(raw, (list, tuple, set)):

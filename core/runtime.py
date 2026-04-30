@@ -20,7 +20,7 @@ from core.dead_letters import build_dead_letter_queue
 from core.delivery import build_delivery_service
 from core.event_bus import build_event_bus
 from core.events import EVENT_CONTRACT_VERSION, command_event_from_message, extract_command
-from core.idempotency import build_idempotency_store
+from core.idempotency import build_idempotency_store, platform_idempotency_key
 from core.integrations.logs import CajeerLogsClient
 from core.integrations.workspace import WorkspaceClient
 from core.modules.runtime import ComponentManager
@@ -120,25 +120,7 @@ class Runtime:
         return CajeerEvent.create(source="system", type=event_type, payload=payload or {})
 
     def _idempotency_key_for_event(self, event) -> str | None:
-        raw = event.payload.get("raw") if isinstance(event.payload, dict) else None
-        raw = raw if isinstance(raw, dict) else {}
-        if event.source == "telegram":
-            update = raw.get("update") if isinstance(raw.get("update"), dict) else {}
-            update_id = update.get("update_id") if isinstance(update, dict) else None
-            return f"telegram:update:{update_id}" if update_id is not None else None
-        if event.source == "discord":
-            for key in ("interaction_id", "message_id"):
-                value = raw.get(key)
-                if value:
-                    return f"discord:{key}:{value}"
-        if event.source == "vkontakte":
-            callback = raw.get("callback") if isinstance(raw.get("callback"), dict) else raw.get("update")
-            if isinstance(callback, dict):
-                value = callback.get("event_id") or callback.get("id") or callback.get("object_id")
-                if value:
-                    return f"vk:event:{value}"
-                return "vk:event:" + ":".join(str(callback.get(k, "")) for k in ("group_id", "type"))
-        return None
+        return platform_idempotency_key(event)
 
     async def _already_processed_platform_event(self, event) -> bool:
         key = self._idempotency_key_for_event(event)
@@ -556,8 +538,22 @@ class Runtime:
         return {"checks": checks}
 
     def metrics_text(self) -> str:
+        import time
+
         metrics = self.event_bus.metrics()
         uptime = max(0, int(time.time() - self.started_at))
+        audit_snapshot = self.audit.snapshot()
+        rbac_denied = sum(1 for item in audit_snapshot if isinstance(item, dict) and item.get("action") == "rbac.denied")
+        webhook_rejected = sum(
+            1 for item in audit_snapshot
+            if isinstance(item, dict) and str(item.get("action", "")).startswith("webhook.") and item.get("result") == "denied"
+        )
+        delivery_queue_depth = getattr(self.delivery, "queue_depth", 0)
+        if callable(delivery_queue_depth):
+            try:
+                delivery_queue_depth = delivery_queue_depth()
+            except Exception:
+                delivery_queue_depth = 0
         lines = [
             "# HELP cajeerbots_runtime_uptime_seconds Время работы процесса Cajeer Bots.",
             "# TYPE cajeerbots_runtime_uptime_seconds gauge",
@@ -580,18 +576,36 @@ class Runtime:
             "# HELP cajeerbots_delivery_failed_total Количество ошибок доставки.",
             "# TYPE cajeerbots_delivery_failed_total counter",
             f"cajeerbots_delivery_failed_total {self.delivery.failed_total}",
+            "# HELP cajeerbots_delivery_queue_depth Глубина очереди доставки.",
+            "# TYPE cajeerbots_delivery_queue_depth gauge",
+            f"cajeerbots_delivery_queue_depth {delivery_queue_depth}",
             "# HELP cajeerbots_outbound_trace_failed_total Количество ошибок записи outbound trace.",
             "# TYPE cajeerbots_outbound_trace_failed_total counter",
             f"cajeerbots_outbound_trace_failed_total {getattr(self.delivery, 'outbound_trace_failed_total', 0)}",
             "# HELP cajeerbots_audit_records_total Количество audit-записей в runtime.",
             "# TYPE cajeerbots_audit_records_total gauge",
-            f"cajeerbots_audit_records_total {len(self.audit.snapshot())}",
+            f"cajeerbots_audit_records_total {len(audit_snapshot)}",
+            "# HELP cajeerbots_rbac_denied_total Количество отказов RBAC.",
+            "# TYPE cajeerbots_rbac_denied_total counter",
+            f"cajeerbots_rbac_denied_total {rbac_denied}",
+            "# HELP cajeerbots_webhook_rejected_total Количество отклонённых webhook-запросов.",
+            "# TYPE cajeerbots_webhook_rejected_total counter",
+            f"cajeerbots_webhook_rejected_total {webhook_rejected}",
+            "# HELP cajeerbots_db_configured DB DSN настроен.",
+            "# TYPE cajeerbots_db_configured gauge",
+            f"cajeerbots_db_configured {1 if self.settings.storage.async_database_url else 0}",
+            "# HELP cajeerbots_redis_configured Redis DSN настроен.",
+            "# TYPE cajeerbots_redis_configured gauge",
+            f"cajeerbots_redis_configured {1 if self.settings.redis_url else 0}",
         ]
         for adapter in self.adapter_health_snapshot():
             state_value = 1 if adapter.state == "running" else 0
+            connected = 1 if adapter.state == "running" else 0
             lines.append(f'cajeerbots_adapter_state{{adapter="{adapter.name}",state="{adapter.state}"}} {state_value}')
+            lines.append(f'cajeerbots_adapter_connected{{adapter="{adapter.name}"}} {connected}')
             lines.append(f'cajeerbots_adapter_events_total{{adapter="{adapter.name}"}} {adapter.processed_events}')
             lines.append(f'cajeerbots_adapter_events_failed_total{{adapter="{adapter.name}"}} {adapter.failed_events}')
+            lines.append(f'cajeerbots_adapter_errors_total{{adapter="{adapter.name}"}} {adapter.failed_events}')
             lines.append(f'cajeerbots_adapter_restarts_total{{adapter="{adapter.name}"}} {adapter.restart_count}')
         return "\n".join(lines) + "\n"
 

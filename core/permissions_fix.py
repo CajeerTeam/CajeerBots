@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-EXECUTABLE_ENTRYPOINTS = ["run.sh", "install.sh", "setup_wizard.py"]
+EXECUTABLE_ENTRYPOINTS: list[str] = []
 
 
 def executable_paths(root: Path) -> list[Path]:

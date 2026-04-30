@@ -33,15 +33,9 @@ REQUIRED_TOP_LEVEL = {
     "wiki",
     "alembic",
     "schemas",
-    "install.sh",
-    "run.sh",
-    "setup_wizard.py",
 }
 
 EXECUTABLE_PATHS = {
-    "run.sh",
-    "install.sh",
-    "setup_wizard.py",
     "scripts/doctor.sh",
     "scripts/install.sh",
     "scripts/migrate.sh",
@@ -197,20 +191,22 @@ def verify_release_artifact(artifact: str | Path, *, deep: bool = False, python_
     if not artifact.exists():
         return ReleaseVerification(str(artifact), ok=False, errors=["артефакт не найден"])
 
-    if zipfile.is_zipfile(artifact):
+    if artifact.is_dir():
+        members = {str(path.relative_to(artifact)): path.stat().st_mode for path in artifact.rglob("*") if path.is_file() and not (set(path.relative_to(artifact).parts) & FORBIDDEN_PARTS)}
+    elif zipfile.is_zipfile(artifact):
         with zipfile.ZipFile(artifact) as archive:
             members = {info.filename: _mode_from_zip(info) for info in archive.infolist() if not info.is_dir()}
     elif tarfile.is_tarfile(artifact):
         with tarfile.open(artifact) as archive:
             members = {member.name: member.mode for member in archive.getmembers() if member.isfile()}
     else:
-        return ReleaseVerification(str(artifact), ok=False, errors=["артефакт должен быть .zip или .tar.gz/.tgz"])
+        return ReleaseVerification(str(artifact), ok=False, errors=["артефакт должен быть каталогом, .zip или .tar.gz/.tgz"])
 
     result = _verify_member_list(members, artifact=artifact)
     if deep and result.ok:
         temp = Path(tempfile.mkdtemp(prefix="cajeer-bots-release-verify-"))
         try:
-            root = _extract_artifact(artifact, temp)
+            root = artifact if artifact.is_dir() else _extract_artifact(artifact, temp)
             # zip extraction may drop execute bits depending on the platform; enforce only for deep runtime checks.
             for relative in EXECUTABLE_PATHS:
                 path = root / relative
