@@ -31,8 +31,17 @@ class SupportModule:
                 if context.runtime.settings.storage.async_database_url:
                     from core.repositories.business import BusinessStateRepository
                     await BusinessStateRepository(context.runtime.settings.storage.async_database_url, context.runtime.settings.shared_schema).update_support_ticket(ticket_id=ticket_id, status=value if subcommand == "status" else None, assigned_to=value if subcommand == "assign" else None, event={"action": subcommand, "value": value, "actor": actor})
-            except Exception:
-                pass
+            except Exception as exc:
+                context.logger.warning("ошибка записи состояния в БД: %s", exc)
+                context.runtime.audit.write(
+                    actor_type="module",
+                    actor_id=self.id,
+                    action=f"{self.id}.db_write_failed",
+                    resource=ticket_id,
+                    result="error",
+                    trace_id=event.trace_id,
+                    message=str(exc),
+                )
             await context.runtime.workspace.report_event(context.runtime.make_system_event(f"cajeer.bots.{action}", {"ticket_id": ticket_id, "value": value, "actor": actor, "trace_id": event.trace_id}))
             return {"ok": True, "message": f"Обращение {ticket_id}: {subcommand}={value}.", "ticket_id": ticket_id, "trace_id": event.trace_id}
         ticket_id = "sup_" + uuid4().hex[:12]
@@ -42,7 +51,16 @@ class SupportModule:
             if context.runtime.settings.storage.async_database_url:
                 from core.repositories.business import BusinessStateRepository
                 await BusinessStateRepository(context.runtime.settings.storage.async_database_url, context.runtime.settings.shared_schema).create_support_ticket(ticket_id=ticket_id, user_id=actor, platform=event.source, platform_chat_id=chat_id, subject=subject, history={"events": [{"action": "create", "actor": actor, "trace_id": event.trace_id}]})
-        except Exception:
-            pass
+        except Exception as exc:
+            context.logger.warning("ошибка записи состояния в БД: %s", exc)
+            context.runtime.audit.write(
+                actor_type="module",
+                actor_id=self.id,
+                action=f"{self.id}.db_write_failed",
+                resource=event.trace_id,
+                result="error",
+                trace_id=event.trace_id,
+                message=str(exc),
+            )
         await context.runtime.workspace.report_event(context.runtime.make_system_event("cajeer.bots.support.ticket_created", {"ticket_id": ticket_id, "actor": actor, "chat_id": chat_id, "subject": subject, "trace_id": event.trace_id}))
         return {"ok": True, "message": f"Обращение создано: {ticket_id}. Тема: {subject}", "ticket_id": ticket_id, "status": "open", "subject": subject, "trace_id": event.trace_id}
