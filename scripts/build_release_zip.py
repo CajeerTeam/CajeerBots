@@ -27,7 +27,7 @@ def add_tree(source_dir: Path, zip_path: Path, archive_root: str) -> None:
                 continue
             rel = path.relative_to(source_dir).as_posix()
             info = zipfile.ZipInfo.from_file(path, f'{archive_root}/{rel}')
-            mode = 0o755 if rel in EXECUTABLES or (rel.startswith('scripts/') and rel.endswith('.sh')) else 0o644
+            mode = 0o755 if rel in EXECUTABLES or (rel.startswith('scripts/') and rel.endswith(('.sh', '.py'))) else 0o644
             info.external_attr = (stat.S_IFREG | mode) << 16
             with path.open('rb') as fh:
                 zf.writestr(info, fh.read(), zipfile.ZIP_DEFLATED)

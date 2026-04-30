@@ -18,9 +18,18 @@ fi
 
 chmod +x run.sh install.sh setup_wizard.py scripts/*.sh
 
-if grep -RInE "$FORBIDDEN_PATTERN" \
-  --exclude-dir=.git --exclude-dir=dist --exclude-dir=runtime --exclude-dir=__pycache__ --exclude-dir=.pytest_cache \
-  --exclude='*.zip' . >/tmp/cajeer-bots-forbidden.txt; then
+find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache \) -prune -exec rm -rf {} +
+if find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -not -path './.git/*' -not -path './dist/*' -print | grep -q .; then
+  echo "В исходниках найден Python bytecode" >&2
+  find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -not -path './.git/*' -not -path './dist/*' -print >&2
+  exit 1
+fi
+if [ -f .env ]; then
+  echo ".env не должен входить в релизный исходник; используйте .env.example" >&2
+  exit 1
+fi
+
+if grep -RInE "$FORBIDDEN_PATTERN"   --exclude-dir=.git --exclude-dir=dist --exclude-dir=runtime --exclude-dir=__pycache__ --exclude-dir=.pytest_cache   --exclude='*.zip' . >/tmp/cajeer-bots-forbidden.txt; then
   echo "Найдены запрещённые проектные или устаревшие термины:" >&2
   cat /tmp/cajeer-bots-forbidden.txt >&2
   exit 1
@@ -34,8 +43,10 @@ for file in run.sh install.sh setup_wizard.py scripts/*.sh; do
 done
 
 "$PYTHON_BIN" scripts/check_syntax.py
-find . -type d -name __pycache__ -prune -exec rm -rf {} +
-EVENT_SIGNING_SECRET="${EVENT_SIGNING_SECRET:-release-secret}" API_TOKEN="${API_TOKEN:-release-token}" "$PYTHON_BIN" -m core doctor --offline
+"$PYTHON_BIN" scripts/check_architecture.py
+./scripts/check_docs.sh
+./scripts/check_secrets.sh
+EVENT_SIGNING_SECRET="${EVENT_SIGNING_SECRET:-release-secret}" API_TOKEN="${API_TOKEN:-release-token}" "$PYTHON_BIN" -m core doctor --offline --profile release-artifact
 "$PYTHON_BIN" -m core adapters >/dev/null
 "$PYTHON_BIN" -m core modules >/dev/null
 "$PYTHON_BIN" -m core plugins >/dev/null
@@ -49,14 +60,16 @@ fi
 
 rm -rf dist
 mkdir -p "dist/${NAME}"
-cp -a README.md LICENSE VERSION pyproject.toml .env.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini \
-  core bots modules plugins distributed scripts ops wiki alembic install.sh run.sh setup_wizard.py \
-  "dist/${NAME}/"
+cp -a README.md LICENSE VERSION pyproject.toml .env.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini   core bots modules plugins distributed scripts ops wiki alembic schemas release install.sh run.sh setup_wizard.py   "dist/${NAME}/"
 chmod +x "dist/${NAME}/run.sh" "dist/${NAME}/install.sh" "dist/${NAME}/setup_wizard.py" "dist/${NAME}/scripts"/*.sh
+find "dist/${NAME}" -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache \) -prune -exec rm -rf {} +
+
 (cd dist && tar --mode='u+rwX,go+rX' -czf "${NAME}.tar.gz" "${NAME}" && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
 "$PYTHON_BIN" scripts/build_release_zip.py "dist/${NAME}" "dist/${NAME}.zip" "${NAME}"
 (cd dist && sha256sum "${NAME}.zip" > "${NAME}.zip.sha256")
-SHA256_VALUE="$(cut -d' ' -f1 "dist/${NAME}.tar.gz.sha256")"
+
+TAR_SHA256="$(cut -d' ' -f1 "dist/${NAME}.tar.gz.sha256")"
+ZIP_SHA256="$(cut -d' ' -f1 "dist/${NAME}.zip.sha256")"
 cat > "dist/${NAME}.release.json" <<JSON
 {
   "name": "CajeerBots",
@@ -68,11 +81,18 @@ cat > "dist/${NAME}.release.json" <<JSON
   "requires_migration": true,
   "required_alembic_revision": "${CAJEER_RELEASE_REQUIRED_ALEMBIC_REVISION:-head}",
   "artifacts": [
-    {
-      "name": "${NAME}.tar.gz",
-      "sha256": "${SHA256_VALUE}"
-    }
+    {"name": "${NAME}.tar.gz", "sha256": "${TAR_SHA256}"},
+    {"name": "${NAME}.zip", "sha256": "${ZIP_SHA256}"}
   ]
+}
+JSON
+cat > "dist/${NAME}.provenance.json" <<JSON
+{
+  "name": "CajeerBots",
+  "version": "${VERSION}",
+  "builder": "scripts/release.sh",
+  "source_date_epoch": "${SOURCE_DATE_EPOCH:-}",
+  "checks": ["syntax", "architecture", "docs", "secrets", "doctor", "pytest", "release-verify-deep"]
 }
 JSON
 cat > "dist/${NAME}.spdx.json" <<JSON
@@ -81,6 +101,7 @@ JSON
 cat > "dist/${NAME}.cyclonedx.json" <<JSON
 {"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"metadata":{"component":{"type":"application","name":"CajeerBots","version":"${VERSION}"}}}
 JSON
+
 SIGNATURE_REQUIRED="${RELEASE_SIGNATURE_REQUIRED:-false}"
 if [ -n "${RELEASE_SIGNING_KEY:-}" ] && [ -f "${RELEASE_SIGNING_KEY:-}" ]; then
   openssl dgst -sha256 -sign "${RELEASE_SIGNING_KEY}" -out "dist/${NAME}.sig" "dist/${NAME}.tar.gz"
@@ -89,10 +110,7 @@ elif [ "$SIGNATURE_REQUIRED" = "true" ]; then
   exit 1
 fi
 
-# Проверка итогового tar.gz, а не только рабочей директории.
-TMP_RELEASE_CHECK="$(mktemp -d)"
-tar -xzf "dist/${NAME}.tar.gz" -C "$TMP_RELEASE_CHECK"
-(cd "$TMP_RELEASE_CHECK/${NAME}" && EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token "$PYTHON_BIN" -m core doctor --offline)
-rm -rf "$TMP_RELEASE_CHECK"
+EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token API_TOKEN_READONLY=release-readonly API_TOKEN_METRICS=release-metrics "$PYTHON_BIN" -m core release verify "dist/${NAME}.tar.gz" --deep
+EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token API_TOKEN_READONLY=release-readonly API_TOKEN_METRICS=release-metrics "$PYTHON_BIN" -m core release verify "dist/${NAME}.zip" --deep
 
-echo "Релиз создан: dist/${NAME}.tar.gz"
+echo "Релиз создан: dist/${NAME}.tar.gz и dist/${NAME}.zip"
