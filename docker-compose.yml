@@ -39,6 +39,18 @@ services:
       postgres:
         condition: service_healthy
 
+  migrate:
+    build: .
+    profiles: ["migrate", "all"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+      DATABASE_ASYNC_URL: postgresql+asyncpg://${POSTGRES_USER:-cajeerbots}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cajeerbots}
+    command: ["cajeer-bots", "db", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build: .
     profiles: ["api", "all"]
@@ -55,6 +67,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   worker:
     build: .
@@ -72,6 +86,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   bridge:
     build: .
@@ -89,6 +105,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   telegram:
     build: .
@@ -106,6 +124,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   discord:
     build: .
@@ -123,6 +143,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   vkontakte:
     build: .
@@ -140,6 +162,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   fake:
     build: .
