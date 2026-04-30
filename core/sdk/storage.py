@@ -1,0 +1,9 @@
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+
+class KeyValueStore(Protocol):
+    async def get(self, key: str) -> Any: ...
+    async def set(self, key: str, value: Any, *, ttl_seconds: int | None = None) -> None: ...
+    async def delete(self, key: str) -> None: ...
