@@ -49,4 +49,4 @@ class BusinessStateRepository:
 
     async def create_scheduled_job(self, *, job_id: str, job_type: str, payload: dict[str, Any], run_at: str) -> None:
         async with self._engine_obj().begin() as conn:
-            await conn.execute(_sql_text(f"INSERT INTO {self.schema}.scheduled_jobs(job_id,job_type,payload,status,run_at,created_at) VALUES(:job_id,:job_type,CAST(:payload AS jsonb),'pending',CAST(:run_at AS timestamptz),NOW()) ON CONFLICT(job_id) DO NOTHING"), {"job_id": job_id, "job_type": job_type, "payload": json.dumps(payload, ensure_ascii=False), "run_at": run_at or datetime.now(timezone.utc).isoformat()})
+            await conn.execute(_sql_text(f"INSERT INTO {self.schema}.scheduled_jobs(job_id,job_type,payload,status,run_at,max_attempts,created_at,updated_at) VALUES(:job_id,:job_type,CAST(:payload AS jsonb),'pending',CAST(:run_at AS timestamptz),:max_attempts,NOW(),NOW()) ON CONFLICT(job_id) DO NOTHING"), {"job_id": job_id, "job_type": job_type, "payload": json.dumps(payload, ensure_ascii=False), "run_at": run_at or datetime.now(timezone.utc).isoformat(), "max_attempts": int(payload.get("max_attempts", 3)) if isinstance(payload, dict) else 3})
