@@ -23,5 +23,17 @@
   "entrypoint": "runtime:ExamplePlugin",
   "capabilities": [
     "events.publish"
-  ]
+  ],
+  "permissions": [
+    "events.publish"
+  ],
+  "compatibility": {
+    "db_contract": "cajeer.bots.db.v1",
+    "event_contract": "cajeer.bots.event.v1",
+    "platform": ">=0.10,<1.0"
+  },
+  "lifecycle": {
+    "on_start": "runtime:ExamplePlugin.on_start",
+    "on_stop": "runtime:ExamplePlugin.on_stop"
+  }
 }
