@@ -149,8 +149,8 @@ class UpdateManager:
         self._record("checked", "ok" if manifest else "error", manifest.version if manifest else None, "github release найден" if manifest else "github release не найден", new_version=manifest.version if manifest else None)
         return {"source": "github", "repo": self.repo, "manifest": manifest.to_dict() if manifest else None}
 
-    def plan(self, version: str = "latest") -> dict[str, object]:
-        checked = self.check() if version == "latest" else {}
+    def plan(self, version: str = "latest", *, refresh_latest: bool = True, record: bool = True) -> dict[str, object]:
+        checked = self.check() if version == "latest" and refresh_latest else {}
         manifest_data = checked.get("manifest") if isinstance(checked, dict) else None
         if not manifest_data:
             manifest_data = self._read_state().get("manifest")
@@ -173,8 +173,9 @@ class UpdateManager:
             "preflight": {"ok": not problems, "problems": problems},
             "rollback_available": bool(self._read_previous_version()),
         }
-        self._write_state(plan=plan)
-        self._record("planned", "ok" if not problems and not blocked_by_migration else "error", manifest.version if manifest else version, "update plan")
+        if record:
+            self._write_state(plan=plan)
+            self._record("planned", "ok" if not problems and not blocked_by_migration else "error", manifest.version if manifest else version, "update plan")
         return plan
 
     def download_latest(self) -> dict[str, object]:
