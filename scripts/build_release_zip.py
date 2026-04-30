@@ -20,6 +20,8 @@ EXECUTABLES = {
     'scripts/run.sh',
     'scripts/smoke.sh',
     'scripts/smoke_integrations.sh',
+    'scripts/chaos_storage_backends.py',
+    'scripts/chaos_worker_crash.py',
 }
 
 

@@ -42,6 +42,7 @@ for file in run.sh install.sh setup_wizard.py scripts/*.sh; do
   fi
 done
 
+"$PYTHON_BIN" -m core.versioning
 "$PYTHON_BIN" scripts/check_syntax.py
 "$PYTHON_BIN" scripts/check_architecture.py
 ./scripts/check_docs.sh
@@ -76,7 +77,7 @@ cat > "dist/${NAME}.release.json" <<JSON
   "name": "CajeerBots",
   "version": "${VERSION}",
   "channel": "${CAJEER_UPDATE_CHANNEL:-stable}",
-  "python": ">=3.11",
+  "python": ">=3.11,<3.13",
   "db_contract": "cajeer.bots.db.v1",
   "event_contract": "cajeer.bots.event.v1",
   "requires_migration": true,
