@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import asyncio
 
-from core.adapters.base import AdapterCapabilities, BotAdapter
+from core.adapters.base import AdapterCapabilities, BotAdapter, SendResult
 from core.events import message_event
 
 
 class FakeAdapter(BotAdapter):
     name = "fake"
-    capabilities = AdapterCapabilities()
+    capabilities = AdapterCapabilities(headless_send=True)
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
@@ -33,6 +33,8 @@ class FakeAdapter(BotAdapter):
         while not self._stopping.is_set():
             await asyncio.sleep(1)
 
-    async def send_message(self, target: str, text: str) -> None:
-        self.sent_messages.append({"target": target, "text": text})
+    async def send_message(self, target: str, text: str) -> SendResult:
+        platform_message_id = f"fake-{len(self.sent_messages) + 1}"
+        self.sent_messages.append({"target": target, "text": text, "platform_message_id": platform_message_id})
         await super().send_message(target, text)
+        return SendResult(ok=True, platform_message_id=platform_message_id, raw={"target": target})

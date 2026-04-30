@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import Any
 
-from core.adapters.base import AdapterCapabilities, BotAdapter
+from core.adapters.base import AdapterCapabilities, BotAdapter, SendResult
 from core.events import message_event
 
 logger = logging.getLogger(__name__)
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class TelegramAdapter(BotAdapter):
     name = "telegram"
-    capabilities = AdapterCapabilities(files_receive=True, webhooks=True)
+    capabilities = AdapterCapabilities(files_receive=True, webhooks=True, headless_send=True)
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
@@ -82,7 +82,7 @@ class TelegramAdapter(BotAdapter):
                 await self._bot.session.close()
                 self._bot = None
 
-    async def send_message(self, target: str, text: str) -> None:
+    async def send_message(self, target: str, text: str) -> SendResult:
         if not self.config.token:
             return await super().send_message(target, text)
         from aiogram import Bot
@@ -93,8 +93,9 @@ class TelegramAdapter(BotAdapter):
             bot = Bot(self.config.token)
             temporary = True
         try:
-            await bot.send_message(chat_id=target, text=text)
+            message = await bot.send_message(chat_id=target, text=text)
         finally:
             if temporary:
                 await bot.session.close()
         await super().send_message(target, text)
+        return SendResult(ok=True, platform_message_id=str(getattr(message, "message_id", "") or ""), raw={"chat_id": str(target)})

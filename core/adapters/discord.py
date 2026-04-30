@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from bots.discord.bot.slash import default_slash_commands
-from core.adapters.base import AdapterCapabilities, BotAdapter
+from core.adapters.base import AdapterCapabilities, BotAdapter, SendResult
 from core.events import command_event_from_message, message_event
 
 logger = logging.getLogger(__name__)
@@ -76,14 +76,15 @@ class DiscordAdapter(BotAdapter):
             await self.handle_incoming_message(event)
         await client.start(self.config.token)
 
-    async def send_message(self, target: str, text: str) -> None:
+    async def send_message(self, target: str, text: str) -> SendResult:
         if not self.config.token:
             return await super().send_message(target, text)
         if self.client is None or getattr(self.client, "is_closed", lambda: True)():
-            raise RuntimeError("Discord client не подключён")
+            raise RuntimeError("Discord client не подключён; delivery для Discord должен выполняться adapter-owned loop")
         channel = self.client.get_channel(int(target)) or await self.client.fetch_channel(int(target))
-        await channel.send(text)
+        message = await channel.send(text)
         await super().send_message(target, text)
+        return SendResult(ok=True, platform_message_id=str(getattr(message, "id", "") or ""), raw={"channel_id": str(target)})
 
     async def on_stop(self) -> None:
         if self.client is not None and not self.client.is_closed():

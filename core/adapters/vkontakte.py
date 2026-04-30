@@ -3,14 +3,14 @@ from __future__ import annotations
 import logging
 
 from bots.vkontakte.bot.thin import VkontakteThinWrapper
-from core.adapters.base import AdapterCapabilities, BotAdapter
+from core.adapters.base import AdapterCapabilities, BotAdapter, SendResult
 
 logger = logging.getLogger(__name__)
 
 
 class VkontakteAdapter(BotAdapter):
     name = "vkontakte"
-    capabilities = AdapterCapabilities(files_receive=True, webhooks=True)
+    capabilities = AdapterCapabilities(files_receive=True, webhooks=True, headless_send=True)
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
@@ -39,11 +39,12 @@ class VkontakteAdapter(BotAdapter):
         except ImportError as exc:
             raise RuntimeError("для ВКонтакте установите пакет vkbottle: pip install cajeer-bots[adapters]") from exc
 
-    async def send_message(self, target: str, text: str) -> None:
+    async def send_message(self, target: str, text: str) -> SendResult:
         if not self.config.token:
             return await super().send_message(target, text)
         try:
-            await self._wrapper().send_message(int(target), text)
+            raw = await self._wrapper().send_message(int(target), text)
         except ImportError as exc:
             raise RuntimeError("для ВКонтакте установите пакет vkbottle") from exc
         await super().send_message(target, text)
+        return SendResult(ok=True, platform_message_id=str(raw.get("message_id") or ""), raw=dict(raw))

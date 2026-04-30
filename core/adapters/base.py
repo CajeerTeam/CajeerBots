@@ -20,6 +20,16 @@ def _utc_iso() -> str:
 
 
 @dataclass(frozen=True)
+class SendResult:
+    ok: bool = True
+    platform_message_id: str | None = None
+    raw: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class AdapterCapabilities:
     messages_send: bool = True
     messages_receive: bool = True
@@ -28,6 +38,7 @@ class AdapterCapabilities:
     reactions: bool = False
     webhooks: bool = False
     slash_commands: bool = False
+    headless_send: bool = False
 
     def names(self) -> list[str]:
         values: list[str] = []
@@ -45,6 +56,8 @@ class AdapterCapabilities:
             values.append("webhooks")
         if self.slash_commands:
             values.append("slash_commands")
+        if self.headless_send:
+            values.append("headless_send")
         values.extend(["health", "events.publish"])
         return sorted(set(values))
 
@@ -228,10 +241,11 @@ class BotAdapter(abc.ABC):
         if command is not None:
             name, args = command
             await self.publish_event(command_event_from_message(event, name, args))
-    async def send_message(self, target: str, text: str) -> None:
+    async def send_message(self, target: str, text: str) -> SendResult:
         logger.info("%s отправляет сообщение target=%s text=%s", self.name, target, text)
         self.status.processed_events += 1
         self.status.last_event_at = _utc_iso()
+        return SendResult(ok=True, raw={"target": target})
 
     async def health(self) -> AdapterHealth:
         return AdapterHealth(
