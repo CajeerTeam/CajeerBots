@@ -153,3 +153,7 @@ cajeer-bots run fake
 - Cajeer Logs: отправка событий в ingest API `/api/v1/ingest` с HMAC-заголовками.
 - Redis: слой для cache/FSM/queue primitives.
 - Alembic: базовый контракт таблиц `shared.event_bus`, `shared.delivery_queue`, `shared.dead_letters`, `shared.idempotency_keys`, `shared.audit_log`.
+
+## 1.0.0 readiness
+
+Перед выпуском 1.0.0 обязательны: staged update с проверкой Alembic revision, подписи stable-релиза, строгий `/readyz`, трассировка `outbound_messages`, append-only буфер Cajeer Logs и integration-smoke Redis/PostgreSQL. См. `wiki/1.0-Readiness.md`.
