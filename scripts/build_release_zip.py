@@ -14,6 +14,7 @@ EXECUTABLES = {
     'install.sh',
     'setup_wizard.py',
     'scripts/doctor.sh',
+    'scripts/fault_drill.sh',
     'scripts/install.sh',
     'scripts/migrate.sh',
     'scripts/release.sh',
