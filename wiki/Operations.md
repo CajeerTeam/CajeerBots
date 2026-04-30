@@ -53,3 +53,11 @@ UPDATE_HISTORY_RETENTION=200
 ```
 
 DB-backed retention должен запускаться оператором через SQL/job runner до появления отдельной `maintenance db-cleanup` команды.
+
+## Operator self-test
+
+`cajeer-bots self-test` combines doctor, readiness, dependency checks, and updater status into one operator command.
+
+## Runtime catalog operations
+
+`cajeer-bots catalog list/install/update` manages `runtime/catalog/catalog.lock` for custom business modules and plugins.
