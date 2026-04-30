@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from core.events import CajeerEvent
 from core.registry import Manifest, Registry
+from core.sdk.plugins import PluginContext
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class RuntimeComponent(Protocol):
 
 
 @dataclass
-class ComponentContext:
+class ComponentContext(PluginContext):
     runtime: Any
     manifest: Manifest
     logger: logging.Logger
@@ -103,25 +104,54 @@ class ComponentManager:
                 continue
             component = LoadedComponent(manifest, instance)
             self.loaded.append(component)
-            hook = getattr(instance, "on_start", None)
-            if hook is not None:
+            context = ComponentContext(self.runtime, manifest, logging.getLogger(f"component.{manifest.id}"))
+            for hook_name in ("on_enable", "on_start"):
+                hook = getattr(instance, hook_name, None)
+                if hook is not None:
+                    try:
+                        result = hook(context)
+                        if hasattr(result, "__await__"):
+                            await result
+                    except Exception as exc:  # noqa: BLE001
+                        component.failed = True
+                        component.last_error = str(exc)
+                        logger.exception("компонент %s не запущен на hook %s", manifest.key(), hook_name)
+                        break
+            route_hook = getattr(instance, "register_api_routes", None)
+            if route_hook is not None and not component.failed:
                 try:
-                    await hook(ComponentContext(self.runtime, manifest, logging.getLogger(f"component.{manifest.id}")))
+                    routes = route_hook(context)
+                    if routes and hasattr(self.runtime, "plugin_routes"):
+                        self.runtime.plugin_routes.extend(routes)
                 except Exception as exc:  # noqa: BLE001
                     component.failed = True
                     component.last_error = str(exc)
-                    logger.exception("компонент %s не запущен", manifest.key())
+                    logger.exception("компонент %s не зарегистрировал API routes", manifest.key())
+            scheduled_hook = getattr(instance, "register_scheduled_jobs", None)
+            if scheduled_hook is not None and not component.failed:
+                try:
+                    jobs = scheduled_hook(context)
+                    if jobs and hasattr(self.runtime, "plugin_scheduled_jobs"):
+                        self.runtime.plugin_scheduled_jobs.extend(jobs)
+                except Exception as exc:  # noqa: BLE001
+                    component.failed = True
+                    component.last_error = str(exc)
+                    logger.exception("компонент %s не зарегистрировал scheduled jobs", manifest.key())
 
     async def stop(self) -> None:
         for component in reversed(self.loaded):
-            hook = getattr(component.instance, "on_stop", None)
-            if hook is not None:
-                try:
-                    await hook(ComponentContext(self.runtime, component.manifest, logging.getLogger(f"component.{component.manifest.id}")))
-                except Exception as exc:  # noqa: BLE001
-                    component.failed = True
-                    component.last_error = str(exc)
-                    logger.warning("ошибка остановки компонента %s: %s", component.manifest.key(), exc)
+            context = ComponentContext(self.runtime, component.manifest, logging.getLogger(f"component.{component.manifest.id}"))
+            for hook_name in ("on_stop", "on_disable"):
+                hook = getattr(component.instance, hook_name, None)
+                if hook is not None:
+                    try:
+                        result = hook(context)
+                        if hasattr(result, "__await__"):
+                            await result
+                    except Exception as exc:  # noqa: BLE001
+                        component.failed = True
+                        component.last_error = str(exc)
+                        logger.warning("ошибка остановки компонента %s на hook %s: %s", component.manifest.key(), hook_name, exc)
 
     async def route_event(self, event: CajeerEvent) -> dict[str, object] | None:
         for component in self.loaded:
