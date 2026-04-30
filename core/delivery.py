@@ -149,17 +149,53 @@ class DeliveryService:
                 self.failed_total += 1
             return
 
+    async def _record_outbound_sending(self, adapter: Any, task: DeliveryTask) -> None:
+        settings = getattr(adapter, "settings", None)
+        async_dsn = getattr(getattr(settings, "storage", None), "async_database_url", "") if settings is not None else ""
+        schema = getattr(settings, "shared_schema", "shared") if settings is not None else "shared"
+        if self.backend == "postgres" and async_dsn:
+            try:
+                from core.repositories.outbound import OutboundMessageRepository
+                await OutboundMessageRepository(async_dsn, schema).mark_sending(delivery_id=task.delivery_id, adapter=task.adapter, target=task.target, text=task.text, trace_id=task.trace_id)
+            except Exception:
+                pass
+
+    async def _record_outbound_sent(self, adapter: Any, task: DeliveryTask, result: Any = None) -> None:
+        settings = getattr(adapter, "settings", None)
+        async_dsn = getattr(getattr(settings, "storage", None), "async_database_url", "") if settings is not None else ""
+        schema = getattr(settings, "shared_schema", "shared") if settings is not None else "shared"
+        platform_message_id = str(result) if result is not None else ""
+        if self.backend == "postgres" and async_dsn:
+            try:
+                from core.repositories.outbound import OutboundMessageRepository
+                await OutboundMessageRepository(async_dsn, schema).mark_sent(delivery_id=task.delivery_id, platform_message_id=platform_message_id)
+            except Exception:
+                pass
+
+    async def _record_outbound_failed(self, adapter: Any, task: DeliveryTask, error: str) -> None:
+        settings = getattr(adapter, "settings", None)
+        async_dsn = getattr(getattr(settings, "storage", None), "async_database_url", "") if settings is not None else ""
+        schema = getattr(settings, "shared_schema", "shared") if settings is not None else "shared"
+        if self.backend == "postgres" and async_dsn:
+            try:
+                from core.repositories.outbound import OutboundMessageRepository
+                await OutboundMessageRepository(async_dsn, schema).mark_failed(delivery_id=task.delivery_id, error=error)
+            except Exception:
+                pass
+
     async def process_for_adapter(self, adapter: Any) -> int:
         processed = 0
         for task in await self.claim(adapter.name, limit=50, consumer=getattr(adapter.settings, "instance_id", adapter.name)):
             try:
                 if getattr(adapter, "context", None) is not None and getattr(adapter.context, "rate_limiter", None) is not None:
                     await adapter.context.rate_limiter.acquire(f"{task.adapter}:{task.target}")
-                await adapter.send_message(task.target, task.text)
+                await self._record_outbound_sending(adapter, task)
+                result = await adapter.send_message(task.target, task.text)
                 await self.mark_sent(task.delivery_id)
+                await self._record_outbound_sent(adapter, task, result)
                 processed += 1
             except Exception as exc:  # pragma: no cover
-                await redis.delete(f"{self.prefix}:delivery:sent:{task.delivery_id}")
+                await self._record_outbound_failed(adapter, task, str(exc))
                 await self.mark_failed(task.delivery_id, str(exc), retry=True)
         return processed
 
@@ -280,19 +316,29 @@ class RedisDeliveryService(DeliveryService):
         await self._ensure_group(adapter.name)
         for task in await self.claim(adapter.name, limit=50, consumer=getattr(adapter.settings, "instance_id", adapter.name)):
             try:
-                guard_key = f"{self.prefix}:delivery:sent:{task.delivery_id}"
-                guard_created = await redis.set(guard_key, "processing", nx=True, ex=86400)
+                started_key = f"{self.prefix}:delivery:send_started:{task.delivery_id}"
+                sent_key = f"{self.prefix}:delivery:sent:{task.delivery_id}"
+                if await redis.exists(sent_key):
+                    if task.lease_id:
+                        await redis.xack(stream, self.group, task.lease_id)
+                    continue
+                guard_created = await redis.set(started_key, "1", nx=True, ex=86400)
                 if not guard_created:
                     if task.lease_id:
                         await redis.xack(stream, self.group, task.lease_id)
                     continue
                 if getattr(adapter, "context", None) is not None and getattr(adapter.context, "rate_limiter", None) is not None:
                     await adapter.context.rate_limiter.acquire(f"{task.adapter}:{task.target}")
-                await adapter.send_message(task.target, task.text)
+                await self._record_outbound_sending(adapter, task)
+                result = await adapter.send_message(task.target, task.text)
+                await redis.set(sent_key, str(result or "sent"), ex=86400)
+                await redis.delete(started_key)
                 await self.mark_sent(task.delivery_id)
+                await self._record_outbound_sent(adapter, task, result)
                 processed += 1
             except Exception as exc:  # pragma: no cover
-                await redis.delete(f"{self.prefix}:delivery:sent:{task.delivery_id}")
+                await redis.delete(f"{self.prefix}:delivery:send_started:{task.delivery_id}")
+                await self._record_outbound_failed(adapter, task, str(exc))
                 await self.mark_failed(task.delivery_id, str(exc), retry=True)
         return processed
 

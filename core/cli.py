@@ -51,6 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
     apply.add_argument("--staged-path", default="")
     apply.add_argument("--dry-run", action="store_true")
     update_sub.add_parser("rollback", help="Откатить current на previous.")
+    update_sub.add_parser("resume", help="Продолжить безопасный шаг update после сбоя.")
+    update_sub.add_parser("unlock", help="Удалить stale update.lock, если процесс уже умер.")
 
     secrets = sub.add_parser("secrets", help="Операции с секретами.")
     secrets_sub = secrets.add_subparsers(dest="secrets_command", required=True)
@@ -70,6 +72,11 @@ def build_parser() -> argparse.ArgumentParser:
     rotate_token.add_argument("id")
     tokens_sub.add_parser("list", help="Показать token registry без значений токенов.")
 
+    logs = sub.add_parser("logs", help="Операции с буфером Cajeer Logs.")
+    logs_sub = logs.add_subparsers(dest="logs_command", required=True)
+    logs_sub.add_parser("flush", help="Отправить накопленный JSONL-буфер в Cajeer Logs.")
+    logs_sub.add_parser("buffer-status", help="Показать состояние локального буфера Cajeer Logs.")
+
     db = sub.add_parser("db", help="Команды PostgreSQL/SQLAlchemy/Alembic.")
     db_sub = db.add_subparsers(dest="db_command", required=True)
     db_sub.add_parser("check", help="Проверить внешний DB contract без изменения схемы.")
@@ -80,6 +87,9 @@ def build_parser() -> argparse.ArgumentParser:
     db_sub.add_parser("history", help="Показать историю Alembic revisions.")
     db_backup = db_sub.add_parser("backup", help="Сделать pg_dump перед миграцией.")
     db_backup.add_argument("--format", choices=["custom", "plain"], default="custom")
+    db_backup.add_argument("--schema", default="")
+    db_backup.add_argument("--no-compress", action="store_true")
+    db_backup.add_argument("--keep-last", type=int, default=10)
     db_upgrade = db_sub.add_parser("upgrade", help="Выполнить alembic upgrade.")
     db_upgrade.add_argument("revision", nargs="?", default="head")
 
@@ -100,6 +110,10 @@ def build_parser() -> argparse.ArgumentParser:
     catalog_update.add_argument("--version", required=True)
     catalog_update.add_argument("--source", default="local")
     catalog_update.add_argument("--sha256", default="")
+    catalog_verify = catalog_sub.add_parser("verify", help="Проверить catalog.lock и установленные артефакты.")
+    catalog_verify.add_argument("id", nargs="?")
+    catalog_rollback = catalog_sub.add_parser("rollback", help="Откатить запись catalog.lock к предыдущей версии, если она есть.")
+    catalog_rollback.add_argument("id")
 
     maintenance = sub.add_parser("maintenance", help="Операционное обслуживание runtime.")
     maintenance_sub = maintenance.add_subparsers(dest="maintenance_command", required=True)
@@ -246,6 +260,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.update_command == "rollback":
             print(_json(runtime.updater.rollback()), flush=True)
             return 0
+        if args.update_command == "resume":
+            print(_json(runtime.updater.resume()), flush=True)
+            return 0
+        if args.update_command == "unlock":
+            print(_json(runtime.updater.unlock_stale()), flush=True)
+            return 0
+
+    if args.command == "logs":
+        runtime = _runtime(project_root)
+        if args.logs_command == "flush":
+            print(_json(asyncio.run(runtime.remote_logs.flush_buffer())), flush=True)
+            return 0
+        if args.logs_command == "buffer-status":
+            root = runtime.remote_logs.buffer_dir or (runtime.settings.runtime_dir / "logs-buffer")
+            files = sorted(root.glob("*.jsonl")) if root.exists() else []
+            print(_json({"path": str(root), "files": len(files), "bytes": sum(item.stat().st_size for item in files)}), flush=True)
+            return 0
 
     if args.command == "maintenance" and args.maintenance_command == "cleanup":
         from core.config import Settings
@@ -268,8 +299,14 @@ def main(argv: list[str] | None = None) -> int:
             print(_json({"items": lock.snapshot()}), flush=True)
             return 0
         if args.catalog_command in {"install", "update"}:
-            lock.update(CatalogEntry(id=args.id, version=args.version, source=args.source, sha256=args.sha256))
-            print(_json({"items": lock.snapshot()}), flush=True)
+            result = lock.install(CatalogEntry(id=args.id, version=args.version, source=args.source, sha256=args.sha256), project_root=project_root)
+            print(_json(result), flush=True)
+            return 0
+        if args.catalog_command == "verify":
+            print(_json(lock.verify(project_root=project_root, entry_id=args.id)), flush=True)
+            return 0
+        if args.catalog_command == "rollback":
+            print(_json(lock.rollback(args.id)), flush=True)
             return 0
 
     if args.command in {"migrate", "db-status"}:
@@ -291,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.db_command == "backup":
             from core.db_tools import backup_database
-            print(_json(backup_database(settings.database_url, settings.runtime_dir / "backups" / "db", fmt=args.format)), flush=True)
+            print(_json(backup_database(settings.database_url, settings.runtime_dir / "backups" / "db", fmt=args.format, schema=args.schema or None, compress=not args.no_compress, keep_last=args.keep_last)), flush=True)
             return 0
         if args.db_command in {"current", "history", "upgrade"}:
             import subprocess

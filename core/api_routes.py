@@ -103,3 +103,10 @@ def openapi_document(version: str, contract: str) -> dict[str, object]:
             "responses": {"200": {"description": "OK"}},
         }
     return {"openapi": "3.1.0", "info": {"title": "Cajeer Bots API", "version": version, "x-contract": contract}, "paths": paths, "x-known-scopes": sorted(KNOWN_SCOPES)}
+
+
+def handler_registry_key(method: str, path: str) -> str:
+    route = route_for(method, path)
+    if route is None:
+        return ""
+    return route.handler_id or (route.method.lower() + "_" + route.path.strip("/").replace("/", "_").replace("-", "_"))

@@ -57,3 +57,56 @@ class Scheduler:
 
     def snapshot(self) -> list[dict[str, object]]:
         return [{"name": job.name, "interval_seconds": job.interval_seconds, "next_run_at": job.next_run_at, "runs": job.runs, "last_error": job.last_error} for job in self.jobs]
+
+
+class PersistentScheduler:
+    """PostgreSQL-backed scheduler loop for production jobs.
+
+    It uses shared.scheduled_jobs and leases due jobs so several workers can run
+    without executing the same job concurrently.
+    """
+
+    def __init__(self, async_dsn: str, schema: str = "shared", instance_id: str = "cajeer-bots") -> None:
+        self.async_dsn = async_dsn
+        self.schema = schema
+        self.instance_id = instance_id
+        self._engine = None
+
+    def _engine_obj(self):
+        if self._engine is None:
+            from sqlalchemy.ext.asyncio import create_async_engine
+            self._engine = create_async_engine(self.async_dsn, pool_pre_ping=True)
+        return self._engine
+
+    async def claim_due(self, limit: int = 10) -> list[dict[str, object]]:
+        from sqlalchemy import text
+        async with self._engine_obj().begin() as conn:
+            rows = (await conn.execute(
+                text(
+                    f"""WITH picked AS (
+                        SELECT job_id FROM {self.schema}.scheduled_jobs
+                         WHERE status='pending' AND run_at <= NOW()
+                         ORDER BY run_at
+                         LIMIT :limit
+                         FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE {self.schema}.scheduled_jobs j
+                       SET status='processing', locked_at=NOW(), locked_by=:instance
+                      FROM picked
+                     WHERE j.job_id=picked.job_id
+                 RETURNING j.job_id, j.job_type, j.payload"""
+                ),
+                {"limit": limit, "instance": self.instance_id},
+            )).mappings().all()
+        return [dict(row) for row in rows]
+
+    async def mark_completed(self, job_id: str) -> None:
+        from sqlalchemy import text
+        async with self._engine_obj().begin() as conn:
+            await conn.execute(text(f"UPDATE {self.schema}.scheduled_jobs SET status='completed', locked_at=NULL, locked_by=NULL WHERE job_id=:job_id"), {"job_id": job_id})
+
+    async def mark_failed(self, job_id: str, error: str, *, retry: bool = True) -> None:
+        from sqlalchemy import text
+        status = "pending" if retry else "failed"
+        async with self._engine_obj().begin() as conn:
+            await conn.execute(text(f"UPDATE {self.schema}.scheduled_jobs SET status=:status, last_error=:error, locked_at=NULL, locked_by=NULL WHERE job_id=:job_id"), {"job_id": job_id, "status": status, "error": error})

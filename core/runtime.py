@@ -422,6 +422,48 @@ class Runtime:
         checks.append({"name": "remote_logs", "ok": not self.settings.remote_logs.enabled or bool(self.settings.remote_logs.url), "message": "enabled" if self.settings.remote_logs.enabled else "disabled"})
         return {"checks": checks}
 
+    async def dependency_health_snapshot_async(self) -> dict[str, object]:
+        checks: list[dict[str, object]] = []
+        redis_required = (
+            self.settings.event_bus_backend == "redis"
+            or self.settings.storage.delivery_backend == "redis"
+            or self.settings.storage.dead_letter_backend == "redis"
+            or self.settings.storage.idempotency_backend == "redis"
+        )
+        postgres_required = (
+            self.settings.event_bus_backend == "postgres"
+            or self.settings.storage.delivery_backend == "postgres"
+            or self.settings.storage.dead_letter_backend == "postgres"
+            or self.settings.storage.idempotency_backend == "postgres"
+        )
+        if redis_required:
+            if not self.settings.redis_url:
+                checks.append({"name": "redis", "ok": False, "message": "REDIS_URL не задан"})
+            else:
+                try:
+                    from redis.asyncio import Redis  # type: ignore
+                    client = Redis.from_url(self.settings.redis_url, socket_connect_timeout=1, socket_timeout=1)
+                    await client.ping()
+                    await client.aclose()
+                    checks.append({"name": "redis", "ok": True, "message": "pong"})
+                except Exception as exc:
+                    checks.append({"name": "redis", "ok": False, "message": str(exc)})
+        if postgres_required:
+            if not self.settings.storage.async_database_url:
+                checks.append({"name": "postgres", "ok": False, "message": "DATABASE_ASYNC_URL не задан"})
+            else:
+                try:
+                    from core.db_async import check_schema
+                    problems = await check_schema(self.settings.storage.async_database_url, self.settings.shared_schema)
+                    checks.append({"name": "postgres", "ok": not problems, "message": "; ".join(problems[:5]) if problems else "schema ok"})
+                except Exception as exc:
+                    checks.append({"name": "postgres", "ok": False, "message": str(exc)})
+        checks.append({"name": "event_bus", "ok": True, "message": self.event_bus.metrics().backend})
+        checks.append({"name": "delivery", "ok": True, "message": getattr(self.delivery, "backend", "memory")})
+        checks.append({"name": "workspace", "ok": not self.settings.workspace.enabled or bool(self.settings.workspace.url), "message": "enabled" if self.settings.workspace.enabled else "disabled"})
+        checks.append({"name": "remote_logs", "ok": not self.settings.remote_logs.enabled or bool(self.settings.remote_logs.url), "message": "enabled" if self.settings.remote_logs.enabled else "disabled"})
+        return {"checks": checks}
+
     def metrics_text(self) -> str:
         metrics = self.event_bus.metrics()
         uptime = max(0, int(time.time() - self.started_at))
