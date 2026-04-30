@@ -209,11 +209,12 @@ class ApiServer:
             version = str(body.get("version") or "latest").strip()
             staged_path = str(body.get("staged_path") or "").strip()
             auto_stage = bool(body.get("auto_stage", version == "latest" and not staged_path))
+            dry_run = bool(body.get("dry_run", False))
             if version == "latest" and auto_stage:
-                return 202, runtime.updater.apply_latest(), "application/json"
+                return 202, runtime.updater.apply_latest(dry_run=dry_run), "application/json"
             if not version or not staged_path:
                 return 400, {"ok": False, "error": {"code": "bad_request", "message": "version/staged_path обязательны, кроме version=latest+auto_stage"}}, "application/json"
-            return 202, runtime.updater.apply_staged(version, staged_path), "application/json"
+            return 202, runtime.updater.apply_staged(version, staged_path, dry_run=dry_run), "application/json"
         if path == "/updates/rollback":
             return 202, runtime.updater.rollback(), "application/json"
         if path == "/webhooks/telegram":

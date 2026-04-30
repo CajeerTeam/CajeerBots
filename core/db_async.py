@@ -49,6 +49,7 @@ REQUIRED_TABLES = {
     "user_profiles": {"user_id", "profile", "updated_at"},
     "workspace_links": {"link_id", "user_id", "workspace_user_id", "source", "created_at"},
     "scheduled_jobs": {"job_id", "job_type", "payload", "status", "run_at", "locked_at", "locked_by", "last_error", "created_at"},
+    "outbound_messages": {"message_id", "delivery_id", "adapter", "target", "text_hash", "status", "platform_message_id", "attempts", "last_error", "sent_at", "created_at"},
 }
 
 

@@ -33,6 +33,7 @@ class RouteSpec:
     auth_scope: str = "system.admin"
     request_schema: dict[str, object] = field(default_factory=dict)
     response_schema: dict[str, object] = field(default_factory=dict)
+    handler_id: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -78,6 +79,15 @@ def canonical_scope(scope: str) -> str:
     return SCOPE_ALIASES.get(scope, scope)
 
 
+def route_key(method: str, path: str) -> str:
+    return f"{method.upper()} {path}"
+
+
+ROUTE_INDEX = {route_key(item.method, item.path): item for item in ROUTES}
+
+def route_for(method: str, path: str) -> RouteSpec | None:
+    return ROUTE_INDEX.get(route_key(method, path))
+
 def readonly_paths() -> set[str]:
     return {item.path for item in ROUTES if item.method == "GET" and item.auth_scope in {"system.read", "system.update.read"}}
 
@@ -89,6 +99,7 @@ def openapi_document(version: str, contract: str) -> dict[str, object]:
         methods[route.method.lower()] = {
             "summary": route.summary,
             "x-auth-scope": route.auth_scope,
+            "operationId": route.handler_id or (route.method.lower() + "_" + route.path.strip("/").replace("/", "_")), 
             "responses": {"200": {"description": "OK"}},
         }
     return {"openapi": "3.1.0", "info": {"title": "Cajeer Bots API", "version": version, "x-contract": contract}, "paths": paths, "x-known-scopes": sorted(KNOWN_SCOPES)}

@@ -221,3 +221,18 @@ class ScheduledJobRecord(Base):
     locked_by: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))
+
+class OutboundMessageRecord(Base):
+    __tablename__ = "outbound_messages"
+
+    message_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    delivery_id: Mapped[str] = mapped_column(String(64), index=True)
+    adapter: Mapped[str] = mapped_column(String(64), index=True)
+    target: Mapped[str] = mapped_column(String(255), index=True)
+    text_hash: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    platform_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("NOW()"))

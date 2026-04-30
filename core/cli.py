@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     apply = update_sub.add_parser("apply", help="Переключить current на staged release.")
     apply.add_argument("--version", required=True)
     apply.add_argument("--staged-path", default="")
+    apply.add_argument("--dry-run", action="store_true")
     update_sub.add_parser("rollback", help="Откатить current на previous.")
 
     secrets = sub.add_parser("secrets", help="Операции с секретами.")
@@ -77,11 +78,28 @@ def build_parser() -> argparse.ArgumentParser:
     db_sub.add_parser("alembic", help="Показать путь к Alembic-конфигурации.")
     db_sub.add_parser("current", help="Показать текущую Alembic revision.")
     db_sub.add_parser("history", help="Показать историю Alembic revisions.")
+    db_backup = db_sub.add_parser("backup", help="Сделать pg_dump перед миграцией.")
+    db_backup.add_argument("--format", choices=["custom", "plain"], default="custom")
     db_upgrade = db_sub.add_parser("upgrade", help="Выполнить alembic upgrade.")
     db_upgrade.add_argument("revision", nargs="?", default="head")
 
     sub.add_parser("migrate", help="Показать статус управления схемой БД через Alembic.")
     sub.add_parser("db-status", help="Показать статус модели БД без выполнения миграций.")
+    sub.add_parser("self-test", help="Операторская комплексная самопроверка runtime.")
+
+    catalog = sub.add_parser("catalog", help="Управление runtime catalog.")
+    catalog_sub = catalog.add_subparsers(dest="catalog_command", required=True)
+    catalog_sub.add_parser("list", help="Показать catalog.lock.")
+    catalog_install = catalog_sub.add_parser("install", help="Зафиксировать установленный plugin/module в catalog.lock.")
+    catalog_install.add_argument("id")
+    catalog_install.add_argument("--version", required=True)
+    catalog_install.add_argument("--source", default="local")
+    catalog_install.add_argument("--sha256", default="")
+    catalog_update = catalog_sub.add_parser("update", help="Обновить запись catalog.lock.")
+    catalog_update.add_argument("id")
+    catalog_update.add_argument("--version", required=True)
+    catalog_update.add_argument("--source", default="local")
+    catalog_update.add_argument("--sha256", default="")
 
     maintenance = sub.add_parser("maintenance", help="Операционное обслуживание runtime.")
     maintenance_sub = maintenance.add_subparsers(dest="maintenance_command", required=True)
@@ -221,9 +239,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.update_command == "apply":
             if args.version == "latest" and not args.staged_path:
-                print(_json(runtime.updater.apply_latest()), flush=True)
+                print(_json(runtime.updater.apply_latest(dry_run=args.dry_run)), flush=True)
                 return 0
-            print(_json(runtime.updater.apply_staged(args.version, args.staged_path)), flush=True)
+            print(_json(runtime.updater.apply_staged(args.version, args.staged_path, dry_run=args.dry_run)), flush=True)
             return 0
         if args.update_command == "rollback":
             print(_json(runtime.updater.rollback()), flush=True)
@@ -236,6 +254,23 @@ def main(argv: list[str] | None = None) -> int:
         settings = Settings.from_env()
         print(_json(cleanup_runtime(project_root, settings)), flush=True)
         return 0
+
+    if args.command == "self-test":
+        runtime = _runtime(project_root)
+        result = {"doctor": runtime.doctor(offline=False), "ready": runtime.readiness_snapshot(), "dependencies": runtime.dependency_health_snapshot(), "updates": runtime.updater.status().to_dict()}
+        print(_json(result), flush=True)
+        return 0 if not result["doctor"] and result["ready"].get("ok") else 1
+
+    if args.command == "catalog":
+        from core.catalog import CatalogEntry, RuntimeCatalogLock
+        lock = RuntimeCatalogLock(project_root / "runtime" / "catalog" / "catalog.lock")
+        if args.catalog_command == "list":
+            print(_json({"items": lock.snapshot()}), flush=True)
+            return 0
+        if args.catalog_command in {"install", "update"}:
+            lock.update(CatalogEntry(id=args.id, version=args.version, source=args.source, sha256=args.sha256))
+            print(_json({"items": lock.snapshot()}), flush=True)
+            return 0
 
     if args.command in {"migrate", "db-status"}:
         print("Схема PostgreSQL управляется Alembic.")
@@ -253,6 +288,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.db_command == "alembic":
             print(_json({"config": settings.storage.alembic_config, "async_url_configured": bool(settings.storage.async_database_url)}), flush=True)
+            return 0
+        if args.db_command == "backup":
+            from core.db_tools import backup_database
+            print(_json(backup_database(settings.database_url, settings.runtime_dir / "backups" / "db", fmt=args.format)), flush=True)
             return 0
         if args.db_command in {"current", "history", "upgrade"}:
             import subprocess

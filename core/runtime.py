@@ -86,7 +86,7 @@ class Runtime:
         self.logs_contract_version = LOGS_CONTRACT_VERSION
         self.api_contract_version = API_CONTRACT_VERSION
         self.workspace = WorkspaceClient(settings.workspace, settings.instance_id, self.version)
-        self.remote_logs = CajeerLogsClient(settings.remote_logs, settings.instance_id)
+        self.remote_logs = CajeerLogsClient(settings.remote_logs, settings.instance_id, settings.runtime_dir / "logs-buffer")
         self.started_at = time.time()
 
     def _read_version(self) -> str:

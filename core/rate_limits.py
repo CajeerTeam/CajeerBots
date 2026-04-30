@@ -51,6 +51,30 @@ class MemoryRateLimiter:
 
 
 class RedisRateLimiter(MemoryRateLimiter):
+    LUA_TOKEN_BUCKET = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local capacity = tonumber(ARGV[2])
+local refill = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+local current = redis.call('HMGET', key, 'tokens', 'updated_at')
+local tokens = tonumber(current[1]) or capacity
+local updated_at = tonumber(current[2]) or now
+local delta = math.max(0, now - updated_at)
+tokens = math.min(capacity, tokens + (delta * refill))
+local allowed = 0
+local wait = 0
+if tokens >= 1 then
+  tokens = tokens - 1
+  allowed = 1
+else
+  wait = math.ceil(((1 - tokens) / refill) * 1000)
+end
+redis.call('HMSET', key, 'tokens', tokens, 'updated_at', now)
+redis.call('PEXPIRE', key, ttl)
+return {allowed, wait}
+"""
+
     def __init__(self, redis_url: str, prefix: str, *, default_capacity: int = 30, default_rate: float = 30.0, adapter_rates: dict[str, float] | None = None) -> None:
         super().__init__(default_capacity=default_capacity, default_rate=default_rate, adapter_rates=adapter_rates or {})
         self.redis_url = redis_url
@@ -60,7 +84,6 @@ class RedisRateLimiter(MemoryRateLimiter):
     async def _client(self) -> Any:
         if self._redis is None:
             from redis.asyncio import Redis  # type: ignore
-
             self._redis = Redis.from_url(self.redis_url, decode_responses=True)
         return self._redis
 
@@ -68,16 +91,14 @@ class RedisRateLimiter(MemoryRateLimiter):
         default_capacity, default_rate = self._rate_for_key(key)
         capacity = capacity or default_capacity
         rate = rate or default_rate
-        window_key = f"{self.prefix}:rate:{key}:{int(time.time())}"
+        redis_key = f"{self.prefix}:rate:{key}"
         try:
             redis = await self._client()
-            count = await redis.incr(window_key)
-            if count == 1:
-                await redis.expire(window_key, 2)
-            if int(count) <= capacity:
-                return
-            await asyncio.sleep(max(0.05, 1.0 / max(rate, 0.1)))
-            return
+            while True:
+                allowed, wait_ms = await redis.eval(self.LUA_TOKEN_BUCKET, 1, redis_key, time.time(), capacity, rate, max(1000, int((capacity / max(rate, 0.1)) * 2000)))
+                if int(allowed) == 1:
+                    return
+                await asyncio.sleep(max(0.01, int(wait_ms) / 1000.0))
         except Exception:
             await super().acquire(key, capacity=capacity, rate=rate)
 

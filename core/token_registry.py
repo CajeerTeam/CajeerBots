@@ -122,5 +122,8 @@ class ApiTokenRegistry:
                 return record.to_dict()
         return None
 
+    def export_redacted(self) -> dict[str, object]:
+        return {"tokens": [{**record.to_dict(), "sha256": "<redacted>"} for record in self.records]}
+
     def snapshot(self) -> list[dict[str, object]]:
         return [record.to_dict() for record in self.records]
