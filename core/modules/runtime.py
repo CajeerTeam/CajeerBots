@@ -11,7 +11,8 @@ from uuid import uuid4
 
 from core.events import CajeerEvent
 from core.registry import Manifest, Registry
-from core.sdk.plugins import PluginContext
+from core.sdk.permissions import PermissionSet
+from core.sdk.plugins import PluginContext, PluginPermissionError, RegisteredPluginRoute
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class ComponentContext(PluginContext):
     runtime: Any
     manifest: Manifest
     logger: logging.Logger
+    permissions: PermissionSet | None = None
 
 
 @dataclass
@@ -50,6 +52,7 @@ class LoadedComponent:
             "failed": self.failed,
             "last_error": self.last_error,
             "catalog": self.manifest.catalog,
+            "permissions": list(self.manifest.permissions),
         }
 
 
@@ -93,6 +96,19 @@ class ComponentManager:
                 return loaded
             raise
 
+    def _context(self, manifest: Manifest) -> ComponentContext:
+        return ComponentContext(
+            self.runtime,
+            manifest,
+            logging.getLogger(f"component.{manifest.id}"),
+            permissions=PermissionSet.from_iterable(tuple(manifest.permissions)),
+        )
+
+    def _require_plugin_permission(self, context: ComponentContext, permission: str) -> None:
+        if context.manifest.type != "plugin":
+            return
+        context.require(permission)
+
     async def start(self) -> None:
         for manifest in self.registry.load_order():
             if manifest.type == "module" and manifest.id not in self.runtime.settings.modules_enabled:
@@ -104,7 +120,7 @@ class ComponentManager:
                 continue
             component = LoadedComponent(manifest, instance)
             self.loaded.append(component)
-            context = ComponentContext(self.runtime, manifest, logging.getLogger(f"component.{manifest.id}"))
+            context = self._context(manifest)
             for hook_name in ("on_enable", "on_start"):
                 hook = getattr(instance, hook_name, None)
                 if hook is not None:
@@ -121,8 +137,11 @@ class ComponentManager:
             if route_hook is not None and not component.failed:
                 try:
                     routes = route_hook(context)
+                    if routes:
+                        self._require_plugin_permission(context, "api.route.register")
                     if routes and hasattr(self.runtime, "plugin_routes"):
-                        self.runtime.plugin_routes.extend(routes)
+                        for route in routes:
+                            self.runtime.plugin_routes.append(RegisteredPluginRoute(manifest.id, route, instance, context))
                 except Exception as exc:  # noqa: BLE001
                     component.failed = True
                     component.last_error = str(exc)
@@ -131,8 +150,16 @@ class ComponentManager:
             if scheduled_hook is not None and not component.failed:
                 try:
                     jobs = scheduled_hook(context)
-                    if jobs and hasattr(self.runtime, "plugin_scheduled_jobs"):
-                        self.runtime.plugin_scheduled_jobs.extend(jobs)
+                    if jobs:
+                        self._require_plugin_permission(context, "scheduler.jobs.register")
+                    for job in jobs or []:
+                        if not isinstance(job, dict):
+                            raise TypeError("scheduled job должен быть dict")
+                        normalized = {**job, "plugin_id": manifest.id}
+                        if hasattr(self.runtime, "register_plugin_scheduled_job"):
+                            await self.runtime.register_plugin_scheduled_job(manifest, normalized)
+                        elif hasattr(self.runtime, "plugin_scheduled_jobs"):
+                            self.runtime.plugin_scheduled_jobs.append(normalized)
                 except Exception as exc:  # noqa: BLE001
                     component.failed = True
                     component.last_error = str(exc)
@@ -140,7 +167,7 @@ class ComponentManager:
 
     async def stop(self) -> None:
         for component in reversed(self.loaded):
-            context = ComponentContext(self.runtime, component.manifest, logging.getLogger(f"component.{component.manifest.id}"))
+            context = self._context(component.manifest)
             for hook_name in ("on_stop", "on_disable"):
                 hook = getattr(component.instance, hook_name, None)
                 if hook is not None:
@@ -160,7 +187,11 @@ class ComponentManager:
             hook = getattr(component.instance, "on_event", None)
             if hook is None:
                 continue
-            result = await hook(event, ComponentContext(self.runtime, component.manifest, logging.getLogger(f"component.{component.manifest.id}")))
+            context = self._context(component.manifest)
+            if component.manifest.type == "plugin" and not context.has_permission("events.read"):
+                logger.debug("компонент %s пропущен: нет permission events.read", component.manifest.key())
+                continue
+            result = await hook(event, context)
             if result:
                 return result
         return None
@@ -172,7 +203,11 @@ class ComponentManager:
             hook = getattr(component.instance, "on_command", None)
             if hook is None:
                 continue
-            result = await hook(command, event, ComponentContext(self.runtime, component.manifest, logging.getLogger(f"component.{component.manifest.id}")))
+            context = self._context(component.manifest)
+            if component.manifest.type == "plugin" and not context.has_permission("events.read"):
+                logger.debug("компонент %s пропущен: нет permission events.read", component.manifest.key())
+                continue
+            result = await hook(command, event, context)
             if result:
                 return result
         return None
