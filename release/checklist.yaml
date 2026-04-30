@@ -1,5 +1,6 @@
 version: 2
 required_gates:
+  - version
   - syntax
   - architecture
   - docs
@@ -17,6 +18,8 @@ artifacts:
   - spdx.json
   - cyclonedx.json
 drill_commands:
+  - id: version
+    command: python3 -S -m core.versioning
   - id: local_memory_fault_drill
     command: bash scripts/fault_drill.sh
   - id: syntax
@@ -29,6 +32,10 @@ drill_commands:
     command: bash scripts/check_secrets.sh
   - id: smoke_integrations
     command: bash scripts/smoke_integrations.sh
+  - id: worker_crash_chaos
+    command: python3 -S scripts/chaos_worker_crash.py
+  - id: storage_backend_chaos_preflight
+    command: python3 -S scripts/chaos_storage_backends.py
 production_drills:
   - install
   - migrate
