@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cajeer.local/schemas/adapter.schema.json",
+  "title": "Cajeer Bots Adapter Manifest",
+  "type": "object",
+  "required": ["id", "name", "version", "type"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_\\-]{1,63}$"},
+    "name": {"type": "string", "minLength": 1},
+    "version": {"type": "string"},
+    "type": {"const": "adapter"},
+    "capabilities": {"type": "array", "items": {"type": "string"}},
+    "settings_schema": {"type": "object"}
+  },
+  "additionalProperties": true
+}
