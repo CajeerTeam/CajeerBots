@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import time
 from pathlib import Path
 
 from core.config import Settings
@@ -31,7 +32,17 @@ def test_optional_hmac_signature():
     signature = "sha256=" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
     assert verify_optional_hmac(secret, {"x-cajeer-signature": signature}, body) is True
     assert verify_optional_hmac(secret, {"x-cajeer-signature": "sha256=bad"}, body) is False
+    assert verify_optional_hmac(secret, {}, body, required=True) is False
     assert body_digest(body)
+
+
+def test_required_hmac_accepts_fresh_timestamp():
+    secret = "secret"
+    body = b'{"ok":true}'
+    signature = "sha256=" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    headers = {"x-cajeer-signature": signature, "x-cajeer-timestamp": str(time.time())}
+    assert verify_optional_hmac(secret, headers, body, required=True, timestamp_required=True) is True
+    assert verify_optional_hmac(secret, {"x-cajeer-signature": signature}, body, required=True, timestamp_required=True) is False
 
 
 def test_production_doctor_blocks_unsafe_defaults(monkeypatch):
