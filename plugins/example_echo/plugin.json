@@ -1,1 +1,31 @@
-
+{
+  "id": "example_echo",
+  "name": "Пример echo-плагина",
+  "version": "1.0.0",
+  "type": "plugin",
+  "description": "Отвечает на команду /echo через стабильный SDK.",
+  "requires": [
+    "module:bridge"
+  ],
+  "adapters": [
+    "telegram",
+    "discord",
+    "vkontakte",
+    "fake"
+  ],
+  "entrypoint": "runtime:ExampleEchoPlugin",
+  "enabled_by_default": false,
+  "capabilities": [
+    "events.publish"
+  ],
+  "permissions": [
+    "events.read",
+    "events.publish",
+    "delivery.enqueue"
+  ],
+  "compatibility": {
+    "db_contract": "cajeer.bots.db.v1",
+    "event_contract": "cajeer.bots.event.v1",
+    "platform": ">=0.10,<1.0"
+  }
+}
