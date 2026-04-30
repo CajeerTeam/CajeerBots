@@ -34,8 +34,17 @@ class AnnouncementsModule:
             if context.runtime.settings.storage.async_database_url:
                 from core.repositories.business import BusinessStateRepository
                 await BusinessStateRepository(context.runtime.settings.storage.async_database_url, context.runtime.settings.shared_schema).create_announcement(announcement_id=announcement_id, status=status, title=text[:120], body=text, targets=targets, scheduled_at=scheduled_at)
-        except Exception:
-            pass
+        except Exception as exc:
+            context.logger.warning("ошибка записи состояния в БД: %s", exc)
+            context.runtime.audit.write(
+                actor_type="module",
+                actor_id=self.id,
+                action=f"{self.id}.db_write_failed",
+                resource=event.trace_id,
+                result="error",
+                trace_id=event.trace_id,
+                message=str(exc),
+            )
         await context.runtime.workspace.report_event(context.runtime.make_system_event("cajeer.bots.announcement.created", {"announcement_id": announcement_id, "status": status, "targets": targets, "scheduled_at": scheduled_at, "trace_id": event.trace_id}))
         return {"ok": True, "message": f"Объявление {announcement_id} создано со статусом {status}.", "announcement_id": announcement_id, "status": status, "text": text, "targets": targets, "scheduled_at": scheduled_at, "trace_id": event.trace_id}
 
