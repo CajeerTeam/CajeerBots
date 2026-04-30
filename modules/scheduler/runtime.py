@@ -20,6 +20,13 @@ class SchedulerModule:
         args = str(event.payload.get("args") or "").strip()
         job_id = "job_" + uuid4().hex[:12]
         context.runtime.audit.write(actor_type="module", actor_id=self.id, action="scheduler.job.create", resource=job_id, trace_id=event.trace_id, message=args)
+        try:
+            if context.runtime.settings.storage.async_database_url:
+                from datetime import datetime, timezone
+                from core.repositories.business import BusinessStateRepository
+                await BusinessStateRepository(context.runtime.settings.storage.async_database_url, context.runtime.settings.shared_schema).create_scheduled_job(job_id=job_id, job_type="manual", payload={"args": args, "trace_id": event.trace_id}, run_at=datetime.now(timezone.utc).isoformat())
+        except Exception:
+            pass
         return {"ok": True, "message": f"Планировщик принял задачу {job_id}.", "job_id": job_id, "args": args, "trace_id": event.trace_id}
 
     async def on_stop(self, context) -> None:
