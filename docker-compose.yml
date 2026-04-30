@@ -26,6 +26,11 @@ services:
 
   local:
     build: .
+    read_only: true
+    user: "cajeer"
+    tmpfs:
+      - /tmp
+      - /app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -45,6 +50,11 @@ services:
 
   migrate:
     build: .
+    read_only: true
+    user: "cajeer"
+    tmpfs:
+      - /tmp
+      - /app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -61,6 +71,11 @@ services:
 
   api:
     build: .
+    read_only: true
+    user: "cajeer"
+    tmpfs:
+      - /tmp
+      - /app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -84,6 +99,11 @@ services:
 
   worker:
     build: .
+    read_only: true
+    user: "cajeer"
+    tmpfs:
+      - /tmp
+      - /app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -107,6 +127,11 @@ services:
 
   bridge:
     build: .
+    read_only: true
+    user: "cajeer"
+    tmpfs:
+      - /tmp
+      - /app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -130,6 +155,11 @@ services:
 
   telegram:
     build: .
+    read_only: true
+    user: "cajeer"
+    tmpfs:
+      - /tmp
+      - /app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -153,6 +183,11 @@ services:
 
   discord:
     build: .
+    read_only: true
+    user: "cajeer"
+    tmpfs:
+      - /tmp
+      - /app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -176,6 +211,11 @@ services:
 
   vkontakte:
     build: .
+    read_only: true
+    user: "cajeer"
+    tmpfs:
+      - /tmp
+      - /app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -199,6 +239,11 @@ services:
 
   fake:
     build: .
+    read_only: true
+    user: "cajeer"
+    tmpfs:
+      - /tmp
+      - /app/runtime
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -214,6 +259,11 @@ services:
 
   integration-tests:
     build: .
+    read_only: true
+    user: "cajeer"
+    tmpfs:
+      - /tmp
+      - /app/runtime
     profiles: ["integration"]
     env_file: .env
     environment:
