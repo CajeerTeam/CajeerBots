@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from bots.vkontakte.bot.thin import VkontakteThinWrapper
+from typing import Any
+
+from core.imports import import_symbol
 from core.adapters.base import AdapterCapabilities, BotAdapter, SendResult
 
 logger = logging.getLogger(__name__)
@@ -14,11 +16,12 @@ class VkontakteAdapter(BotAdapter):
 
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
-        self._vk_wrapper: VkontakteThinWrapper | None = None
+        self._vk_wrapper: Any | None = None
 
-    def _wrapper(self) -> VkontakteThinWrapper:
+    def _wrapper(self) -> Any:
         if self._vk_wrapper is None:
-            self._vk_wrapper = VkontakteThinWrapper(self.config.token, self.config.extra.get("api_version", "5.199"))
+            wrapper_cls = import_symbol("bots.vkontakte.bot.thin:VkontakteThinWrapper")
+            self._vk_wrapper = wrapper_cls(self.config.token, self.config.extra.get("api_version", "5.199"))
         return self._vk_wrapper
 
     async def on_start(self) -> None:

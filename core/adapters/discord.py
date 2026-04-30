@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from bots.discord.bot.slash import default_slash_commands
 from core.adapters.base import AdapterCapabilities, BotAdapter, SendResult
 from core.events import command_event_from_message, message_event
 
@@ -55,6 +54,8 @@ class DiscordAdapter(BotAdapter):
                     await adapter.publish_event(event)
                     await adapter.publish_event(command_event_from_message(event, command_name, ""))
                     await interaction.response.send_message("Команда принята. Ответ будет доставлен через Cajeer Bots.", ephemeral=True)
+                from core.imports import import_symbol
+                default_slash_commands = import_symbol("bots.discord.bot.slash:default_slash_commands")
                 for item in default_slash_commands():
                     command_name = str(item["name"]); description = str(item["description"])
                     async def callback(interaction, name=command_name):  # type: ignore[no-untyped-def]
