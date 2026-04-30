@@ -30,5 +30,6 @@ jobs:
             dist/CajeerBots-*.zip
             dist/CajeerBots-*.zip.sha256
             dist/CajeerBots-*.release.json
+            dist/CajeerBots-*.provenance.json
             dist/CajeerBots-*.spdx.json
             dist/CajeerBots-*.cyclonedx.json
