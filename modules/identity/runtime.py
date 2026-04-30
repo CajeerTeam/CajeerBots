@@ -33,8 +33,17 @@ class IdentityModule:
                     display_name=event.actor.display_name or "",
                     profile=profile,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            context.logger.warning("ошибка записи состояния в БД: %s", exc)
+            context.runtime.audit.write(
+                actor_type="module",
+                actor_id=self.id,
+                action=f"{self.id}.db_write_failed",
+                resource=event.trace_id,
+                result="error",
+                trace_id=event.trace_id,
+                message=str(exc),
+            )
         return {"identity_id": identity_id, "platform": event.source, "trace_id": event.trace_id}
 
     async def on_command(self, command: str, event: CajeerEvent, context) -> dict[str, object] | None:
