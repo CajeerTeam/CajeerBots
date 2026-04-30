@@ -9,6 +9,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from core.catalog_signing import sign_catalog_payload, verify_catalog_signature
+
 
 @dataclass
 class CatalogEntry:
@@ -98,6 +100,12 @@ class RuntimeCatalogLock:
             actual = self._sha256(artifact)
             if entry.sha256 and actual.lower() != entry.sha256.lower():
                 raise ValueError(f"sha256 не совпадает для {entry.id}: {actual}")
+            if entry.signature:
+                ok, message = verify_catalog_signature(actual, entry.signature, required=True)
+                if not ok:
+                    raise ValueError(f"signature не прошла проверку для {entry.id}: {message}")
+            elif entry.sha256:
+                entry.signature = sign_catalog_payload(actual)
             if target.exists():
                 shutil.rmtree(target)
             self._safe_extract(artifact, target)
@@ -112,7 +120,17 @@ class RuntimeCatalogLock:
             if entry_id and entry.id != entry_id:
                 continue
             target = project_root / "runtime" / "catalog" / "plugins" / entry.id / entry.version
-            results.append({"id": entry.id, "version": entry.version, "source": entry.source, "installed": target.exists() or entry.source in {"local", "manual"}, "sha256": entry.sha256})
+            signature_ok, signature_message = verify_catalog_signature(entry.sha256, entry.signature, required=bool(entry.signature))
+            results.append({
+                "id": entry.id,
+                "version": entry.version,
+                "source": entry.source,
+                "installed": target.exists() or entry.source in {"local", "manual"},
+                "sha256": entry.sha256,
+                "signature": bool(entry.signature),
+                "signature_ok": signature_ok,
+                "signature_message": signature_message,
+            })
         return {"ok": all(item["installed"] for item in results), "items": results}
 
     def rollback(self, entry_id: str) -> dict[str, object]:

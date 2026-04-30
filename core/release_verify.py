@@ -56,6 +56,8 @@ EXECUTABLE_PATHS = {
     "scripts/load_event_bus.py",
     "scripts/fault_drill.sh",
     "scripts/run_drills.sh",
+    "scripts/chaos_storage_backends.py",
+    "scripts/chaos_worker_crash.py",
 }
 
 FORBIDDEN_PARTS = {
@@ -175,6 +177,7 @@ def _run_deep_checks(root: Path, *, python_bin: str = "python3") -> dict[str, ob
     env.setdefault("DEAD_LETTER_BACKEND", "memory")
     env.setdefault("IDEMPOTENCY_BACKEND", "memory")
     commands = [
+        [*pycmd, "-m", "core.versioning"],
         [*pycmd, "scripts/check_syntax.py"],
         [*pycmd, "scripts/check_architecture.py"],
         ["bash", "scripts/check_docs.sh"],

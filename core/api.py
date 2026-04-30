@@ -9,8 +9,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from bots.telegram.bot.mapper import update_to_event as telegram_update_to_event
-from bots.vkontakte.bot.thin import VkontakteThinWrapper
+from core.webhook_registry import telegram_update_to_event, vkontakte_callback_event
 from core.contracts import API_CONTRACT_VERSION
 from core.api_routes import KNOWN_SCOPES, ROUTES, canonical_scope, openapi_document, readonly_paths
 from core.events import CajeerEvent
@@ -139,7 +138,7 @@ class ApiServer:
         if path == "/events":
             return 200, {"items": [event.to_dict() for event in runtime.event_bus.snapshot()]}, "application/json"
         if path == "/routes":
-            return 200, {"items": [item.to_dict() for item in runtime.router.snapshot()]}, "application/json"
+            return 200, {"items": [item.to_dict() for item in runtime.router.snapshot()], "plugin_routes": [item.to_dict() for item in getattr(runtime, "plugin_routes", [])]}, "application/json"
         if path == "/dead-letters":
             return 200, {"items": [item.to_dict() for item in runtime.dead_letters.snapshot()]}, "application/json"
         if path == "/commands":
@@ -248,8 +247,7 @@ class ApiServer:
                 runtime.audit.write(actor_type="webhook", actor_id="vkontakte", action="webhook.vkontakte.denied", resource="vkontakte", result="denied")
                 return 401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid vkontakte webhook secret"}}, "application/json"
             async def ingest_vk() -> list[dict[str, object]]:
-                wrapper = VkontakteThinWrapper(runtime.settings.adapters["vkontakte"].token)
-                event = await wrapper.callback_event(body)
+                event = await vkontakte_callback_event(runtime.settings.adapters["vkontakte"].token, body)
                 return await runtime.ingest_incoming_event(event)
             results = self._run_async(ingest_vk())
             runtime.audit.write(actor_type="webhook", actor_id="vkontakte", action="webhook.vkontakte", resource="vkontakte")
@@ -257,7 +255,7 @@ class ApiServer:
         return 404, {"ok": False, "error": {"code": "not_found", "message": "маршрут не найден"}}, "application/json"
 
     def openapi(self) -> dict[str, object]:
-        return openapi_document(self.runtime.version, API_CONTRACT_VERSION)
+        return openapi_document(self.runtime.version, API_CONTRACT_VERSION, getattr(self.runtime, "plugin_routes", []))
 
     def serve_forever(self) -> None:
         server = self

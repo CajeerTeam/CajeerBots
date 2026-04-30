@@ -274,20 +274,20 @@ class Settings:
         load_default_dotenv_once()
         telegram_mode = _choice("TELEGRAM_MODE", "polling", {"polling", "webhook"})
         adapters = {
-            "telegram": AdapterConfig("telegram", _bool(os.getenv("TELEGRAM_ENABLED"), True), os.getenv("TELEGRAM_BOT_TOKEN", ""), {"mode": telegram_mode, "webhook_url": os.getenv("TELEGRAM_WEBHOOK_URL", ""), "webhook_secret": os.getenv("TELEGRAM_WEBHOOK_SECRET", "")}),
-            "discord": AdapterConfig("discord", _bool(os.getenv("DISCORD_ENABLED"), True), os.getenv("DISCORD_TOKEN", ""), {
+            "telegram": AdapterConfig("telegram", _bool(os.getenv("TELEGRAM_ENABLED"), False), os.getenv("TELEGRAM_BOT_TOKEN", ""), {"mode": telegram_mode, "webhook_url": os.getenv("TELEGRAM_WEBHOOK_URL", ""), "webhook_secret": os.getenv("TELEGRAM_WEBHOOK_SECRET", "")}),
+            "discord": AdapterConfig("discord", _bool(os.getenv("DISCORD_ENABLED"), False), os.getenv("DISCORD_TOKEN", ""), {
                 "application_id": os.getenv("DISCORD_APPLICATION_ID", ""),
                 "guild_id": os.getenv("DISCORD_GUILD_ID", ""),
                 "message_content_enabled": str(_bool(os.getenv("DISCORD_MESSAGE_CONTENT_ENABLED"), False)).lower(),
                 "slash_commands_enabled": str(_bool(os.getenv("DISCORD_SLASH_COMMANDS_ENABLED"), True)).lower(),
             }),
-            "vkontakte": AdapterConfig("vkontakte", _bool(os.getenv("VKONTAKTE_ENABLED"), True), os.getenv("VK_GROUP_TOKEN", ""), {
+            "vkontakte": AdapterConfig("vkontakte", _bool(os.getenv("VKONTAKTE_ENABLED"), False), os.getenv("VK_GROUP_TOKEN", ""), {
                 "group_id": os.getenv("VK_GROUP_ID", ""),
                 "api_version": os.getenv("VK_API_VERSION", "5.199"),
                 "callback_secret": os.getenv("VK_CALLBACK_SECRET", ""),
                 "confirmation_code": os.getenv("VK_CONFIRMATION_CODE", ""),
             }),
-            "fake": AdapterConfig("fake", _bool(os.getenv("FAKE_ENABLED"), False), "", {"script": os.getenv("FAKE_SCRIPT", "")}),
+            "fake": AdapterConfig("fake", _bool(os.getenv("FAKE_ENABLED"), True), "", {"script": os.getenv("FAKE_SCRIPT", "")}),
         }
         distributed = DistributedSettings(
             enabled=_bool(os.getenv("DISTRIBUTED_ENABLED"), False),

@@ -8,10 +8,7 @@ from pathlib import Path
 from typing import Iterable
 
 from core.adapters.base import AdapterContext, AdapterHealth, BotAdapter
-from core.adapters.discord import DiscordAdapter
-from core.adapters.fake import FakeAdapter
-from core.adapters.telegram import TelegramAdapter
-from core.adapters.vkontakte import VkontakteAdapter
+from core.adapter_registry import adapter_ids, load_adapter_class
 from core.audit import build_audit_log
 from core.bridge import BridgeService
 from core.commands import CommandRegistry, build_default_commands
@@ -38,13 +35,6 @@ from core.token_registry import ApiTokenRegistry
 from core.rbac_store import HybridRbacStore
 
 logger = logging.getLogger(__name__)
-
-ADAPTER_CLASSES: dict[str, type[BotAdapter]] = {
-    "telegram": TelegramAdapter,
-    "discord": DiscordAdapter,
-    "vkontakte": VkontakteAdapter,
-    "fake": FakeAdapter,
-}
 
 PLACEHOLDER_SECRETS = {
     "change-me",
@@ -112,12 +102,12 @@ class Runtime:
             idempotency=self.idempotency,
             inline_routing=self.settings.local_inline_routing,
         )
-        return ADAPTER_CLASSES[name](self.settings, self.settings.adapters[name], context=context)
+        return load_adapter_class(name)(self.settings, self.settings.adapters[name], context=context)
 
     def selected_adapters(self, target: str) -> list[str]:
         if target == "all":
-            return [adapter.name for adapter in self.settings.enabled_adapters() if adapter.name in ADAPTER_CLASSES]
-        if target in ADAPTER_CLASSES:
+            return [adapter.name for adapter in self.settings.enabled_adapters() if adapter.name in adapter_ids()]
+        if target in adapter_ids():
             return [target]
         return []
 

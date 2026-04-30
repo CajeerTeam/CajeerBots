@@ -4,8 +4,7 @@ import hmac
 import time
 from typing import Any, Mapping
 
-from bots.telegram.bot.mapper import update_to_event as telegram_update_to_event
-from bots.vkontakte.bot.thin import VkontakteThinWrapper
+from core.webhook_registry import telegram_update_to_event, vkontakte_callback_event
 from core.api_routes import ROUTES, canonical_scope, openapi_document, readonly_paths
 from core.contracts import API_CONTRACT_VERSION
 from core.events import CajeerEvent
@@ -241,8 +240,7 @@ class AsyncApiDispatcher:
             if not self.vkontakte_webhook_authorized(body):
                 runtime.audit.write(actor_type="webhook", actor_id="vkontakte", action="webhook.vkontakte.denied", resource="vkontakte", result="denied")
                 return 401, {"ok": False, "error": {"code": "unauthorized", "message": "invalid vkontakte webhook secret"}}, "application/json"
-            wrapper = VkontakteThinWrapper(runtime.settings.adapters["vkontakte"].token)
-            event = await wrapper.callback_event(body)
+            event = await vkontakte_callback_event(runtime.settings.adapters["vkontakte"].token, body)
             results = await runtime.ingest_incoming_event(event)
             runtime.audit.write(actor_type="webhook", actor_id="vkontakte", action="webhook.vkontakte", resource="vkontakte", trace_id=event.trace_id)
             return 200, {"ok": True, "results": results, "response": "ok"}, "application/json"

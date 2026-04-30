@@ -230,7 +230,11 @@ def main(argv: list[str] | None = None) -> int:
             print(_json([item.to_dict() for item in registry.modules()]), flush=True)
         elif args.command == "plugins":
             if getattr(args, "validate", ""):
-                errors = registry.validate_manifest_path(Path(args.validate), expected_type="plugin")
+                manifest_path = Path(args.validate)
+                errors = registry.validate_manifest_path(manifest_path, expected_type="plugin")
+                from core.plugin_policy import validate_plugin_import_policy
+                policy = validate_plugin_import_policy(manifest_path.parent if manifest_path.name == "plugin.json" else manifest_path)
+                errors.extend(policy.errors)
                 print(_json({"ok": not errors, "errors": errors}), flush=True)
                 return 0 if not errors else 1
             print(_json([item.to_dict() for item in registry.plugins()]), flush=True)
