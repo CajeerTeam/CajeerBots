@@ -12,5 +12,5 @@
     "health",
     "events.publish"
   ],
-  "enabled_by_default": true
+  "enabled_by_default": false
 }
