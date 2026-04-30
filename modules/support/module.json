@@ -23,5 +23,11 @@
       "description": "Через сколько дней закрывать неактивные обращения."
     }
   },
-  "entrypoint": "modules.support.runtime:SupportModule"
+  "entrypoint": "modules.support.runtime:SupportModule",
+  "permissions": [
+    "bots.support.create",
+    "bots.support.reply",
+    "bots.support.assign",
+    "bots.support.manage"
+  ]
 }
