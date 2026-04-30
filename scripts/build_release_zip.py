@@ -10,9 +10,6 @@ FORBIDDEN_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
 FORBIDDEN_SUFFIXES = (".pyc", ".pyo")
 
 EXECUTABLES = {
-    'run.sh',
-    'install.sh',
-    'setup_wizard.py',
     'scripts/doctor.sh',
     'scripts/fault_drill.sh',
     'scripts/install.sh',

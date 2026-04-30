@@ -2,6 +2,17 @@
 set -euo pipefail
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+PYTHON_FLAGS="${PYTHON_FLAGS:--S}"
+# shellcheck disable=SC2206
+PY_CMD=("${PYTHON_BIN}" ${PYTHON_FLAGS})
+DRY_RUN=false
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=true ;;
+    *) echo "Неизвестный аргумент: $arg" >&2; exit 2 ;;
+  esac
+done
+
 VERSION="$(cat VERSION)"
 NAME="CajeerBots-${VERSION}"
 FORBIDDEN_PATTERN="Never""Mine|cajeer""_bots|cajeer""_core|nm""bot"
@@ -16,7 +27,7 @@ if [ -d migrations ]; then
   exit 1
 fi
 
-chmod +x run.sh install.sh setup_wizard.py scripts/*.sh
+chmod +x scripts/*.sh
 
 find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache \) -prune -exec rm -rf {} +
 if find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -not -path './.git/*' -not -path './dist/*' -print | grep -q .; then
@@ -35,24 +46,29 @@ if grep -RInE "$FORBIDDEN_PATTERN"   --exclude-dir=.git --exclude-dir=dist --exc
   exit 1
 fi
 
-for file in run.sh install.sh setup_wizard.py scripts/*.sh; do
+for file in scripts/*.sh; do
   if [ -f "$file" ] && [ ! -x "$file" ]; then
     echo "Файл должен быть исполняемым: $file" >&2
     exit 1
   fi
 done
 
-"$PYTHON_BIN" -m core.versioning
-"$PYTHON_BIN" scripts/check_syntax.py
-"$PYTHON_BIN" scripts/check_architecture.py
+"${PY_CMD[@]}" -m core.versioning
+"${PY_CMD[@]}" scripts/check_syntax.py
+"${PY_CMD[@]}" scripts/check_architecture.py
 ./scripts/check_docs.sh
 ./scripts/check_secrets.sh
 ./scripts/run_drills.sh
-EVENT_SIGNING_SECRET="${EVENT_SIGNING_SECRET:-release-secret}" API_TOKEN="${API_TOKEN:-release-token}" "$PYTHON_BIN" -m core doctor --offline --profile release-artifact
-"$PYTHON_BIN" -m core adapters >/dev/null
-"$PYTHON_BIN" -m core modules >/dev/null
-"$PYTHON_BIN" -m core plugins >/dev/null
-"$PYTHON_BIN" -m core commands >/dev/null
+EVENT_SIGNING_SECRET="${EVENT_SIGNING_SECRET:-release-secret}" API_TOKEN="${API_TOKEN:-release-token}" "${PY_CMD[@]}" -m core doctor --offline --profile release-artifact
+"${PY_CMD[@]}" -m core adapters >/dev/null
+"${PY_CMD[@]}" -m core modules >/dev/null
+"${PY_CMD[@]}" -m core plugins >/dev/null
+"${PY_CMD[@]}" -m core commands >/dev/null
+if [ "$DRY_RUN" = "true" ]; then
+  EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token API_TOKEN_READONLY=release-readonly API_TOKEN_METRICS=release-metrics "${PY_CMD[@]}" -m core release verify . >/dev/null
+  echo "Release dry-run завершён: проверки исходного дерева пройдены, dist не собирался."
+  exit 0
+fi
 if "$PYTHON_BIN" -m pytest -q; then
   echo "Тесты пройдены"
 else
@@ -62,12 +78,12 @@ fi
 
 rm -rf dist
 mkdir -p "dist/${NAME}"
-cp -a README.md LICENSE VERSION pyproject.toml .env.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini   core bots modules plugins distributed scripts ops wiki alembic schemas release install.sh run.sh setup_wizard.py   "dist/${NAME}/"
-chmod +x "dist/${NAME}/run.sh" "dist/${NAME}/install.sh" "dist/${NAME}/setup_wizard.py" "dist/${NAME}/scripts"/*.sh
+cp -a README.md LICENSE VERSION pyproject.toml .env.example .env.local.example .env.docker.example .env.production.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini   core bots modules plugins distributed scripts ops wiki alembic schemas release   "dist/${NAME}/"
+chmod +x "dist/${NAME}/scripts"/*.sh
 find "dist/${NAME}" -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache \) -prune -exec rm -rf {} +
 
 (cd dist && tar --mode='u+rwX,go+rX' -czf "${NAME}.tar.gz" "${NAME}" && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
-"$PYTHON_BIN" scripts/build_release_zip.py "dist/${NAME}" "dist/${NAME}.zip" "${NAME}"
+"${PY_CMD[@]}" scripts/build_release_zip.py "dist/${NAME}" "dist/${NAME}.zip" "${NAME}"
 (cd dist && sha256sum "${NAME}.zip" > "${NAME}.zip.sha256")
 
 TAR_SHA256="$(cut -d' ' -f1 "dist/${NAME}.tar.gz.sha256")"
@@ -112,7 +128,7 @@ elif [ "$SIGNATURE_REQUIRED" = "true" ]; then
   exit 1
 fi
 
-EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token API_TOKEN_READONLY=release-readonly API_TOKEN_METRICS=release-metrics "$PYTHON_BIN" -m core release verify "dist/${NAME}.tar.gz" --deep
-EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token API_TOKEN_READONLY=release-readonly API_TOKEN_METRICS=release-metrics "$PYTHON_BIN" -m core release verify "dist/${NAME}.zip" --deep
+EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token API_TOKEN_READONLY=release-readonly API_TOKEN_METRICS=release-metrics "${PY_CMD[@]}" -m core release verify "dist/${NAME}.tar.gz" --deep
+EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token API_TOKEN_READONLY=release-readonly API_TOKEN_METRICS=release-metrics "${PY_CMD[@]}" -m core release verify "dist/${NAME}.zip" --deep
 
 echo "Релиз создан: dist/${NAME}.tar.gz и dist/${NAME}.zip"
