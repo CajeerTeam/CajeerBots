@@ -54,6 +54,8 @@ cp -a README.md LICENSE VERSION pyproject.toml .env.example Dockerfile docker-co
   "dist/${NAME}/"
 chmod +x "dist/${NAME}/run.sh" "dist/${NAME}/install.sh" "dist/${NAME}/setup_wizard.py" "dist/${NAME}/scripts"/*.sh
 (cd dist && tar --mode='u+rwX,go+rX' -czf "${NAME}.tar.gz" "${NAME}" && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
+"$PYTHON_BIN" scripts/build_release_zip.py "dist/${NAME}" "dist/${NAME}.zip" "${NAME}"
+(cd dist && sha256sum "${NAME}.zip" > "${NAME}.zip.sha256")
 SHA256_VALUE="$(cut -d' ' -f1 "dist/${NAME}.tar.gz.sha256")"
 cat > "dist/${NAME}.release.json" <<JSON
 {
@@ -64,6 +66,7 @@ cat > "dist/${NAME}.release.json" <<JSON
   "db_contract": "cajeer.bots.db.v1",
   "event_contract": "cajeer.bots.event.v1",
   "requires_migration": true,
+  "required_alembic_revision": "${CAJEER_RELEASE_REQUIRED_ALEMBIC_REVISION:-head}",
   "artifacts": [
     {
       "name": "${NAME}.tar.gz",
