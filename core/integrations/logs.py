@@ -41,7 +41,8 @@ class CajeerLogsClient:
     def _buffer_payload(self, payload: dict[str, object], reason: str) -> None:
         try:
             item = {"reason": reason, "payload": payload, "created_at": int(time.time())}
-            self._buffer_path().write_text(json.dumps(item, ensure_ascii=False) + "\n", encoding="utf-8")
+            with self._buffer_path().open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(item, ensure_ascii=False) + "\n")
         except Exception as exc:  # pragma: no cover
             logger.warning("не удалось записать буфер Cajeer Logs: %s", exc)
 
@@ -51,16 +52,26 @@ class CajeerLogsClient:
         root = self.buffer_dir or Path("runtime/logs-buffer")
         sent = failed = 0
         for path in sorted(root.glob("*.jsonl")) if root.exists() else []:
-            try:
-                data = json.loads(path.read_text(encoding="utf-8").strip() or "{}")
-                payload = data.get("payload")
-                if isinstance(payload, dict):
-                    await post_json(self.settings.url, payload, headers_factory=self._headers, timeout=self.settings.timeout_seconds)
-                    path.unlink()
-                    sent += 1
-            except Exception:
-                failed += 1
-        return {"sent": sent, "failed": failed}
+            remaining: list[str] = []
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    payload = data.get("payload")
+                    if isinstance(payload, dict):
+                        await post_json(self.settings.url, payload, headers_factory=self._headers, timeout=self.settings.timeout_seconds)
+                        sent += 1
+                    else:
+                        failed += 1
+                except Exception:
+                    remaining.append(line)
+                    failed += 1
+            if remaining:
+                path.write_text("\n".join(remaining) + "\n", encoding="utf-8")
+            else:
+                path.unlink(missing_ok=True)
+        return {"sent": sent, "failed": failed, "buffered": failed}
 
     async def emit_event(self, event: CajeerEvent, *, level: str = "INFO") -> None:
         if not self.settings.enabled:
