@@ -42,8 +42,11 @@ include = ["core*", "distributed*", "bots*", "modules*", "plugins*"]
 "share/cajeer-bots/schemas" = ["schemas/*.json"]
 "share/cajeer-bots/env" = ["configs/env/.env*.example"]
 "share/cajeer-bots/wiki" = ["wiki/*.md"]
+"share/cajeer-bots/admin" = ["admin/*"]
 "share/cajeer-bots/ops/nginx" = ["ops/nginx/*"]
 "share/cajeer-bots/ops/systemd" = ["ops/systemd/*"]
+"share/cajeer-bots/ops/prometheus" = ["ops/prometheus/*"]
+"share/cajeer-bots/ops/grafana" = ["ops/grafana/*"]
 
 [tool.ruff]
 line-length = 120

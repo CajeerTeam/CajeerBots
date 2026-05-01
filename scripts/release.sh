@@ -32,6 +32,7 @@ if [ -d migrations ]; then
 fi
 
 chmod +x scripts/*.sh
+./scripts/clean_artifacts.sh
 
 find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache \) -prune -exec rm -rf {} +
 if find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -not -path './.git/*' -not -path './dist/*' -print | grep -q .; then
@@ -83,12 +84,13 @@ fi
 rm -rf dist
 mkdir -p "dist/${NAME}"
 cp -a README.md LICENSE VERSION pyproject.toml .env.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini \
-  core bots modules plugins distributed scripts ops wiki alembic schemas release \
+  core bots modules plugins distributed scripts ops wiki alembic schemas release admin \
   "dist/${NAME}/"
 cp -a configs "dist/${NAME}/"
-cp -a configs/env/.env.local.example configs/env/.env.docker.example configs/env/.env.production.example "dist/${NAME}/"
+cp -a configs/env/.env*.example "dist/${NAME}/"
 chmod +x "dist/${NAME}/scripts"/*.sh
 find "dist/${NAME}" -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache \) -prune -exec rm -rf {} +
+find "dist/${NAME}" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 
 (cd dist && tar --mode='u+rwX,go+rX' -czf "${NAME}.tar.gz" "${NAME}" && sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256")
 "${PY_CMD[@]}" scripts/build_release_zip.py "dist/${NAME}" "dist/${NAME}.zip" "${NAME}"

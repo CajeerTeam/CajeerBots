@@ -143,6 +143,27 @@ class RuntimeCatalogLock:
         self.save()
         return {"ok": True, "entry": entry.to_dict()}
 
+    def enable_plugin(self, entry_id: str) -> dict[str, object]:
+        """Включить установленный plugin package без переустановки артефакта."""
+        return self.set_enabled(entry_id, True)
+
+    def disable_plugin(self, entry_id: str) -> dict[str, object]:
+        """Отключить установленный plugin package без удаления артефакта."""
+        return self.set_enabled(entry_id, False)
+
+    def plugin_package_schema_path(self, *, project_root: Path) -> Path:
+        return project_root / "schemas" / "plugin-package.schema.json"
+
+    def validate_plugin_package(self, package: dict[str, object]) -> list[str]:
+        """Лёгкая runtime-проверка package contract без внешнего jsonschema dependency."""
+        required = {"id", "version", "manifest", "artifacts", "capabilities"}
+        errors = [f"{name} обязателен" for name in sorted(required) if not package.get(name)]
+        if package.get("artifacts") is not None and not isinstance(package.get("artifacts"), list):
+            errors.append("artifacts должен быть массивом")
+        if package.get("capabilities") is not None and not isinstance(package.get("capabilities"), list):
+            errors.append("capabilities должен быть массивом")
+        return errors
+
     def rollback(self, entry_id: str) -> dict[str, object]:
         current = next((item for item in self.entries if item.id == entry_id), None)
         previous = next((item for item in reversed(self.history) if item.id == entry_id), None)

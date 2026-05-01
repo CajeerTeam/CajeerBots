@@ -5,6 +5,7 @@ include configs/env/.env*.example
 recursive-include schemas *.json
 recursive-include wiki *.md
 recursive-include ops *
+recursive-include admin *.html *.js *.css
 recursive-include release *.yaml *.md
 recursive-include alembic *.py
 recursive-include bots *.json *.md
