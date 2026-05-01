@@ -17,7 +17,7 @@ class TelegramAdapter(BotAdapter):
     def __init__(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*args, **kwargs)
         self._bot: Any | None = None
-        self._dispatcher: Any | None = None
+        self._dispatcher_instance: Any | None = None
 
     async def on_start(self) -> None:
         if not self.config.token:
@@ -25,7 +25,7 @@ class TelegramAdapter(BotAdapter):
         logger.info("адаптер Telegram запущен через aiogram")
         await self.report_lifecycle("adapter.started", {"mode": self.config.extra.get("mode", "polling"), "library": "aiogram"})
 
-    def _dispatcher(self):
+    def _build_dispatcher(self):
         from aiogram import Dispatcher
 
         if self.settings.redis_url:
@@ -48,8 +48,8 @@ class TelegramAdapter(BotAdapter):
 
         bot = self._bot or Bot(self.config.token)
         self._bot = bot
-        dispatcher = self._dispatcher()
-        self._dispatcher = dispatcher
+        dispatcher = self._dispatcher_instance or self._build_dispatcher()
+        self._dispatcher_instance = dispatcher
         me = await bot.get_me()
         bot_username = me.username or None
 
@@ -81,6 +81,7 @@ class TelegramAdapter(BotAdapter):
             if self._bot is not None:
                 await self._bot.session.close()
                 self._bot = None
+                self._dispatcher_instance = None
 
     async def send_message(self, target: str, text: str) -> SendResult:
         if not self.config.token:
