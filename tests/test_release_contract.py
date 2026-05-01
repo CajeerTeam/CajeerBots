@@ -8,6 +8,10 @@ def test_release_contract_has_required_structure():
     assert (root / "bots/discord/main.py").is_file()
     assert (root / "bots/vkontakte/main.py").is_file()
     assert (root / "wiki/Home.md").is_file()
+    assert (root / "configs/env/.env.local.example").is_file()
+    assert (root / "configs/env/.env.docker.example").is_file()
+    assert (root / "configs/env/.env.production.example").is_file()
+    assert (root / "MANIFEST.in").is_file()
     assert not (root / "migrations").exists()
 
 
