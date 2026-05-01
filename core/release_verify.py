@@ -33,6 +33,7 @@ REQUIRED_TOP_LEVEL = {
     "wiki",
     "alembic",
     "schemas",
+    "configs",
 }
 
 EXECUTABLE_PATHS = {
@@ -158,10 +159,10 @@ def _run_deep_checks(root: Path, *, python_bin: str = "python3") -> dict[str, ob
     python_flags = env.get("CAJEER_RELEASE_VERIFY_PYTHON_FLAGS", "-S").split()
     pycmd = [python_bin, *python_flags]
     env.setdefault("CAJEER_BOTS_ENV", "test")
-    env.setdefault("EVENT_SIGNING_SECRET", "release-verify-secret")
-    env.setdefault("API_TOKEN", "release-verify-token")
-    env.setdefault("API_TOKEN_READONLY", "release-verify-readonly")
-    env.setdefault("API_TOKEN_METRICS", "release-verify-metrics")
+    env.setdefault("EVENT_SIGNING_SECRET", "cb_evt_0123456789abcdef0123456789abcdef0123456789abcdef")
+    env.setdefault("API_TOKEN", "cb_api_0123456789abcdef0123456789abcdef0123456789abcdef")
+    env.setdefault("API_TOKEN_READONLY", "cb_read_0123456789abcdef0123456789abcdef0123456789abcdef")
+    env.setdefault("API_TOKEN_METRICS", "cb_metrics_0123456789abcdef0123456789abcdef0123456789abcdef")
     env.setdefault("TELEGRAM_ENABLED", "false")
     env.setdefault("DISCORD_ENABLED", "false")
     env.setdefault("VKONTAKTE_ENABLED", "false")

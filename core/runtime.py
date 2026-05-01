@@ -44,6 +44,15 @@ PLACEHOLDER_SECRETS = {
     "change-me-long-random-secret",
     "",
 }
+PLACEHOLDER_SECRET_MARKERS = (
+    "change-before-production",
+    "change-me",
+    "changeme",
+    "placeholder",
+    "example",
+    "dummy",
+    "dev-",
+)
 
 FORBIDDEN_TERMS = ["Never" + "Mine", "cajeer" + "_bots", "cajeer" + "_core", "nm" + "bot"]
 TEXT_EXTENSIONS = {".py", ".md", ".json", ".yaml", ".yml", ".toml", ".sh", ".service", ".conf", ".example", ".ini"}
@@ -309,8 +318,8 @@ class Runtime:
 
         from core.api import ApiServer
 
-        server = ApiServer(self, loop=asyncio.get_running_loop())
-        server.start_in_thread()
+        server = ApiServer(self)
+        server.start_background()
         try:
             await stop_event.wait()
         finally:
@@ -359,16 +368,66 @@ class Runtime:
             "api_token_registry_configured": self.settings.api_tokens_file.exists(),
         }
 
+    def _secret_is_placeholder(self, value: str | None) -> bool:
+        normalized = (value or "").strip().lower()
+        if normalized in PLACEHOLDER_SECRETS:
+            return True
+        return any(marker in normalized for marker in PLACEHOLDER_SECRET_MARKERS)
+
+    def _secret_strength_problem(self, name: str, value: str | None, *, required: bool = True, minimum: int = 32) -> str | None:
+        value = (value or "").strip()
+        if not value:
+            return f"{name} не задан" if required else None
+        if self._secret_is_placeholder(value):
+            return f"{name} содержит демонстрационное или placeholder-значение"
+        if len(value) < minimum:
+            return f"{name} должен быть не короче {minimum} символов для production"
+        return None
+
+    def _placeholder_value_problem(self, name: str, value: str | None, *, required: bool = False) -> str | None:
+        value = (value or "").strip()
+        if not value:
+            return f"{name} не задан" if required else None
+        if self._secret_is_placeholder(value):
+            return f"{name} содержит placeholder-значение"
+        return None
+
     def _production_security_problems(self) -> list[str]:
         if self.settings.env != "production":
             return []
         problems: list[str] = []
         if not self.settings.api_token and not self.settings.api_tokens_file.exists():
             problems.append("production требует API_TOKEN или API_TOKENS_FILE с scoped token registry")
-        if self.settings.api_readonly_token in PLACEHOLDER_SECRETS:
-            problems.append("API_TOKEN_READONLY содержит демонстрационное значение")
-        if self.settings.api_metrics_token in PLACEHOLDER_SECRETS:
-            problems.append("API_TOKEN_METRICS содержит демонстрационное значение")
+        for name, value, required in [
+            ("EVENT_SIGNING_SECRET", self.settings.event_signing_secret, True),
+            ("API_TOKEN", self.settings.api_token, not self.settings.api_tokens_file.exists()),
+            ("API_TOKEN_READONLY", self.settings.api_readonly_token, False),
+            ("API_TOKEN_METRICS", self.settings.api_metrics_token, False),
+        ]:
+            problem = self._secret_strength_problem(name, value, required=required)
+            if problem:
+                problems.append(problem)
+        postgres_required = (
+            self.settings.event_bus_backend == "postgres"
+            or self.settings.storage.delivery_backend == "postgres"
+            or self.settings.storage.dead_letter_backend == "postgres"
+            or self.settings.storage.idempotency_backend == "postgres"
+        )
+        redis_required = (
+            self.settings.event_bus_backend == "redis"
+            or self.settings.storage.delivery_backend == "redis"
+            or self.settings.storage.dead_letter_backend == "redis"
+            or self.settings.storage.idempotency_backend == "redis"
+            or self.settings.webhook_replay_cache == "redis"
+        )
+        for name, value, required in [
+            ("DATABASE_URL", self.settings.database_url, False),
+            ("DATABASE_ASYNC_URL", self.settings.storage.async_database_url, postgres_required),
+            ("REDIS_URL", self.settings.redis_url, redis_required),
+        ]:
+            problem = self._placeholder_value_problem(name, value, required=required)
+            if problem:
+                problems.append(problem)
         if self.settings.metrics_public:
             problems.append("METRICS_PUBLIC=true запрещён для production по умолчанию")
         if self.settings.api_bind in {"0.0.0.0", "::"} and not self.settings.api_behind_reverse_proxy:
@@ -376,11 +435,23 @@ class Runtime:
         if not self.settings.webhook_replay_protection:
             problems.append("WEBHOOK_REPLAY_PROTECTION=false запрещён для production")
         telegram = self.settings.adapters.get("telegram")
-        if telegram and telegram.enabled and telegram.extra.get("mode") == "webhook" and not telegram.extra.get("webhook_secret"):
-            problems.append("TELEGRAM_WEBHOOK_SECRET обязателен для production webhook-режима")
+        if telegram and telegram.enabled and telegram.extra.get("mode") == "webhook":
+            problem = self._secret_strength_problem("TELEGRAM_WEBHOOK_SECRET", telegram.extra.get("webhook_secret"), required=True)
+            if problem:
+                problems.append(problem)
         vkontakte = self.settings.adapters.get("vkontakte")
-        if vkontakte and vkontakte.enabled and not vkontakte.extra.get("callback_secret"):
-            problems.append("VK_CALLBACK_SECRET обязателен для production VK Callback API")
+        if vkontakte and vkontakte.enabled:
+            problem = self._secret_strength_problem("VK_CALLBACK_SECRET", vkontakte.extra.get("callback_secret"), required=True)
+            if problem:
+                problems.append(problem)
+        if self.settings.distributed.enabled and self.settings.distributed.role in {"agent", "gateway", "worker"}:
+            problem = self._secret_strength_problem("NODE_SECRET", self.settings.distributed.node_secret, required=True)
+            if problem:
+                problems.append(problem)
+        if self.settings.workspace.enabled:
+            problem = self._secret_strength_problem("CAJEER_WORKSPACE_TOKEN", self.settings.workspace.token, required=True)
+            if problem:
+                problems.append(problem)
         return problems
 
     def readiness_snapshot(self) -> dict[str, object]:
@@ -389,11 +460,11 @@ class Runtime:
         problems.extend(self.registry.validate(settings=self.settings))
         compat = check_compatibility(self.project_root, self.version, registry=self.registry)
         problems.extend(compat.errors)
-        if self.settings.api_token in PLACEHOLDER_SECRETS:
-            problems.append("API_TOKEN содержит демонстрационное значение")
+        if self._secret_is_placeholder(self.settings.api_token):
+            problems.append("API_TOKEN содержит демонстрационное или placeholder-значение")
         problems.extend(self._production_security_problems())
-        if self.settings.event_signing_secret in PLACEHOLDER_SECRETS:
-            problems.append("EVENT_SIGNING_SECRET содержит демонстрационное значение")
+        if self._secret_is_placeholder(self.settings.event_signing_secret):
+            problems.append("EVENT_SIGNING_SECRET содержит демонстрационное или placeholder-значение")
         if self.settings.event_bus_backend == "postgres" and not self.settings.storage.async_database_url:
             problems.append("DATABASE_ASYNC_URL требуется для EVENT_BUS_BACKEND=postgres")
         if self.settings.event_bus_backend == "redis" and not self.settings.redis_url:
@@ -424,11 +495,11 @@ class Runtime:
         problems.extend(self.registry.validate(settings=self.settings))
         compat = check_compatibility(self.project_root, self.version, registry=self.registry)
         problems.extend(compat.errors)
-        if self.settings.api_token in PLACEHOLDER_SECRETS:
-            problems.append("API_TOKEN содержит демонстрационное значение")
+        if self._secret_is_placeholder(self.settings.api_token):
+            problems.append("API_TOKEN содержит демонстрационное или placeholder-значение")
         problems.extend(self._production_security_problems())
-        if self.settings.event_signing_secret in PLACEHOLDER_SECRETS:
-            problems.append("EVENT_SIGNING_SECRET содержит демонстрационное значение")
+        if self._secret_is_placeholder(self.settings.event_signing_secret):
+            problems.append("EVENT_SIGNING_SECRET содержит демонстрационное или placeholder-значение")
         if self.settings.event_bus_backend == "postgres" and not self.settings.storage.async_database_url:
             problems.append("DATABASE_ASYNC_URL требуется для EVENT_BUS_BACKEND=postgres")
         if self.settings.event_bus_backend == "redis" and not self.settings.redis_url:
@@ -617,12 +688,12 @@ class Runtime:
 
         strict_secrets = profile in {"staging", "production", "release-artifact"}
         if strict_secrets:
-            if not self.settings.event_signing_secret:
-                problems.append("EVENT_SIGNING_SECRET не задан")
-            if self.settings.event_signing_secret in PLACEHOLDER_SECRETS:
-                problems.append("EVENT_SIGNING_SECRET содержит демонстрационное значение")
-            if self.settings.api_token in PLACEHOLDER_SECRETS:
-                problems.append("API_TOKEN содержит демонстрационное значение")
+            event_problem = self._secret_strength_problem("EVENT_SIGNING_SECRET", self.settings.event_signing_secret, required=True)
+            if event_problem:
+                problems.append(event_problem)
+            api_problem = self._secret_strength_problem("API_TOKEN", self.settings.api_token, required=not self.settings.api_tokens_file.exists())
+            if api_problem:
+                problems.append(api_problem)
         elif not self.settings.event_signing_secret:
             warnings.append("EVENT_SIGNING_SECRET не задан; допустимо только для dev-профиля")
 

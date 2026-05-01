@@ -93,7 +93,7 @@ def build_default_commands(runtime: Any | None = None) -> CommandRegistry:
 
     registry.register(CommandDefinition("help", "Показать список доступных команд.", aliases=("помощь",)), help_handler)
     registry.register(CommandDefinition("status", "Показать состояние платформы.", aliases=("статус",)), status_handler)
-    registry.register(CommandDefinition("support", "Создать или просмотреть обращение в поддержку.", module_id="support", permission="bots.support.reply"), support_handler)
+    registry.register(CommandDefinition("support", "Создать или просмотреть обращение в поддержку.", module_id="support", permission=None), support_handler)
     registry.register(CommandDefinition("announce", "Создать объявление для каналов доставки.", module_id="announcements", permission="bots.announce.create"), announce_handler)
     registry.register(CommandDefinition("moderation", "Открыть инструменты модерации.", module_id="moderation", permission="bots.moderation.manage"), moderation_handler)
     return registry

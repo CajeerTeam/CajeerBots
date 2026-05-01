@@ -125,7 +125,15 @@ async def bootstrap_owner_db(
     role: str = "owner",
     permissions: list[str] | set[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
-    """Bootstrap the first owner directly in PostgreSQL-backed RBAC tables."""
+    """Bootstrap the first owner directly in PostgreSQL-backed RBAC tables.
+
+    The SQL must track the Alembic/ORM contract:
+    - users.user_id, not users.id
+    - platform_accounts has a composite primary key (platform, platform_user_id)
+    - roles.role_id/title/source, not roles.id/name/description
+    - role_permissions stores permission text directly
+    - audit_log.audit_id, not audit_log.id
+    """
     import hashlib
     from uuid import uuid4
 
@@ -143,47 +151,54 @@ async def bootstrap_owner_db(
     grants = [str(item).strip() for item in (permissions or ["*"]) if str(item).strip()] or ["*"]
     digest = hashlib.sha256(f"{platform}:{platform_user_id}".encode("utf-8")).hexdigest()[:24]
     user_id = f"usr_{digest}"
-    account_id = f"acc_{digest}"
     role_id = f"role_{role}"
     engine = create_async_engine(async_dsn, pool_pre_ping=True)
     try:
         async with engine.begin() as conn:
             await conn.execute(text(f"""
-                INSERT INTO {schema_name}.users(id, display_name, created_at, updated_at)
+                INSERT INTO {schema_name}.users(user_id, display_name, created_at, updated_at)
                 VALUES (:user_id, :display_name, NOW(), NOW())
-                ON CONFLICT (id) DO UPDATE SET display_name = EXCLUDED.display_name, updated_at = NOW()
+                ON CONFLICT (user_id) DO UPDATE
+                SET display_name = EXCLUDED.display_name, updated_at = NOW()
             """), {"user_id": user_id, "display_name": display_name or platform_user_id})
             await conn.execute(text(f"""
-                INSERT INTO {schema_name}.platform_accounts(id, user_id, platform, platform_user_id, created_at, updated_at)
-                VALUES (:account_id, :user_id, :platform, :platform_user_id, NOW(), NOW())
-                ON CONFLICT (platform, platform_user_id) DO UPDATE SET user_id = EXCLUDED.user_id, updated_at = NOW()
-            """), {"account_id": account_id, "user_id": user_id, "platform": platform, "platform_user_id": platform_user_id})
+                INSERT INTO {schema_name}.platform_accounts(platform, platform_user_id, user_id, username, display_name, profile, created_at, updated_at)
+                VALUES (:platform, :platform_user_id, :user_id, NULL, :display_name, '{{}}'::jsonb, NOW(), NOW())
+                ON CONFLICT (platform, platform_user_id) DO UPDATE
+                SET user_id = EXCLUDED.user_id,
+                    display_name = EXCLUDED.display_name,
+                    updated_at = NOW()
+            """), {"user_id": user_id, "platform": platform, "platform_user_id": platform_user_id, "display_name": display_name or platform_user_id})
             await conn.execute(text(f"""
-                INSERT INTO {schema_name}.roles(id, name, description, created_at, updated_at)
-                VALUES (:role_id, :role, :description, NOW(), NOW())
-                ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, updated_at = NOW()
-            """), {"role_id": role_id, "role": role, "description": "Bootstrap owner role"})
+                INSERT INTO {schema_name}.roles(role_id, title, source, created_at)
+                VALUES (:role_id, :title, 'local-bootstrap', NOW())
+                ON CONFLICT (role_id) DO UPDATE
+                SET title = EXCLUDED.title, source = EXCLUDED.source
+            """), {"role_id": role_id, "title": role})
             for permission in grants:
-                permission_id = f"perm_{hashlib.sha256(permission.encode('utf-8')).hexdigest()[:24]}"
                 await conn.execute(text(f"""
-                    INSERT INTO {schema_name}.permissions(id, name, description, created_at, updated_at)
-                    VALUES (:permission_id, :permission, :description, NOW(), NOW())
-                    ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description, updated_at = NOW()
-                """), {"permission_id": permission_id, "permission": permission, "description": "Bootstrap permission"})
-                await conn.execute(text(f"""
-                    INSERT INTO {schema_name}.role_permissions(role_id, permission_id, created_at)
-                    SELECT :role_id, id, NOW() FROM {schema_name}.permissions WHERE name = :permission
-                    ON CONFLICT (role_id, permission_id) DO NOTHING
+                    INSERT INTO {schema_name}.role_permissions(role_id, permission)
+                    VALUES (:role_id, :permission)
+                    ON CONFLICT (role_id, permission) DO NOTHING
                 """), {"role_id": role_id, "permission": permission})
             await conn.execute(text(f"""
-                INSERT INTO {schema_name}.user_roles(user_id, role_id, created_at)
+                INSERT INTO {schema_name}.user_roles(user_id, role_id, granted_at)
                 VALUES (:user_id, :role_id, NOW())
                 ON CONFLICT (user_id, role_id) DO NOTHING
             """), {"user_id": user_id, "role_id": role_id})
             await conn.execute(text(f"""
-                INSERT INTO {schema_name}.audit_log(id, actor_type, actor_id, action, resource, result, trace_id, message, created_at)
-                VALUES (:id, 'system', 'cli', 'rbac.bootstrap_owner', :resource, 'ok', :trace_id, :message, NOW())
-            """), {"id": "aud_" + uuid4().hex, "resource": f"{platform}:{platform_user_id}", "trace_id": "cli", "message": f"role={role};permissions={','.join(grants)}"})
+                INSERT INTO {schema_name}.audit_log(audit_id, actor_type, actor_id, action, resource, result, trace_id, message, created_at)
+                VALUES (:audit_id, 'system', 'cli', 'rbac.bootstrap_owner', :resource, 'ok', :trace_id, :message, NOW())
+            """), {"audit_id": "aud_" + uuid4().hex, "resource": f"{platform}:{platform_user_id}", "trace_id": "cli", "message": f"role={role};permissions={','.join(grants)}"})
     finally:
         await engine.dispose()
-    return {"ok": True, "backend": "postgres", "schema": schema_name, "account": f"{platform}:{platform_user_id}", "user_id": user_id, "role": role, "permissions": sorted(set(grants))}
+    return {
+        "ok": True,
+        "backend": "postgres",
+        "schema": schema_name,
+        "account": f"{platform}:{platform_user_id}",
+        "user_id": user_id,
+        "role": role,
+        "permissions": sorted(set(grants)),
+    }
+
