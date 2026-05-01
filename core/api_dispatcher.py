@@ -12,6 +12,8 @@ from core.sdk.plugins import PluginRequest
 from core.webhook_security import RedisWebhookReplayGuard, WebhookReplayGuard, replay_key, verify_optional_hmac
 
 PUBLIC_PATHS = {"/healthz", "/livez", "/readyz"}
+GET_HANDLER_IDS = {route.path: (route.handler_id or route.path.strip("/").replace("/", "_") or "root") for route in ROUTES if route.method == "GET"}
+POST_HANDLER_IDS = {route.path: (route.handler_id or route.path.strip("/").replace("/", "_") or "root") for route in ROUTES if route.method == "POST"}
 READONLY_PATHS = readonly_paths() | {"/openapi.json"}
 
 
@@ -26,6 +28,11 @@ class AsyncApiDispatcher:
             self._replay_guard = RedisWebhookReplayGuard(runtime.settings.redis_url or "", runtime.settings.webhook_replay_ttl_seconds)
         else:
             self._replay_guard = WebhookReplayGuard(runtime.settings.webhook_replay_ttl_seconds)
+
+
+def route_handler_id(self, method: str, path: str) -> str | None:
+    mapping = GET_HANDLER_IDS if method.upper() == "GET" else POST_HANDLER_IDS
+    return mapping.get(path)
 
     def _plugin_route(self, path: str, method: str) -> Any | None:
         method = method.upper()

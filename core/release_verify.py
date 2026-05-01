@@ -34,6 +34,8 @@ REQUIRED_TOP_LEVEL = {
     "alembic",
     "schemas",
     "configs",
+    "admin",
+    "release",
 }
 
 EXECUTABLE_PATHS = {
@@ -179,6 +181,7 @@ def _run_deep_checks(root: Path, *, python_bin: str = "python3") -> dict[str, ob
         ["bash", "scripts/check_secrets.sh"],
         [*pycmd, "-m", "core", "doctor", "--offline", "--profile", "release-artifact"],
         ["bash", "scripts/smoke_integrations.sh"],
+        [*pycmd, "-m", "pytest", "-q", "tests/test_webhook_profiles_contract.py"],
     ]
     results: list[dict[str, object]] = []
     for command in commands:

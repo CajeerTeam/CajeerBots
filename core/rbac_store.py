@@ -121,11 +121,12 @@ class HybridRbacStore:
 class PostgresRbacStore:
     """DB-backed RBAC reader matching the current Alembic schema."""
 
-    def __init__(self, async_dsn: str, schema: str, *, fallback_to_event_grants: bool = True) -> None:
+    def __init__(self, async_dsn: str, schema: str, *, fallback_to_event_grants: bool = True, engine: Any | None = None) -> None:
         self.async_dsn = async_dsn
         self.schema = schema
         self.fallback_to_event_grants = fallback_to_event_grants
-        self._engine: Any | None = None
+        self._engine: Any | None = engine
+        self._owns_engine = engine is None
 
     def _event_key(self, event: Any) -> tuple[str, str] | None:
         actor = getattr(event, "actor", None)
@@ -143,9 +144,9 @@ class PostgresRbacStore:
         return self._engine
 
     async def close(self) -> None:
-        if self._engine is not None:
+        if self._engine is not None and self._owns_engine:
             await self._engine.dispose()
-            self._engine = None
+        self._engine = None
 
     async def grants_for_event_async(self, event: Any) -> tuple[set[str], str]:
         from sqlalchemy import text
@@ -218,12 +219,12 @@ class CascadingRbacStore:
         return self.cache.decide(event, permission)
 
 
-def build_rbac_store(settings: Any) -> Any:
+def build_rbac_store(settings: Any, db_resources: Any | None = None) -> Any:
     cache = HybridRbacStore(settings.runtime_dir / "secrets" / "rbac_cache.json")
     backend = getattr(settings, "rbac_backend", "cache")
     if backend == "cache":
         return cache
-    postgres = PostgresRbacStore(settings.storage.async_database_url, settings.shared_schema)
+    postgres = PostgresRbacStore(settings.storage.async_database_url, settings.shared_schema, engine=(db_resources.async_engine() if db_resources is not None else None))
     if backend == "postgres":
         return postgres
     return CascadingRbacStore(postgres, cache)

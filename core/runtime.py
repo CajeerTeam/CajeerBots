@@ -68,10 +68,10 @@ class Runtime:
         self.db_resources = RuntimeDbResources(settings)
         self.event_bus = build_event_bus(settings)
         self.dead_letters = build_dead_letter_queue(settings)
-        self.delivery = build_delivery_service(settings)
+        self.delivery = build_delivery_service(settings, db_resources=self.db_resources)
         self.idempotency = build_idempotency_store(settings)
         self.commands: CommandRegistry = build_default_commands(self)
-        self.audit = build_audit_log(settings)
+        self.audit = build_audit_log(settings, db_resources=self.db_resources)
         self.plugin_routes: list[object] = []
         self.plugin_scheduled_jobs: list[dict[str, object]] = []
         self.scheduler = Scheduler()
@@ -81,7 +81,7 @@ class Runtime:
         self.worker = WorkerService(self)
         self.updater = UpdateManager(self)
         self.token_registry = ApiTokenRegistry(settings.api_tokens_file)
-        self.rbac_store = build_rbac_store(settings)
+        self.rbac_store = build_rbac_store(settings, db_resources=self.db_resources)
         self.rate_limiter = build_rate_limiter(settings)
         self._stop_event: asyncio.Event | None = None
         self.version = self._read_version()
@@ -609,10 +609,10 @@ class Runtime:
         metrics = self.event_bus.metrics()
         uptime = max(0, int(time.time() - self.started_at))
         audit_snapshot = self.audit.snapshot()
-        rbac_denied = sum(1 for item in audit_snapshot if isinstance(item, dict) and item.get("action") == "rbac.denied")
-        webhook_rejected = sum(
+        rbac_denied = self.audit.counter("rbac_denied_total") if hasattr(self.audit, "counter") else sum(1 for item in audit_snapshot if getattr(item, "action", "") == "rbac.denied")
+        webhook_rejected = self.audit.counter("webhook_rejected_total") if hasattr(self.audit, "counter") else sum(
             1 for item in audit_snapshot
-            if isinstance(item, dict) and str(item.get("action", "")).startswith("webhook.") and item.get("result") == "denied"
+            if str(getattr(item, "action", "")).startswith("webhook.") and getattr(item, "result", "") == "denied"
         )
         delivery_queue_depth = getattr(self.delivery, "queue_depth", 0)
         if callable(delivery_queue_depth):

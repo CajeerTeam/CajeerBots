@@ -2,7 +2,7 @@ FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 ARG CAJEER_BOTS_EXTRAS=api,adapters,redis
-COPY pyproject.toml README.md VERSION LICENSE alembic.ini ./
+COPY pyproject.toml README.md VERSION LICENSE alembic.ini compatibility.yaml ./
 COPY core ./core
 COPY bots ./bots
 COPY modules ./modules
@@ -11,6 +11,11 @@ COPY distributed ./distributed
 COPY scripts ./scripts
 COPY alembic ./alembic
 COPY schemas ./schemas
+COPY release ./release
+COPY wiki ./wiki
+COPY ops ./ops
+COPY configs ./configs
+COPY admin ./admin
 RUN addgroup --system cajeer && adduser --system --ingroup cajeer --home /app cajeer \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -e ".[${CAJEER_BOTS_EXTRAS}]" \

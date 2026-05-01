@@ -268,6 +268,7 @@ class Settings:
     webhook_profile: str
     event_signing_secret: str
     rbac_backend: str
+    audit_mode: str
     worker_tick_seconds: int
     distributed: DistributedSettings
     workspace: WorkspaceSettings
@@ -394,6 +395,7 @@ class Settings:
             webhook_profile=_choice("WEBHOOK_PROFILE", "direct", {"direct", "gateway-signed"}),
             event_signing_secret=os.getenv("EVENT_SIGNING_SECRET", ""),
             rbac_backend=_choice("RBAC_BACKEND", "cache", {"cache", "postgres", "hybrid"}),
+            audit_mode=_choice("AUDIT_MODE", "best_effort", {"best_effort", "strict"}),
             worker_tick_seconds=_int("WORKER_TICK_SECONDS", 30, minimum=1, maximum=3600),
             distributed=distributed,
             workspace=workspace,
@@ -504,6 +506,7 @@ class Settings:
             "webhook_profile": self.webhook_profile,
             "event_signing_secret_configured": bool(self.event_signing_secret),
             "rbac_backend": self.rbac_backend,
+            "audit_mode": self.audit_mode,
             "workspace_enabled": self.workspace.enabled,
             "workspace_url_configured": bool(self.workspace.url),
             "workspace_token_configured": bool(self.workspace.token),

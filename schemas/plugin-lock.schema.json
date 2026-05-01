@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cajeer Bots plugin.lock",
+  "type": "object",
+  "required": [
+    "plugin_id",
+    "version",
+    "artifacts"
+  ],
+  "properties": {
+    "plugin_id": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "signature_required": {
+      "type": "boolean"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "migrations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "hooks": {
+      "type": "object"
+    },
+    "rollback": {
+      "type": "object"
+    }
+  }
+}

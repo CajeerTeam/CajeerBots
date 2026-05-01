@@ -318,6 +318,8 @@ class RedisDeliveryService(DeliveryService):
     async def mark_sent(self, delivery_id: str) -> None:
         redis = await self._client()
         task = next((item for item in self._tasks if item.delivery_id == delivery_id), None)
+        if task:
+            await redis.delete(f"{self.prefix}:delivery:lease:{task.delivery_id}")
         if task and task.lease_id:
             await redis.xack(self._stream(task.adapter), self.group, task.lease_id)
         self._tasks = [item for item in self._tasks if item.delivery_id != delivery_id]
@@ -329,6 +331,7 @@ class RedisDeliveryService(DeliveryService):
         if not task:
             self.failed_total += 1
             return
+        await redis.delete(f"{self.prefix}:delivery:lease:{task.delivery_id}")
         if retry and task.attempts < task.max_attempts:
             delay = self.retry_backoff_seconds * max(1, 2 ** max(0, task.attempts - 1))
             task.next_attempt_at = (_now_dt() + timedelta(seconds=delay)).isoformat()
@@ -354,40 +357,41 @@ class RedisDeliveryService(DeliveryService):
         await self._ensure_group(adapter.name)
         for task in await self.claim(adapter.name, limit=50, consumer=getattr(adapter.settings, "instance_id", adapter.name)):
             try:
-                started_key = f"{self.prefix}:delivery:send_started:{task.delivery_id}"
+                lease_key = f"{self.prefix}:delivery:lease:{task.delivery_id}"
                 sent_key = f"{self.prefix}:delivery:sent:{task.delivery_id}"
                 if await redis.exists(sent_key):
                     if task.lease_id:
                         await redis.xack(stream, self.group, task.lease_id)
                     continue
-                guard_created = await redis.set(started_key, "1", nx=True, ex=86400)
-                if not guard_created:
-                    if task.lease_id:
-                        await redis.xack(stream, self.group, task.lease_id)
+                # Crash-safe lease: if another worker started sending and died before
+                # mark_sent(), do not ACK the stream item. Let Redis PEL/autoclaim
+                # return it after DELIVERY_LEASE_SECONDS.
+                lease_created = await redis.set(lease_key, task.lease_id or "processing", nx=True, ex=max(1, int(self.lease_seconds)))
+                if not lease_created:
                     continue
                 if getattr(adapter, "context", None) is not None and getattr(adapter.context, "rate_limiter", None) is not None:
                     await adapter.context.rate_limiter.acquire(f"{task.adapter}:{task.target}")
                 await self._record_outbound_sending(adapter, task)
                 result = await adapter.send_message(task.target, task.text)
                 await redis.set(sent_key, self._platform_message_id(result) or "sent", ex=86400)
-                await redis.delete(started_key)
+                await redis.delete(lease_key)
                 await self.mark_sent(task.delivery_id)
                 await self._record_outbound_sent(adapter, task, result)
                 processed += 1
             except Exception as exc:  # pragma: no cover
-                await redis.delete(f"{self.prefix}:delivery:send_started:{task.delivery_id}")
+                await redis.delete(f"{self.prefix}:delivery:lease:{task.delivery_id}")
                 await self._record_outbound_failed(adapter, task, str(exc))
                 await self.mark_failed(task.delivery_id, str(exc), retry=True)
         return processed
 
 
 class PostgresDeliveryService(DeliveryService):
-    def __init__(self, async_dsn: str, schema: str = "shared", *, retry_backoff_seconds: int = 5) -> None:
+    def __init__(self, async_dsn: str, schema: str = "shared", *, retry_backoff_seconds: int = 5, engine: Any | None = None) -> None:
         super().__init__(backend="postgres", retry_backoff_seconds=retry_backoff_seconds)
         self.lease_seconds = int(__import__("os").getenv("DELIVERY_LEASE_SECONDS", "60"))
         self.async_dsn = async_dsn
         self.schema = schema
-        self._engine: Any | None = None
+        self._engine: Any | None = engine
 
     def _engine_obj(self) -> Any:
         if self._engine is None:
@@ -467,7 +471,7 @@ class PostgresDeliveryService(DeliveryService):
         self.failed_total += 1
 
 
-def build_delivery_service(settings: Any) -> DeliveryService:
+def build_delivery_service(settings: Any, db_resources: Any | None = None) -> DeliveryService:
     backend = settings.storage.delivery_backend
     backoff = getattr(settings.storage, "delivery_retry_backoff_seconds", 5)
     lease_seconds = getattr(settings.storage, "delivery_lease_seconds", 60)
@@ -480,7 +484,7 @@ def build_delivery_service(settings: Any) -> DeliveryService:
     if backend == "postgres":
         if not settings.storage.async_database_url:
             raise RuntimeError("DELIVERY_BACKEND=postgres требует DATABASE_ASYNC_URL")
-        service = PostgresDeliveryService(settings.storage.async_database_url, settings.shared_schema, retry_backoff_seconds=backoff)
+        service = PostgresDeliveryService(settings.storage.async_database_url, settings.shared_schema, retry_backoff_seconds=backoff, engine=(db_resources.async_engine() if db_resources is not None else None))
         service.lease_seconds = lease_seconds
         return service
     return DeliveryService(retry_backoff_seconds=backoff, lease_seconds=lease_seconds)

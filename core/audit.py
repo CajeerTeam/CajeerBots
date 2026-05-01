@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections import deque
+from collections import Counter, deque
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -33,13 +33,33 @@ class AuditRecord:
         return asdict(self)
 
 
+STRICT_AUDIT_ACTION_PREFIXES = (
+    "rbac.",
+    "webhook.",
+    "token.",
+    "runtime.stop",
+    "updates.",
+    "catalog.",
+)
+
+
 class AuditLog:
-    def __init__(self, max_size: int = 2000, *, backend: str = "memory") -> None:
+    def __init__(self, max_size: int = 2000, *, backend: str = "memory", mode: str = "best_effort") -> None:
         self._records: deque[AuditRecord] = deque(maxlen=max_size)
+        self._counters: Counter[str] = Counter()
         self.backend = backend
+        self.mode = mode
+
+    def _strict_for(self, action: str) -> bool:
+        return self.mode == "strict" and any(action.startswith(prefix) for prefix in STRICT_AUDIT_ACTION_PREFIXES)
 
     def _append_memory(self, record: AuditRecord) -> None:
         self._records.append(record)
+        self._counters[f"action:{record.action}"] += 1
+        if record.action == "rbac.denied":
+            self._counters["rbac_denied_total"] += 1
+        if record.action.startswith("webhook.") and record.result == "denied":
+            self._counters["webhook_rejected_total"] += 1
 
     async def _write_backend_async(self, record: AuditRecord) -> None:
         return None
@@ -48,18 +68,36 @@ class AuditLog:
         self._append_memory(record)
         await self._write_backend_async(record)
 
+    def _record_from_kwargs(self, **kwargs: Any) -> AuditRecord:
+        return AuditRecord(
+            str(uuid4()),
+            kwargs.get("actor_type", "system"),
+            kwargs.get("actor_id", "unknown"),
+            kwargs.get("action", "unknown"),
+            kwargs.get("resource", "unknown"),
+            kwargs.get("result", "ok"),
+            kwargs.get("trace_id"),
+            kwargs.get("ip"),
+            kwargs.get("user_agent"),
+            kwargs.get("message", ""),
+            datetime.now(timezone.utc).isoformat(),
+        )
+
     def write(self, *, actor_type: str, actor_id: str, action: str, resource: str, result: str = "ok", trace_id: str | None = None, ip: str | None = None, user_agent: str | None = None, message: str = "") -> AuditRecord:
-        record = AuditRecord(str(uuid4()), actor_type, actor_id, action, resource, result, trace_id, ip, user_agent, message, datetime.now(timezone.utc).isoformat())
+        record = self._record_from_kwargs(actor_type=actor_type, actor_id=actor_id, action=action, resource=resource, result=result, trace_id=trace_id, ip=ip, user_agent=user_agent, message=message)
         self._append_memory(record)
         return record
 
     def snapshot(self) -> list[AuditRecord]:
         return list(self._records)
 
+    def counter(self, name: str) -> int:
+        return int(self._counters.get(name, 0))
+
 
 class RedisAuditLog(AuditLog):
-    def __init__(self, redis_url: str, prefix: str, max_size: int = 2000) -> None:
-        super().__init__(max_size=max_size, backend="redis")
+    def __init__(self, redis_url: str, prefix: str, max_size: int = 2000, *, mode: str = "best_effort") -> None:
+        super().__init__(max_size=max_size, backend="redis", mode=mode)
         self.redis_url = redis_url
         self.key = f"{prefix}:audit"
         self.max_size = max_size
@@ -78,7 +116,7 @@ class RedisAuditLog(AuditLog):
         await redis.ltrim(self.key, 0, self.max_size - 1)
 
     def write(self, **kwargs: Any) -> AuditRecord:
-        record = AuditRecord(str(uuid4()), kwargs.get("actor_type", "system"), kwargs.get("actor_id", "unknown"), kwargs.get("action", "unknown"), kwargs.get("resource", "unknown"), kwargs.get("result", "ok"), kwargs.get("trace_id"), kwargs.get("ip"), kwargs.get("user_agent"), kwargs.get("message", ""), datetime.now(timezone.utc).isoformat())
+        record = self._record_from_kwargs(**kwargs)
         self._append_memory(record)
         try:
             asyncio.get_running_loop().create_task(self._write_backend_async(record))
@@ -86,16 +124,17 @@ class RedisAuditLog(AuditLog):
             try:
                 asyncio.run(self._write_backend_async(record))
             except Exception:
-                pass
+                if self._strict_for(record.action):
+                    raise
         return record
 
 
 class PostgresAuditLog(AuditLog):
-    def __init__(self, async_dsn: str, schema: str = "shared", max_size: int = 2000) -> None:
-        super().__init__(max_size=max_size, backend="postgres")
+    def __init__(self, async_dsn: str, schema: str = "shared", max_size: int = 2000, *, mode: str = "best_effort", engine: Any | None = None) -> None:
+        super().__init__(max_size=max_size, backend="postgres", mode=mode)
         self.async_dsn = async_dsn
         self.schema = schema
-        self._engine: Any | None = None
+        self._engine: Any | None = engine
 
     def _engine_obj(self) -> Any:
         if self._engine is None:
@@ -117,7 +156,7 @@ class PostgresAuditLog(AuditLog):
             )
 
     def write(self, **kwargs: Any) -> AuditRecord:
-        record = AuditRecord(str(uuid4()), kwargs.get("actor_type", "system"), kwargs.get("actor_id", "unknown"), kwargs.get("action", "unknown"), kwargs.get("resource", "unknown"), kwargs.get("result", "ok"), kwargs.get("trace_id"), kwargs.get("ip"), kwargs.get("user_agent"), kwargs.get("message", ""), datetime.now(timezone.utc).isoformat())
+        record = self._record_from_kwargs(**kwargs)
         self._append_memory(record)
         try:
             asyncio.get_running_loop().create_task(self._write_backend_async(record))
@@ -125,13 +164,15 @@ class PostgresAuditLog(AuditLog):
             try:
                 asyncio.run(self._write_backend_async(record))
             except Exception:
-                pass
+                if self._strict_for(record.action):
+                    raise
         return record
 
 
-def build_audit_log(settings: Any) -> AuditLog:
+def build_audit_log(settings: Any, db_resources: Any | None = None) -> AuditLog:
+    mode = getattr(settings, "audit_mode", "best_effort")
     if "postgres" in {settings.storage.delivery_backend, settings.storage.dead_letter_backend, settings.storage.idempotency_backend} and settings.storage.async_database_url:
-        return PostgresAuditLog(settings.storage.async_database_url, settings.shared_schema)
+        return PostgresAuditLog(settings.storage.async_database_url, settings.shared_schema, mode=mode, engine=(db_resources.async_engine() if db_resources is not None else None))
     if "redis" in {settings.storage.delivery_backend, settings.storage.dead_letter_backend, settings.storage.idempotency_backend} and settings.redis_url:
-        return RedisAuditLog(settings.redis_url, settings.storage.redis_queue_prefix)
-    return AuditLog()
+        return RedisAuditLog(settings.redis_url, settings.storage.redis_queue_prefix, mode=mode)
+    return AuditLog(mode=mode)

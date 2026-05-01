@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 from core.events import CajeerEvent
+from core.rbac_decision import decide_permission
 
 
 class SupportModule:
@@ -37,7 +38,7 @@ class SupportModule:
         chat_id = event.chat.platform_chat_id if event.chat else "unknown"
         if subcommand == "reply" and len(parts) >= 3:
             permission = "bots.support.reply"
-            decision = context.runtime.rbac_store.decide(event, permission)
+            decision = await decide_permission(context.runtime, event, permission)
             if not decision.allowed:
                 return self._deny(event, context, permission)
             ticket_id = parts[1]
@@ -57,7 +58,7 @@ class SupportModule:
 
         if subcommand in {"assign", "status"} and len(parts) >= 3:
             permission = "bots.support.assign" if subcommand == "assign" else "bots.support.manage"
-            decision = context.runtime.rbac_store.decide(event, permission)
+            decision = await decide_permission(context.runtime, event, permission)
             if not decision.allowed:
                 return self._deny(event, context, permission)
             ticket_id = parts[1]
@@ -76,7 +77,7 @@ class SupportModule:
             await context.runtime.workspace.report_event(context.runtime.make_system_event(f"cajeer.bots.{action}", {"ticket_id": ticket_id, "value": value, "actor": actor, "trace_id": event.trace_id}))
             return {"ok": True, "message": f"Обращение {ticket_id}: {subcommand}={value}.", "ticket_id": ticket_id, "trace_id": event.trace_id}
 
-        decision = context.runtime.rbac_store.decide(event, "bots.support.create")
+        decision = await decide_permission(context.runtime, event, "bots.support.create")
         if not decision.allowed and decision.source != "none":
             return self._deny(event, context, "bots.support.create")
         ticket_id = "sup_" + uuid4().hex[:12]

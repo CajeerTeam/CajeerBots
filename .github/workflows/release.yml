@@ -17,10 +17,25 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install --upgrade pip
       - run: pip install -e .[dev,adapters,redis]
+      - name: Prepare release signing key
+        run: |
+          set -euo pipefail
+          if [ -n "${RELEASE_SIGNING_KEY_B64:-}" ]; then
+            printf '%s' "$RELEASE_SIGNING_KEY_B64" | base64 -d > release-signing.key
+          elif [ -n "${RELEASE_SIGNING_KEY_PEM:-}" ]; then
+            printf '%s' "$RELEASE_SIGNING_KEY_PEM" > release-signing.key
+          else
+            echo "Release signing key secret is empty" >&2
+            exit 1
+          fi
+          chmod 600 release-signing.key
+        env:
+          RELEASE_SIGNING_KEY_B64: ${{ secrets.RELEASE_SIGNING_KEY_B64 }}
+          RELEASE_SIGNING_KEY_PEM: ${{ secrets.RELEASE_SIGNING_KEY }}
       - run: ./scripts/release.sh
         env:
           RELEASE_SIGNATURE_REQUIRED: 'true'
-          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          RELEASE_SIGNING_KEY: ${{ github.workspace }}/release-signing.key
       - uses: softprops/action-gh-release@v2
         with:
           files: |
