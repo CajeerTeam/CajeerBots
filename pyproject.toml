@@ -27,6 +27,9 @@ dev = ["pytest>=8.0.0", "ruff>=0.4.0", "mypy>=1.9.0"]
 [project.scripts]
 cajeer-bots = "core.cli:main"
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
 include = ["core*", "distributed*", "bots*", "modules*", "plugins*"]
 
@@ -34,6 +37,13 @@ include = ["core*", "distributed*", "bots*", "modules*", "plugins*"]
 "bots" = ["*/adapter.json", "*/README.md"]
 "modules" = ["*/module.json", "*/README.md"]
 "plugins" = ["*/plugin.json", "*/README.md"]
+
+[tool.setuptools.data-files]
+"share/cajeer-bots/schemas" = ["schemas/*.json"]
+"share/cajeer-bots/env" = ["configs/env/.env*.example"]
+"share/cajeer-bots/wiki" = ["wiki/*.md"]
+"share/cajeer-bots/ops/nginx" = ["ops/nginx/*"]
+"share/cajeer-bots/ops/systemd" = ["ops/systemd/*"]
 
 [tool.ruff]
 line-length = 120

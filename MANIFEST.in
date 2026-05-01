@@ -1,0 +1,13 @@
+include README.md LICENSE NOTICE VERSION pyproject.toml compatibility.yaml Dockerfile docker-compose.yml Makefile alembic.ini
+include .env.example
+recursive-include configs *.example
+include configs/env/.env*.example
+recursive-include schemas *.json
+recursive-include wiki *.md
+recursive-include ops *
+recursive-include release *.yaml *.md
+recursive-include alembic *.py
+recursive-include bots *.json *.md
+recursive-include modules *.json *.md
+recursive-include plugins *.json *.md
+global-exclude __pycache__ *.py[cod] .DS_Store
