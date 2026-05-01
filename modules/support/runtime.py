@@ -35,6 +35,26 @@ class SupportModule:
         subcommand = parts[0] if parts else "create"
         actor = event.actor.platform_user_id if event.actor else "anonymous"
         chat_id = event.chat.platform_chat_id if event.chat else "unknown"
+        if subcommand == "reply" and len(parts) >= 3:
+            permission = "bots.support.reply"
+            decision = context.runtime.rbac_store.decide(event, permission)
+            if not decision.allowed:
+                return self._deny(event, context, permission)
+            ticket_id = parts[1]
+            reply_text = args.split(None, 2)[2].strip()
+            context.runtime.audit.write(actor_type="module", actor_id=self.id, action="support.ticket.reply", resource=ticket_id, trace_id=event.trace_id, message=f"actor={actor}")
+            try:
+                if context.runtime.settings.storage.async_database_url:
+                    from core.repositories.business import BusinessStateRepository
+                    await BusinessStateRepository(context.runtime.settings.storage.async_database_url, context.runtime.settings.shared_schema).update_support_ticket(ticket_id=ticket_id, event={"action": "reply", "text": reply_text, "actor": actor, "trace_id": event.trace_id})
+            except Exception as exc:
+                context.logger.warning("ошибка записи состояния в БД: %s", exc)
+                context.runtime.audit.write(actor_type="module", actor_id=self.id, action=f"{self.id}.db_write_failed", resource=ticket_id, result="error", trace_id=event.trace_id, message=str(exc))
+                if context.runtime.settings.support_strict_persistence:
+                    return {"ok": False, "error": "persistence_failed", "message": str(exc), "ticket_id": ticket_id, "trace_id": event.trace_id}
+            await context.runtime.workspace.report_event(context.runtime.make_system_event("cajeer.bots.support.ticket_reply", {"ticket_id": ticket_id, "actor": actor, "trace_id": event.trace_id}))
+            return {"ok": True, "message": f"Ответ по обращению {ticket_id} сохранён.", "ticket_id": ticket_id, "trace_id": event.trace_id}
+
         if subcommand in {"assign", "status"} and len(parts) >= 3:
             permission = "bots.support.assign" if subcommand == "assign" else "bots.support.manage"
             decision = context.runtime.rbac_store.decide(event, permission)
