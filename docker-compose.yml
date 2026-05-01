@@ -311,7 +311,7 @@ services:
       DEAD_LETTER_BACKEND: postgres
       IDEMPOTENCY_BACKEND: postgres
       REDIS_URL: redis://redis:6379/0
-    command: ["bash", "-lc", "cajeer-bots db check && python -m pytest -q tests/integration"]
+    command: ["bash", "-lc", "cajeer-bots db check && python -m pytest -q tests/integration tests/test_rbac_db_runtime_contract.py tests/test_api_stdlib_contract.py"]
     depends_on:
       postgres:
         condition: service_healthy

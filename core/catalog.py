@@ -21,6 +21,8 @@ class CatalogEntry:
     signature: str = ""
     installed_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     previous_version: str = ""
+    capabilities: list[str] = field(default_factory=list)
+    enabled: bool = True
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -132,6 +134,14 @@ class RuntimeCatalogLock:
                 "signature_message": signature_message,
             })
         return {"ok": all(item["installed"] for item in results), "items": results}
+
+    def set_enabled(self, entry_id: str, enabled: bool) -> dict[str, object]:
+        entry = next((item for item in self.entries if item.id == entry_id), None)
+        if entry is None:
+            return {"ok": False, "error": "entry not found", "id": entry_id}
+        entry.enabled = enabled
+        self.save()
+        return {"ok": True, "entry": entry.to_dict()}
 
     def rollback(self, entry_id: str) -> dict[str, object]:
         current = next((item for item in self.entries if item.id == entry_id), None)

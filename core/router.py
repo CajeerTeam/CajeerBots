@@ -92,8 +92,11 @@ class EventRouter:
     async def _permission_allowed(self, event: CajeerEvent, permission: str) -> bool:
         runtime = getattr(self.components, "runtime", None)
         if runtime is not None and getattr(runtime, "rbac_store", None) is not None:
-            decision = runtime.rbac_store.decide(event, permission)
+            decide_async = getattr(runtime.rbac_store, "decide_async", None)
+            decision = await decide_async(event, permission) if decide_async is not None else runtime.rbac_store.decide(event, permission)
             runtime.audit.write(actor_type="system", actor_id="rbac", action="rbac.decision", resource=permission, result="allow" if decision.allowed else "deny", trace_id=event.trace_id, message=decision.source)
+            if not decision.allowed:
+                runtime.audit.write(actor_type="system", actor_id="rbac", action="rbac.denied", resource=permission, result="denied", trace_id=event.trace_id, message=decision.source)
             return decision.allowed
         return has_permission(grants_from_event(event), permission)
 

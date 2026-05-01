@@ -6,6 +6,7 @@ from urllib.parse import unquote
 from uuid import uuid4
 
 from core.api import MAX_BODY_BYTES
+from core.proxy import client_ip_from_headers
 from core.api_dispatcher import AsyncApiDispatcher
 
 ASGIReceive = Callable[[], Awaitable[dict[str, Any]]]
@@ -83,7 +84,14 @@ def create_app(runtime: Any):
         method = str(scope.get("method") or "GET").upper()
         path = unquote(str(scope.get("path") or "/"))
         client = scope.get("client") or ("unknown", 0)
-        client_ip = str(client[0]) if client else "unknown"
+        remote_ip = str(client[0]) if client else "unknown"
+        client_ip = client_ip_from_headers(
+            remote_ip=remote_ip,
+            headers=headers,
+            behind_reverse_proxy=runtime.settings.api_behind_reverse_proxy,
+            trusted_proxy_cidrs=runtime.settings.trusted_proxy_cidrs,
+            real_ip_header=runtime.settings.real_ip_header,
+        )
         scope_value = dispatcher.token_scope(headers)
 
         if method == "GET":

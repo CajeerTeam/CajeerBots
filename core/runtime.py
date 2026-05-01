@@ -32,7 +32,8 @@ from core.worker import WorkerService
 from core.rate_limits import build_rate_limiter
 from core.updater import UpdateManager
 from core.token_registry import ApiTokenRegistry
-from core.rbac_store import HybridRbacStore
+from core.rbac_store import build_rbac_store
+from core.db_resources import RuntimeDbResources
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ class Runtime:
         self.project_root = project_root or Path.cwd()
         self.registry = Registry(self.project_root, settings=settings)
         self.adapters: list[BotAdapter] = []
+        self.db_resources = RuntimeDbResources(settings)
         self.event_bus = build_event_bus(settings)
         self.dead_letters = build_dead_letter_queue(settings)
         self.delivery = build_delivery_service(settings)
@@ -79,7 +81,7 @@ class Runtime:
         self.worker = WorkerService(self)
         self.updater = UpdateManager(self)
         self.token_registry = ApiTokenRegistry(settings.api_tokens_file)
-        self.rbac_store = HybridRbacStore(settings.runtime_dir / "secrets" / "rbac_cache.json")
+        self.rbac_store = build_rbac_store(settings)
         self.rate_limiter = build_rate_limiter(settings)
         self._stop_event: asyncio.Event | None = None
         self.version = self._read_version()
@@ -199,6 +201,10 @@ class Runtime:
             await self._run_supervised(self.adapters)
         finally:
             await self.components.stop()
+            close = getattr(self.rbac_store, "close", None)
+            if close is not None:
+                await close()
+            await self.db_resources.close()
 
     async def _adapter_supervisor(self, adapter: BotAdapter) -> None:
         restarts = 0
@@ -347,6 +353,7 @@ class Runtime:
             or self.settings.storage.idempotency_backend == "redis",
             "redis_configured": bool(self.settings.redis_url),
             "event_bus_backend": self.settings.event_bus_backend,
+            "rbac_backend": self.settings.rbac_backend,
             "delivery_backend": self.settings.storage.delivery_backend,
             "dead_letter_backend": self.settings.storage.dead_letter_backend,
             "idempotency_backend": self.settings.storage.idempotency_backend,
@@ -454,28 +461,42 @@ class Runtime:
                 problems.append(problem)
         return problems
 
-    def readiness_snapshot(self) -> dict[str, object]:
+    def _readiness_core_problems(self) -> tuple[list[str], list[str]]:
         problems: list[str] = []
+        warnings: list[str] = []
+        profile = self.settings.env
+        strict = profile in {"production", "staging"}
         problems.extend(self.settings.validate_runtime(doctor_mode=self.settings.mode))
         problems.extend(self.registry.validate(settings=self.settings))
         compat = check_compatibility(self.project_root, self.version, registry=self.registry)
         problems.extend(compat.errors)
+        placeholder_messages: list[str] = []
         if self._secret_is_placeholder(self.settings.api_token):
-            problems.append("API_TOKEN содержит демонстрационное или placeholder-значение")
-        problems.extend(self._production_security_problems())
+            placeholder_messages.append("API_TOKEN содержит демонстрационное или placeholder-значение")
         if self._secret_is_placeholder(self.settings.event_signing_secret):
-            problems.append("EVENT_SIGNING_SECRET содержит демонстрационное или placeholder-значение")
+            placeholder_messages.append("EVENT_SIGNING_SECRET содержит демонстрационное или placeholder-значение")
+        if strict:
+            problems.extend(placeholder_messages)
+            problems.extend(self._production_security_problems())
+        else:
+            warnings.extend(placeholder_messages)
+            if not self.settings.event_signing_secret:
+                warnings.append("EVENT_SIGNING_SECRET не задан; допустимо только для development/test")
         if self.settings.event_bus_backend == "postgres" and not self.settings.storage.async_database_url:
             problems.append("DATABASE_ASYNC_URL требуется для EVENT_BUS_BACKEND=postgres")
         if self.settings.event_bus_backend == "redis" and not self.settings.redis_url:
             problems.append("Redis требуется для EVENT_BUS_BACKEND=redis")
-        dependency_checks = self.dependency_health_snapshot()
+        return problems, warnings
+
+    def _readiness_payload(self, problems: list[str], warnings: list[str], dependency_checks: dict[str, object]) -> dict[str, object]:
         for check in dependency_checks.get("checks", []):
             if isinstance(check, dict) and not check.get("ok"):
                 problems.append(str(check.get("message") or check.get("name")))
         return {
             "ok": not problems,
             "problems": problems,
+            "warnings": warnings,
+            "profile": self.settings.env,
             "dependencies": self.dependencies_snapshot(),
             "event_bus": self.event_bus.metrics().to_dict(),
             "registry": {
@@ -487,41 +508,15 @@ class Runtime:
             "components": self.components.snapshot(),
             "dependency_checks": dependency_checks,
         }
+
+    def readiness_snapshot(self) -> dict[str, object]:
+        problems, warnings = self._readiness_core_problems()
+        return self._readiness_payload(problems, warnings, self.dependency_health_snapshot())
 
 
     async def readiness_snapshot_async(self) -> dict[str, object]:
-        problems: list[str] = []
-        problems.extend(self.settings.validate_runtime(doctor_mode=self.settings.mode))
-        problems.extend(self.registry.validate(settings=self.settings))
-        compat = check_compatibility(self.project_root, self.version, registry=self.registry)
-        problems.extend(compat.errors)
-        if self._secret_is_placeholder(self.settings.api_token):
-            problems.append("API_TOKEN содержит демонстрационное или placeholder-значение")
-        problems.extend(self._production_security_problems())
-        if self._secret_is_placeholder(self.settings.event_signing_secret):
-            problems.append("EVENT_SIGNING_SECRET содержит демонстрационное или placeholder-значение")
-        if self.settings.event_bus_backend == "postgres" and not self.settings.storage.async_database_url:
-            problems.append("DATABASE_ASYNC_URL требуется для EVENT_BUS_BACKEND=postgres")
-        if self.settings.event_bus_backend == "redis" and not self.settings.redis_url:
-            problems.append("Redis требуется для EVENT_BUS_BACKEND=redis")
-        dependency_checks = await self.dependency_health_snapshot_async()
-        for check in dependency_checks.get("checks", []):
-            if isinstance(check, dict) and not check.get("ok"):
-                problems.append(str(check.get("message") or check.get("name")))
-        return {
-            "ok": not problems,
-            "problems": problems,
-            "dependencies": self.dependencies_snapshot(),
-            "event_bus": self.event_bus.metrics().to_dict(),
-            "registry": {
-                "adapters": len(self.registry.adapters()),
-                "modules": len(self.registry.modules()),
-                "plugins": len(self.registry.plugins()),
-                "load_order": [item.to_dict() for item in self.registry.load_order()],
-            },
-            "components": self.components.snapshot(),
-            "dependency_checks": dependency_checks,
-        }
+        problems, warnings = self._readiness_core_problems()
+        return self._readiness_payload(problems, warnings, await self.dependency_health_snapshot_async())
 
     def dependency_health_snapshot(self) -> dict[str, object]:
         checks: list[dict[str, object]] = []
@@ -668,6 +663,16 @@ class Runtime:
             "# HELP cajeerbots_redis_configured Redis DSN настроен.",
             "# TYPE cajeerbots_redis_configured gauge",
             f"cajeerbots_redis_configured {1 if self.settings.redis_url else 0}",
+            "# HELP cajeerbots_bridge_processed_total Количество обработанных bridge-событий.",
+            "# TYPE cajeerbots_bridge_processed_total counter",
+            f"cajeerbots_bridge_processed_total {self.bridge.status.processed_events}",
+            "# HELP cajeerbots_bridge_failed_total Количество ошибок bridge.",
+            "# TYPE cajeerbots_bridge_failed_total counter",
+            f"cajeerbots_bridge_failed_total {self.bridge.status.failed_events}",
+            "# HELP cajeerbots_bridge_skipped_total Количество пропущенных bridge-событий.",
+            "# TYPE cajeerbots_bridge_skipped_total counter",
+            f"cajeerbots_bridge_skipped_total {self.bridge.status.skipped_events}",
+            f'cajeerbots_rbac_backend_info{{backend="{self.settings.rbac_backend}"}} 1',
         ]
         for adapter in self.adapter_health_snapshot():
             state_value = 1 if adapter.state == "running" else 0

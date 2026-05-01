@@ -1,17 +1,27 @@
 [Unit]
-Description=Cajeer Bots — универсальная платформа ботов
-After=network-online.target postgresql.service
+Description=Cajeer Bots runtime
+After=network-online.target postgresql.service redis.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/cajeer-bots
-EnvironmentFile=/opt/cajeer-bots/.env
-ExecStart=/opt/cajeer-bots/.venv/bin/cajeer-bots run all
-Restart=always
+EnvironmentFile=/etc/cajeer-bots/cajeer-bots.env
+ExecStart=/opt/cajeer-bots/.venv/bin/python -m core run
+Restart=on-failure
 RestartSec=5
-User=cajeerbots
-Group=cajeerbots
+User=cajeer-bots
+Group=cajeer-bots
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cajeer-bots/runtime /var/log/cajeer-bots
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target

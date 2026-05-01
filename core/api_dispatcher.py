@@ -5,7 +5,7 @@ import time
 from typing import Any, Mapping
 
 from core.webhook_registry import telegram_update_to_event, vkontakte_callback_event
-from core.api_routes import ROUTES, canonical_scope, openapi_document, readonly_paths
+from core.api_routes import ROUTES, canonical_scope, openapi_document, readonly_paths, validate_request_body
 from core.contracts import API_CONTRACT_VERSION
 from core.events import CajeerEvent
 from core.sdk.plugins import PluginRequest
@@ -101,11 +101,14 @@ class AsyncApiDispatcher:
 
     def webhook_replay_allowed(self, provider: str, headers: Mapping[str, str], raw_body: bytes) -> bool:
         settings = self.runtime.settings
+        hmac_required = settings.webhook_hmac_required or settings.webhook_profile == "gateway-signed"
+        if settings.webhook_profile == "direct":
+            hmac_required = settings.webhook_hmac_required
         if not verify_optional_hmac(
             settings.event_signing_secret,
             headers,
             raw_body,
-            required=settings.webhook_hmac_required,
+            required=hmac_required,
             timestamp_required=settings.webhook_timestamp_required,
             timestamp_ttl_seconds=settings.webhook_replay_ttl_seconds,
         ):
@@ -185,10 +188,19 @@ class AsyncApiDispatcher:
             return 200, {"plan": runtime.updater.plan("latest", refresh_latest=False, record=False)}, "application/json"
         if path == "/updates/history":
             return 200, {"items": [item.to_dict() for item in runtime.updater.history()]}, "application/json"
+        if path in {"/admin", "/admin/"}:
+            return 200, (runtime.project_root / "admin" / "index.html").read_text(encoding="utf-8"), "text/html"
+        if path == "/admin/app.js":
+            return 200, (runtime.project_root / "admin" / "app.js").read_text(encoding="utf-8"), "application/javascript"
+        if path == "/admin/style.css":
+            return 200, (runtime.project_root / "admin" / "style.css").read_text(encoding="utf-8"), "text/css"
         return 404, {"ok": False, "error": {"code": "not_found", "message": "маршрут не найден"}}, "application/json"
 
     async def post(self, path: str, body: dict[str, object], *, actor: str = "api", headers: Mapping[str, str] | None = None) -> tuple[int, dict[str, object] | str, str]:
         runtime = self.runtime
+        validation_errors = validate_request_body("POST", path, body)
+        if validation_errors:
+            return 400, {"ok": False, "error": {"code": "validation_failed", "messages": validation_errors}}, "application/json"
         plugin_route = self._plugin_route(path, "POST")
         if plugin_route is not None:
             return await self._dispatch_plugin_route(plugin_route, "POST", path, body, actor=actor, headers=headers)

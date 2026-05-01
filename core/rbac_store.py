@@ -114,6 +114,121 @@ class HybridRbacStore:
         return RbacDecision(allowed, grants, source)
 
 
+    async def decide_async(self, event: Any, permission: str) -> RbacDecision:
+        return self.decide(event, permission)
+
+
+class PostgresRbacStore:
+    """DB-backed RBAC reader matching the current Alembic schema."""
+
+    def __init__(self, async_dsn: str, schema: str, *, fallback_to_event_grants: bool = True) -> None:
+        self.async_dsn = async_dsn
+        self.schema = schema
+        self.fallback_to_event_grants = fallback_to_event_grants
+        self._engine: Any | None = None
+
+    def _event_key(self, event: Any) -> tuple[str, str] | None:
+        actor = getattr(event, "actor", None)
+        if actor is None:
+            return None
+        platform = getattr(actor, "platform", "")
+        platform_user_id = getattr(actor, "platform_user_id", "")
+        return (platform, platform_user_id) if platform and platform_user_id else None
+
+    async def _engine_obj(self) -> Any:
+        if self._engine is None:
+            from sqlalchemy.ext.asyncio import create_async_engine
+
+            self._engine = create_async_engine(self.async_dsn, pool_pre_ping=True)
+        return self._engine
+
+    async def close(self) -> None:
+        if self._engine is not None:
+            await self._engine.dispose()
+            self._engine = None
+
+    async def grants_for_event_async(self, event: Any) -> tuple[set[str], str]:
+        from sqlalchemy import text
+        from core.permissions import grants_from_event
+        from core.schema import validate_schema_name
+
+        direct = grants_from_event(event)
+        if direct and self.fallback_to_event_grants:
+            return direct, "event"
+        key = self._event_key(event)
+        if key is None:
+            return set(), "postgres:none"
+        schema = validate_schema_name(self.schema)
+        engine = await self._engine_obj()
+        async with engine.begin() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        f"""
+                        SELECT rp.permission
+                          FROM {schema}.platform_accounts pa
+                          JOIN {schema}.user_roles ur ON ur.user_id = pa.user_id
+                          JOIN {schema}.role_permissions rp ON rp.role_id = ur.role_id
+                         WHERE pa.platform = :platform
+                           AND pa.platform_user_id = :platform_user_id
+                        """
+                    ),
+                    {"platform": key[0], "platform_user_id": key[1]},
+                )
+            ).fetchall()
+        grants = {str(row[0]) for row in rows if row and row[0]}
+        return grants, "postgres" if grants else "postgres:none"
+
+    async def decide_async(self, event: Any, permission: str) -> RbacDecision:
+        grants, source = await self.grants_for_event_async(event)
+        return RbacDecision("*" in grants or permission in grants, grants, source)
+
+    def decide(self, event: Any, permission: str) -> RbacDecision:
+        raise RuntimeError("PostgresRbacStore требует async decide_async()")
+
+
+class CascadingRbacStore:
+    """RBAC chain: event grants -> PostgreSQL -> local cache."""
+
+    def __init__(self, postgres: PostgresRbacStore, cache: HybridRbacStore) -> None:
+        self.postgres = postgres
+        self.cache = cache
+
+    def reload(self) -> None:
+        self.cache.reload()
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"backend": "hybrid", "cache": self.cache.snapshot()}
+
+    async def close(self) -> None:
+        await self.postgres.close()
+
+    async def decide_async(self, event: Any, permission: str) -> RbacDecision:
+        from core.permissions import grants_from_event
+
+        direct = grants_from_event(event)
+        if direct:
+            return RbacDecision("*" in direct or permission in direct, direct, "event")
+        pg = await self.postgres.decide_async(event, permission)
+        if pg.grants:
+            return pg
+        return self.cache.decide(event, permission)
+
+    def decide(self, event: Any, permission: str) -> RbacDecision:
+        return self.cache.decide(event, permission)
+
+
+def build_rbac_store(settings: Any) -> Any:
+    cache = HybridRbacStore(settings.runtime_dir / "secrets" / "rbac_cache.json")
+    backend = getattr(settings, "rbac_backend", "cache")
+    if backend == "cache":
+        return cache
+    postgres = PostgresRbacStore(settings.storage.async_database_url, settings.shared_schema)
+    if backend == "postgres":
+        return postgres
+    return CascadingRbacStore(postgres, cache)
+
+
 
 async def bootstrap_owner_db(
     *,

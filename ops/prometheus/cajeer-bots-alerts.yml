@@ -1,0 +1,15 @@
+groups:
+  - name: cajeer-bots
+    rules:
+      - alert: CajeerBotsDeadLettersGrowing
+        expr: cajeerbots_dead_letters_total > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Cajeer Bots dead letters detected"
+      - alert: CajeerBotsBridgeFailures
+        expr: increase(cajeerbots_bridge_failed_total[5m]) > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "Cajeer Bots bridge failures"

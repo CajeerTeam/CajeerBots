@@ -263,7 +263,11 @@ class Settings:
     metrics_public: bool
     webhook_rate_limit_per_minute: int
     webhook_auth_failure_limit: int
+    trusted_proxy_cidrs: list[str]
+    real_ip_header: str
+    webhook_profile: str
     event_signing_secret: str
+    rbac_backend: str
     worker_tick_seconds: int
     distributed: DistributedSettings
     workspace: WorkspaceSettings
@@ -385,7 +389,11 @@ class Settings:
             metrics_public=_bool(os.getenv("METRICS_PUBLIC"), False),
             webhook_rate_limit_per_minute=_int("WEBHOOK_RATE_LIMIT_PER_MINUTE", 120, minimum=1, maximum=100000),
             webhook_auth_failure_limit=_int("WEBHOOK_AUTH_FAILURE_LIMIT", 20, minimum=1, maximum=100000),
+            trusted_proxy_cidrs=_csv(os.getenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32,::1/128")),
+            real_ip_header=_choice("REAL_IP_HEADER", "X-Forwarded-For", {"X-Forwarded-For", "X-Real-IP", "Forwarded"}),
+            webhook_profile=_choice("WEBHOOK_PROFILE", "direct", {"direct", "gateway-signed"}),
             event_signing_secret=os.getenv("EVENT_SIGNING_SECRET", ""),
+            rbac_backend=_choice("RBAC_BACKEND", "cache", {"cache", "postgres", "hybrid"}),
             worker_tick_seconds=_int("WORKER_TICK_SECONDS", 30, minimum=1, maximum=3600),
             distributed=distributed,
             workspace=workspace,
@@ -427,6 +435,8 @@ class Settings:
             errors.append("DEAD_LETTER_BACKEND=redis требует REDIS_URL")
         if self.storage.idempotency_backend == "redis" and not self.redis_url:
             errors.append("IDEMPOTENCY_BACKEND=redis требует REDIS_URL")
+        if self.rbac_backend in {"postgres", "hybrid"} and not self.storage.async_database_url:
+            errors.append("RBAC_BACKEND=postgres|hybrid требует DATABASE_ASYNC_URL")
         try:
             validate_schema_name(self.shared_schema)
         except ValueError as exc:
@@ -439,6 +449,8 @@ class Settings:
             errors.append("WEBHOOK_HMAC_REQUIRED=true требует EVENT_SIGNING_SECRET")
         if self.webhook_timestamp_required and not self.webhook_hmac_required:
             errors.append("WEBHOOK_TIMESTAMP_REQUIRED=true должен использоваться вместе с WEBHOOK_HMAC_REQUIRED=true")
+        if self.webhook_profile == "gateway-signed" and self.webhook_hmac_required and not self.event_signing_secret:
+            errors.append("WEBHOOK_PROFILE=gateway-signed требует EVENT_SIGNING_SECRET")
         if self.api_port < 1 or self.api_port > 65535:
             errors.append("API_PORT должен быть числом от 1 до 65535")
         return errors
@@ -487,7 +499,11 @@ class Settings:
             "metrics_public": self.metrics_public,
             "webhook_rate_limit_per_minute": self.webhook_rate_limit_per_minute,
             "webhook_auth_failure_limit": self.webhook_auth_failure_limit,
+            "trusted_proxy_cidrs": self.trusted_proxy_cidrs,
+            "real_ip_header": self.real_ip_header,
+            "webhook_profile": self.webhook_profile,
             "event_signing_secret_configured": bool(self.event_signing_secret),
+            "rbac_backend": self.rbac_backend,
             "workspace_enabled": self.workspace.enabled,
             "workspace_url_configured": bool(self.workspace.url),
             "workspace_token_configured": bool(self.workspace.token),

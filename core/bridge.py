@@ -48,5 +48,4 @@ class BridgeService:
             except Exception as exc:  # pragma: no cover - защитный контур
                 self.status.failed_events += 1
                 await self.runtime.event_bus.nack(claimed, str(exc), retry=True)
-                self.runtime.dead_letters.add(event, str(exc))
         return len(claimed_events)

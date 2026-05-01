@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cajeer Bots — Панель</title>
+  <link rel="stylesheet" href="/admin/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <h1>Cajeer Bots</h1>
+        <p>Минимальная панель диагностики runtime, адаптеров, модулей, плагинов, RBAC и очередей.</p>
+      </div>
+      <input id="token" type="password" placeholder="Bearer token">
+    </header>
+    <nav>
+      <button data-path="/readyz">Готовность</button>
+      <button data-path="/adapter-status">Адаптеры</button>
+      <button data-path="/modules">Модули</button>
+      <button data-path="/plugins">Плагины</button>
+      <button data-path="/commands">Команды</button>
+      <button data-path="/dead-letters">Dead letters</button>
+      <button data-path="/audit">Audit</button>
+      <button data-path="/metrics" data-text="1">Metrics</button>
+    </nav>
+    <section id="output">Выберите раздел.</section>
+  </main>
+  <script src="/admin/app.js"></script>
+</body>
+</html>

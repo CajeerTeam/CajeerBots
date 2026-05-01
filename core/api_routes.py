@@ -62,8 +62,11 @@ ROUTES: tuple[RouteSpec, ...] = (
     RouteSpec("GET", "/updates/status", "Статус update subsystem", "system.update.read"),
     RouteSpec("GET", "/updates/plan", "План обновления для Cajeer Workspace", "system.update.read"),
     RouteSpec("GET", "/updates/history", "История обновлений", "system.update.read"),
-    RouteSpec("POST", "/commands/dispatch", "Отправить команду в router", "system.commands.dispatch"),
-    RouteSpec("POST", "/delivery/enqueue", "Поставить сообщение в delivery queue", "system.delivery.enqueue"),
+    RouteSpec("GET", "/admin", "Минимальная веб-панель управления", "system.read"),
+    RouteSpec("GET", "/admin/app.js", "JS веб-панели", "system.read"),
+    RouteSpec("GET", "/admin/style.css", "CSS веб-панели", "system.read"),
+    RouteSpec("POST", "/commands/dispatch", "Отправить команду в router", "system.commands.dispatch", request_schema={"required": ["command"], "properties": {"command": "str", "payload": "dict"}}),
+    RouteSpec("POST", "/delivery/enqueue", "Поставить сообщение в delivery queue", "system.delivery.enqueue", request_schema={"required": ["adapter", "target", "text"], "properties": {"adapter": "str", "target": "str", "text": "str", "max_attempts": "int", "trace_id": "str"}}),
     RouteSpec("POST", "/dead-letters/retry", "Повторить dead letters", "system.events.retry"),
     RouteSpec("POST", "/events/publish", "Опубликовать событие", "system.events.publish"),
     RouteSpec("POST", "/runtime/stop", "Остановить runtime", "system.runtime.stop"),
@@ -134,3 +137,30 @@ def handler_registry_key(method: str, path: str) -> str:
     if route is None:
         return ""
     return route.handler_id or (route.method.lower() + "_" + route.path.strip("/").replace("/", "_").replace("-", "_"))
+
+
+def validate_request_body(method: str, path: str, body: dict[str, object]) -> list[str]:
+    route = route_for(method, path)
+    if route is None or not route.request_schema:
+        return []
+    errors: list[str] = []
+    required = route.request_schema.get("required", [])
+    if isinstance(required, list):
+        for key in required:
+            if str(key) not in body or body.get(str(key)) in {None, ""}:
+                errors.append(f"{key} обязателен")
+    properties = route.request_schema.get("properties", {})
+    if isinstance(properties, dict):
+        for key, expected in properties.items():
+            if key not in body or body[key] is None:
+                continue
+            value = body[key]
+            if expected == "str" and not isinstance(value, str):
+                errors.append(f"{key} должен быть строкой")
+            elif expected == "dict" and not isinstance(value, dict):
+                errors.append(f"{key} должен быть объектом")
+            elif expected == "int" and not isinstance(value, int):
+                errors.append(f"{key} должен быть числом")
+            elif expected == "bool" and not isinstance(value, bool):
+                errors.append(f"{key} должен быть boolean")
+    return errors

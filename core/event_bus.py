@@ -272,6 +272,7 @@ class RedisEventBus(EventBusBackend):
         self._redis: Any | None = None
         self._stream = f"{settings.storage.redis_queue_prefix}:events"
         self._dlq = f"{settings.storage.redis_queue_prefix}:events:dlq"
+        self._retry_zset = f"{settings.storage.redis_queue_prefix}:events:retry"
         self._group = "cajeer-bots-bridge"
         self._consumer = settings.instance_id or "cajeer-bots-local"
         self._snapshot: deque[CajeerEvent] = deque(maxlen=1000)
@@ -298,12 +299,24 @@ class RedisEventBus(EventBusBackend):
         if errors:
             self._failed += 1
             raise ValueError("; ".join(errors))
-        await (await self._client()).xadd(self._stream, {"payload": event.to_json(), "event_id": event.event_id, "trace_id": event.trace_id})
+        await (await self._client()).xadd(self._stream, {"payload": event.to_json(), "event_id": event.event_id, "trace_id": event.trace_id, "attempts": "0", "max_attempts": str(self.settings.storage.event_bus_max_attempts)})
         self._snapshot.append(event)
         self._published += 1
 
+    async def _drain_due_retries(self, redis: Any, limit: int = 100) -> None:
+        now = __import__("time").time()
+        rows = await redis.zrangebyscore(self._retry_zset, 0, now, start=0, num=limit)
+        for raw in rows:
+            try:
+                fields = json.loads(raw)
+                await redis.xadd(self._stream, fields)
+                await redis.zrem(self._retry_zset, raw)
+            except Exception:
+                await redis.zrem(self._retry_zset, raw)
+
     async def claim(self, limit: int = 100, *, consumer: str | None = None, lease_seconds: int = 60) -> list[ClaimedEvent]:
         redis = await self._client()
+        await self._drain_due_retries(redis, limit=limit)
         consumer = consumer or self._consumer
         # First reclaim stuck pending messages from crashed consumers, then read fresh ones.
         claimed_records: list[tuple[str, dict[str, str]]] = []
@@ -324,7 +337,7 @@ class RedisEventBus(EventBusBackend):
             try:
                 event = CajeerEvent.from_dict(json.loads(fields["payload"]))
                 self._snapshot.append(event)
-                result.append(ClaimedEvent(event, lease_id=item_id, backend_meta={"consumer": consumer}))
+                result.append(ClaimedEvent(event, lease_id=item_id, backend_meta={"consumer": consumer, "fields": fields, "attempts": int(fields.get("attempts", "0") or 0), "max_attempts": int(fields.get("max_attempts", str(self.settings.storage.event_bus_max_attempts)) or self.settings.storage.event_bus_max_attempts)}))
             except Exception as exc:  # pragma: no cover
                 self._failed += 1
                 await redis.xadd(self._dlq, {"source_id": item_id, "error": str(exc), **fields})
@@ -341,15 +354,33 @@ class RedisEventBus(EventBusBackend):
             self._delivered += 1
 
     async def nack(self, claimed: ClaimedEvent | CajeerEvent | str, error: str, *, retry: bool = True) -> None:
+        redis = await self._client()
+        item_id: str | None = None
         if isinstance(claimed, ClaimedEvent):
             item_id = claimed.lease_id
-            fields = {"event_id": claimed.event.event_id, "payload": claimed.event.to_json(), "error": error}
+            attempts = int(claimed.backend_meta.get("attempts", 0) or 0) + 1
+            max_attempts = int(claimed.backend_meta.get("max_attempts", self.settings.storage.event_bus_max_attempts) or self.settings.storage.event_bus_max_attempts)
+            fields = {
+                "payload": claimed.event.to_json(),
+                "event_id": claimed.event.event_id,
+                "trace_id": claimed.event.trace_id,
+                "attempts": str(attempts),
+                "max_attempts": str(max_attempts),
+                "last_error": error,
+            }
         else:
-            item_id = None
-            fields = {"event_id": self._event_id(claimed), "error": error}
-        redis = await self._client()
-        if not retry:
+            attempts = 1
+            max_attempts = self.settings.storage.event_bus_max_attempts
+            fields = {"event_id": self._event_id(claimed), "error": error, "attempts": str(attempts), "max_attempts": str(max_attempts)}
+        terminal = (not retry) or attempts >= max_attempts
+        if terminal:
             await redis.xadd(self._dlq, fields)
+        elif isinstance(claimed, ClaimedEvent):
+            base = max(0, int(self.settings.storage.event_bus_retry_backoff_seconds))
+            max_backoff = max(1, int(self.settings.storage.event_bus_retry_backoff_max_seconds))
+            delay = min(max_backoff, base * max(1, 2 ** max(0, attempts - 1)))
+            score = __import__("time").time() + delay
+            await redis.zadd(self._retry_zset, {json.dumps(fields, ensure_ascii=False, sort_keys=True): score})
         if item_id:
             await redis.xack(self._stream, self._group, item_id)
         self._failed += 1

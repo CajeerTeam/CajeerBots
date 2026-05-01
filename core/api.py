@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any, Mapping
 from urllib.parse import urlparse
 from uuid import uuid4
+from core.proxy import client_ip_from_headers
 
 if TYPE_CHECKING:
     from core.runtime import Runtime
@@ -153,10 +154,15 @@ class ApiServer:
                 self.end_headers()
                 self.wfile.write(raw)
 
+            def _client_ip(self) -> str:
+                remote_ip = self.client_address[0] if self.client_address else "unknown"
+                return client_ip_from_headers(remote_ip=remote_ip, headers=self.headers, behind_reverse_proxy=server.settings.api_behind_reverse_proxy, trusted_proxy_cidrs=server.settings.trusted_proxy_cidrs, real_ip_header=server.settings.real_ip_header)
+
             def do_GET(self) -> None:  # noqa: N802
                 path = urlparse(self.path).path
                 scope = server._token_scope(self.headers)
                 if not server._scope_allowed(path, "GET", scope):
+                    server.runtime.audit.write(actor_type="api", actor_id=scope or "anonymous", action="http.get", resource=path, result="denied", ip=self._client_ip(), user_agent=self.headers.get("User-Agent"))
                     self._send(403, {"ok": False, "error": "forbidden", "trace_id": uuid4().hex})
                     return
                 status, payload, content_type = server._payload(path, headers=self.headers)
@@ -201,6 +207,7 @@ class ApiServer:
                 else:
                     scope = server._token_scope(self.headers)
                     if not server._scope_allowed(path, "POST", scope):
+                        server.runtime.audit.write(actor_type="api", actor_id=scope or "anonymous", action="http.post", resource=path, result="denied", ip=self._client_ip(), user_agent=self.headers.get("User-Agent"))
                         self._send(403, {"ok": False, "error": "forbidden", "trace_id": uuid4().hex})
                         return
                 status, payload, content_type = server._post_payload(path, body, actor=actor, headers=self.headers)

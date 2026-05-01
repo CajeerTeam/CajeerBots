@@ -1,0 +1,33 @@
+{
+  "title": "Cajeer Bots",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Events",
+      "targets": [
+        {
+          "expr": "cajeerbots_events_total"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Dead letters",
+      "targets": [
+        {
+          "expr": "cajeerbots_dead_letters_total"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Bridge failures",
+      "targets": [
+        {
+          "expr": "increase(cajeerbots_bridge_failed_total[5m])"
+        }
+      ]
+    }
+  ]
+}
