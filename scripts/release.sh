@@ -15,6 +15,10 @@ done
 
 VERSION="$(cat VERSION)"
 NAME="CajeerBots-${VERSION}"
+RELEASE_CHECK_EVENT_SIGNING_SECRET="${RELEASE_CHECK_EVENT_SIGNING_SECRET:-cb_evt_0123456789abcdef0123456789abcdef0123456789abcdef}"
+RELEASE_CHECK_API_TOKEN="${RELEASE_CHECK_API_TOKEN:-cb_api_0123456789abcdef0123456789abcdef0123456789abcdef}"
+RELEASE_CHECK_API_TOKEN_READONLY="${RELEASE_CHECK_API_TOKEN_READONLY:-cb_read_0123456789abcdef0123456789abcdef0123456789abcdef}"
+RELEASE_CHECK_API_TOKEN_METRICS="${RELEASE_CHECK_API_TOKEN_METRICS:-cb_metrics_0123456789abcdef0123456789abcdef0123456789abcdef}"
 FORBIDDEN_PATTERN="Never""Mine|cajeer""_bots|cajeer""_core|nm""bot"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
@@ -59,13 +63,13 @@ done
 ./scripts/check_docs.sh
 ./scripts/check_secrets.sh
 ./scripts/run_drills.sh
-EVENT_SIGNING_SECRET="${EVENT_SIGNING_SECRET:-release-secret}" API_TOKEN="${API_TOKEN:-release-token}" "${PY_CMD[@]}" -m core doctor --offline --profile release-artifact
+EVENT_SIGNING_SECRET="${EVENT_SIGNING_SECRET:-${RELEASE_CHECK_EVENT_SIGNING_SECRET}}" API_TOKEN="${API_TOKEN:-${RELEASE_CHECK_API_TOKEN}}" "${PY_CMD[@]}" -m core doctor --offline --profile release-artifact
 "${PY_CMD[@]}" -m core adapters >/dev/null
 "${PY_CMD[@]}" -m core modules >/dev/null
 "${PY_CMD[@]}" -m core plugins >/dev/null
 "${PY_CMD[@]}" -m core commands >/dev/null
 if [ "$DRY_RUN" = "true" ]; then
-  EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token API_TOKEN_READONLY=release-readonly API_TOKEN_METRICS=release-metrics "${PY_CMD[@]}" -m core release verify . >/dev/null
+  EVENT_SIGNING_SECRET="${RELEASE_CHECK_EVENT_SIGNING_SECRET}" API_TOKEN="${RELEASE_CHECK_API_TOKEN}" API_TOKEN_READONLY="${RELEASE_CHECK_API_TOKEN_READONLY}" API_TOKEN_METRICS="${RELEASE_CHECK_API_TOKEN_METRICS}" "${PY_CMD[@]}" -m core release verify . >/dev/null
   echo "Release dry-run завершён: проверки исходного дерева пройдены, dist не собирался."
   exit 0
 fi
@@ -78,7 +82,11 @@ fi
 
 rm -rf dist
 mkdir -p "dist/${NAME}"
-cp -a README.md LICENSE VERSION pyproject.toml .env.example .env.local.example .env.docker.example .env.production.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini   core bots modules plugins distributed scripts ops wiki alembic schemas release   "dist/${NAME}/"
+cp -a README.md LICENSE VERSION pyproject.toml .env.example Dockerfile docker-compose.yml Makefile compatibility.yaml alembic.ini \
+  core bots modules plugins distributed scripts ops wiki alembic schemas release \
+  "dist/${NAME}/"
+cp -a configs "dist/${NAME}/"
+cp -a configs/env/.env.local.example configs/env/.env.docker.example configs/env/.env.production.example "dist/${NAME}/"
 chmod +x "dist/${NAME}/scripts"/*.sh
 find "dist/${NAME}" -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache \) -prune -exec rm -rf {} +
 
@@ -128,7 +136,7 @@ elif [ "$SIGNATURE_REQUIRED" = "true" ]; then
   exit 1
 fi
 
-EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token API_TOKEN_READONLY=release-readonly API_TOKEN_METRICS=release-metrics "${PY_CMD[@]}" -m core release verify "dist/${NAME}.tar.gz" --deep
-EVENT_SIGNING_SECRET=release-secret API_TOKEN=release-token API_TOKEN_READONLY=release-readonly API_TOKEN_METRICS=release-metrics "${PY_CMD[@]}" -m core release verify "dist/${NAME}.zip" --deep
+EVENT_SIGNING_SECRET="${RELEASE_CHECK_EVENT_SIGNING_SECRET}" API_TOKEN="${RELEASE_CHECK_API_TOKEN}" API_TOKEN_READONLY="${RELEASE_CHECK_API_TOKEN_READONLY}" API_TOKEN_METRICS="${RELEASE_CHECK_API_TOKEN_METRICS}" "${PY_CMD[@]}" -m core release verify "dist/${NAME}.tar.gz" --deep
+EVENT_SIGNING_SECRET="${RELEASE_CHECK_EVENT_SIGNING_SECRET}" API_TOKEN="${RELEASE_CHECK_API_TOKEN}" API_TOKEN_READONLY="${RELEASE_CHECK_API_TOKEN_READONLY}" API_TOKEN_METRICS="${RELEASE_CHECK_API_TOKEN_METRICS}" "${PY_CMD[@]}" -m core release verify "dist/${NAME}.zip" --deep
 
 echo "Релиз создан: dist/${NAME}.tar.gz и dist/${NAME}.zip"
