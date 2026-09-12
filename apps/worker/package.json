@@ -1,0 +1,24 @@
+{
+  "name": "@cajeerbots/worker",
+  "version": "1.0.0-rc.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cajeerbots/core": "workspace:*",
+    "@cajeerbots/outbox": "workspace:*",
+    "@cajeerbots/event-bus": "workspace:*",
+    "@cajeerbots/db": "workspace:*",
+    "@cajeerbots/security": "workspace:*",
+    "@cajeerbots/extension-runtime": "workspace:*",
+    "@cajeerbots/scheduler": "workspace:*",
+    "@cajeerbots/devtools": "workspace:*",
+    "@cajeerbots/backup": "workspace:*",
+    "@cajeerbots/storage": "workspace:*",
+    "@cajeerbots/observability": "workspace:*",
+    "@cajeerbots/integration-tests": "workspace:*"
+  }
+}

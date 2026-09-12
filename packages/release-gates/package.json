@@ -1,0 +1,16 @@
+{
+  "name": "@cajeerbots/release-gates",
+  "version": "1.0.0-rc.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run src/*.spec.ts"
+  },
+  "dependencies": {
+    "@cajeerbots/contracts": "workspace:*",
+    "@cajeerbots/docs": "workspace:*"
+  }
+}

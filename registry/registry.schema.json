@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.cajeer.ru/cajeerbots/registry.schema.json",
+  "title": "CajeerBots Registry Manifest",
+  "type": "object",
+  "required": ["schemaVersion", "name", "packages"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "name": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "signature": { "type": "string" },
+    "packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "kind", "versions"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "displayName": { "type": "string" },
+          "description": { "type": "string" },
+          "kind": { "enum": ["core", "module", "plugin", "theme", "sdk"] },
+          "publisher": { "type": "string" },
+          "homepage": { "type": "string", "format": "uri" },
+          "repository": { "type": "string", "format": "uri" },
+          "license": { "type": "string" },
+          "official": { "type": "boolean" },
+          "metadata": { "type": "object" },
+          "versions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["version", "engine", "artifact"],
+              "properties": {
+                "version": { "type": "string" },
+                "engine": {
+                  "type": "object",
+                  "required": ["range"],
+                  "properties": { "range": { "type": "string" } }
+                },
+                "channel": { "enum": ["stable", "lts", "beta", "alpha", "security"] },
+                "publishedAt": { "type": "string", "format": "date-time" },
+                "yanked": { "type": "boolean" },
+                "releaseNotes": { "type": "string" },
+                "manifest": { "type": "object" },
+                "metadata": { "type": "object" },
+                "artifact": {
+                  "type": "object",
+                  "required": ["url", "sha256"],
+                  "properties": {
+                    "url": { "type": "string" },
+                    "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+                    "size": { "type": "integer", "minimum": 1 },
+                    "signature": { "type": "string" },
+                    "signatureAlgorithm": { "enum": ["ed25519", "sha256-hmac", "none"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

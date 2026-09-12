@@ -1,0 +1,3378 @@
+openapi: 3.1.1
+info:
+  title: CajeerBots API
+  version: 1.0.0-rc.1
+  description: Русскоязычная TypeScript-first платформа для управления сообществами
+    через Telegram, VK и Discord.
+servers:
+- url: /api
+security:
+- ApiKeyAuth: []
+- BearerAuth: []
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+    Community:
+      type: object
+      required:
+      - id
+      - slug
+      - title
+      - language
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        title:
+          type: string
+        language:
+          type: string
+    CreateCommunity:
+      type: object
+      required:
+      - slug
+      - title
+      properties:
+        slug:
+          type: string
+        title:
+          type: string
+        language:
+          type: string
+          default: ru
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          enum:
+          - telegram
+          - vk
+          - discord
+        externalId:
+          type: string
+        username:
+          type: string
+          nullable: true
+        displayName:
+          type: string
+          nullable: true
+        locale:
+          type: string
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        title:
+          type: string
+        priority:
+          type: integer
+    BotAccount:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          enum:
+          - telegram
+          - vk
+          - discord
+        mode:
+          enum:
+          - polling
+          - webhook
+        username:
+          type: string
+          nullable: true
+        tokenRef:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+    MessageTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+        locale:
+          type: string
+        body:
+          type: string
+    Secret:
+      type: object
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+        ref:
+          type: string
+        description:
+          type: string
+          nullable: true
+        version:
+          type: integer
+        updatedAt:
+          type: string
+          format: date-time
+    RuntimeConfigSummary:
+      type: object
+      additionalProperties: true
+    CommunityExport:
+      type: object
+      additionalProperties: true
+    BotRuntimeStatus:
+      type: object
+      properties:
+        accountId:
+          type: string
+        provider:
+          enum:
+          - telegram
+          - vk
+          - discord
+        mode:
+          enum:
+          - polling
+          - webhook
+        isActive:
+          type: boolean
+        runtime:
+          type: object
+          nullable: true
+    BotInboundUpdate:
+      type: object
+      properties:
+        id:
+          type: string
+        accountId:
+          type: string
+        provider:
+          enum:
+          - telegram
+          - vk
+          - discord
+        type:
+          type: string
+        status:
+          type: string
+        receivedAt:
+          type: string
+          format: date-time
+    BotOutboundMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        accountId:
+          type: string
+        provider:
+          enum:
+          - telegram
+          - vk
+          - discord
+        targetId:
+          type: string
+        text:
+          type: string
+        status:
+          enum:
+          - pending
+          - sending
+          - sent
+          - failed
+          - dead
+        attempts:
+          type: integer
+    IntegrationTestSuite:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        title:
+          type: string
+        category:
+          type: string
+        isActive:
+          type: boolean
+    IntegrationTestCase:
+      type: object
+      properties:
+        id:
+          type: string
+        suiteId:
+          type: string
+        code:
+          type: string
+        target:
+          type: string
+        kind:
+          type: string
+        definition:
+          type: object
+    IntegrationTestRun:
+      type: object
+      properties:
+        id:
+          type: string
+        version:
+          type: string
+        channel:
+          type: string
+        status:
+          type: string
+        summary:
+          type: object
+    IntegrationTestCoverage:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        summary:
+          type: object
+        areas:
+          type: array
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: OK
+  /auth/token:
+    post:
+      summary: Выпустить bootstrap JWT по CAJEER_ADMIN_TOKEN
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                adminToken:
+                  type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                ttlSeconds:
+                  type: integer
+      responses:
+        '201':
+          description: JWT issued
+  /auth/me:
+    get:
+      summary: Текущий principal
+      responses:
+        '200':
+          description: Principal
+  /auth/api-keys:
+    get:
+      summary: Список API keys
+      responses:
+        '200':
+          description: API keys
+    post:
+      summary: Создать API key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - title
+              - scopes
+              properties:
+                title:
+                  type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                expiresAt:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: API key
+          включая raw token только в этом ответе: null
+  /auth/api-keys/{id}/revoke:
+    post:
+      summary: Отозвать API key
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Revoked
+  /communities:
+    get:
+      summary: Список communities
+      responses:
+        '200':
+          description: Communities
+    post:
+      summary: Создать community
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommunity'
+      responses:
+        '201':
+          description: Created
+  /communities/{communityId}/users:
+    get:
+      summary: Пользователи community
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Users
+    post:
+      summary: Создать пользователя
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Created
+  /communities/{communityId}/roles:
+    get:
+      summary: Роли community
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Roles
+    post:
+      summary: Создать роль
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Created
+  /communities/{communityId}/bot-accounts:
+    get:
+      summary: Bot accounts community
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Bot accounts
+    post:
+      summary: Создать bot account
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Created
+  /communities/{communityId}/settings:
+    get:
+      summary: Настройки community
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Settings
+  /message-templates:
+    get:
+      summary: Message templates
+      responses:
+        '200':
+          description: Templates
+    put:
+      summary: Upsert message template
+      responses:
+        '200':
+          description: Template
+  /message-templates/{key}/render:
+    post:
+      summary: Render message template
+      parameters:
+      - in: path
+        name: key
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Rendered message
+  /webhooks/events:
+    post:
+      summary: Принять signed event и поставить в outbox
+      security: []
+      responses:
+        '202':
+          description: Accepted
+  /webhook-endpoints:
+    get:
+      summary: Webhook endpoints with recent deliveries
+      responses:
+        '200':
+          description: Endpoints
+    post:
+      summary: Создать webhook endpoint
+      responses:
+        '201':
+          description: Endpoint
+  /outbox:
+    get:
+      summary: Outbox messages with deliveries
+      responses:
+        '200':
+          description: Outbox
+  /outbox/{id}/retry:
+    post:
+      summary: Повторить доставку outbox message
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Retried
+  /extensions:
+    get:
+      summary: Extensions
+      responses:
+        '200':
+          description: Extensions
+  /extensions/install:
+    post:
+      summary: Установить extension manifest в БД
+      responses:
+        '201':
+          description: Installed extension
+  /extensions/{id}:
+    get:
+      summary: Получить расширение с permission grants, events и logs
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Extension
+  /extensions/{id}/enable:
+    post:
+      summary: Включить расширение после проверки permission grants
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Enabled extension
+  /extensions/{id}/disable:
+    post:
+      summary: Отключить расширение
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Disabled extension
+  /extensions/{id}/permissions:
+    get:
+      summary: Permission grants расширения
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Grants
+  /extensions/{id}/permissions/grant:
+    post:
+      summary: Выдать permissions расширению
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Grants
+  /extensions/{id}/permissions/revoke:
+    post:
+      summary: Отозвать permissions расширения
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Grants
+  /extensions/{id}/config:
+    put:
+      summary: Записать новую версию конфигурации расширения
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Config history entry
+  /extensions/{id}/config/history:
+    get:
+      summary: История конфигурации расширения
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Config history
+  /extensions/{id}/events:
+    get:
+      summary: Runtime events расширения
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Runtime events
+    post:
+      summary: Поставить runtime event расширения в очередь
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Enqueued
+  /extensions/events/{eventId}/retry:
+    post:
+      summary: Повторить runtime event расширения
+      parameters:
+      - in: path
+        name: eventId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Retried
+  /extensions/{id}/storage:
+    get:
+      summary: Key/value storage расширения по namespace
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: namespace
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Storage items
+  /extensions/{id}/storage/{namespace}/{key}:
+    put:
+      summary: Записать значение в storage расширения
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: key
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Storage item
+    delete:
+      summary: Удалить значение из storage расширения
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: key
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Deleted
+  /extensions/{id}/logs:
+    get:
+      summary: Runtime logs расширения
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Runtime logs
+  /audit:
+    get:
+      summary: Audit log
+      responses:
+        '200':
+          description: Audit log
+  /config/validate:
+    get:
+      summary: Проверить runtime-конфигурацию
+      responses:
+        '200':
+          description: Validation result
+  /config/summary:
+    get:
+      summary: Краткая runtime-конфигурация без секретов
+      responses:
+        '200':
+          description: Runtime config summary
+  /config/env:
+    get:
+      summary: Redacted env snapshot
+      responses:
+        '200':
+          description: Redacted env
+  /secrets:
+    get:
+      summary: Список encrypted secrets без значений
+      responses:
+        '200':
+          description: Secrets
+    post:
+      summary: Создать или обновить encrypted secret
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - key
+              - value
+              properties:
+                key:
+                  type: string
+                value:
+                  type: string
+                description:
+                  type: string
+                reason:
+                  type: string
+      responses:
+        '201':
+          description: Secret metadata
+  /secrets/{key}:
+    get:
+      summary: Метаданные secret
+      parameters:
+      - in: path
+        name: key
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Secret metadata
+    put:
+      summary: Обновить encrypted secret
+      parameters:
+      - in: path
+        name: key
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Secret metadata
+    delete:
+      summary: Удалить encrypted secret
+      parameters:
+      - in: path
+        name: key
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Deleted
+  /secrets/{key}/value:
+    get:
+      summary: Расшифровать secret; требует secrets:reveal
+      parameters:
+      - in: path
+        name: key
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Secret value
+  /secrets/{key}/rotate:
+    post:
+      summary: Ротировать encrypted secret
+      parameters:
+      - in: path
+        name: key
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Secret metadata
+  /communities/{communityId}/import-export/export:
+    get:
+      summary: Экспортировать данные community
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Community export
+  /communities/{communityId}/import-export/import:
+    post:
+      summary: Dry-run или применить импорт данных community
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Import result
+  /communities/{communityId}/interactions/commands:
+    get:
+      summary: Список runtime-команд community
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: provider
+        required: false
+        schema:
+          enum:
+          - telegram
+          - vk
+          - discord
+      responses:
+        '200':
+          description: Interaction commands
+    post:
+      summary: Создать runtime-команду
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Interaction command
+  /communities/{communityId}/interactions/commands/{id}:
+    get:
+      summary: Получить runtime-команду
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Interaction command
+    patch:
+      summary: Обновить runtime-команду
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Interaction command
+  /communities/{communityId}/interactions/menus:
+    get:
+      summary: Список меню community
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: locale
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Interaction menus
+    post:
+      summary: Создать меню
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Interaction menu
+  /communities/{communityId}/interactions/callbacks:
+    get:
+      summary: Список callback actions
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Callback actions
+    post:
+      summary: Создать callback action
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Callback action
+  /communities/{communityId}/interactions/conversations:
+    get:
+      summary: Список conversation flows
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Conversation flows
+    post:
+      summary: Создать conversation flow
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Conversation flow
+  /communities/{communityId}/interactions/events:
+    get:
+      summary: Журнал входящих bot interactions
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Interaction events
+    post:
+      summary: Записать interaction event из runtime/интеграции
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Interaction event
+  /auth/admin/bootstrap:
+    post:
+      summary: Создать первый admin account через bootstrap token
+      security: []
+      responses:
+        '201':
+          description: Admin account
+  /auth/login:
+    post:
+      summary: Login admin account по email/password с optional TOTP/recovery code
+      security: []
+      responses:
+        '201':
+          description: Access token
+          refresh token and session: null
+  /auth/refresh:
+    post:
+      summary: Rotate refresh token и выпустить новый JWT access token
+      security: []
+      responses:
+        '201':
+          description: New token pair
+  /auth/logout:
+    post:
+      summary: Отозвать refresh session
+      security: []
+      responses:
+        '201':
+          description: Logout result
+  /auth/admin-accounts:
+    get:
+      summary: Список admin accounts
+      responses:
+        '200':
+          description: Admin accounts
+  /auth/sessions:
+    get:
+      summary: Список admin sessions текущего аккаунта или всех при auth:sessions:manage
+      responses:
+        '200':
+          description: Admin sessions
+  /auth/sessions/{id}/revoke:
+    post:
+      summary: Отозвать admin session
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Revoked session
+  /auth/password/change:
+    post:
+      summary: Сменить пароль admin account и при необходимости отозвать sessions
+      responses:
+        '201':
+          description: Password changed
+  /auth/2fa/setup:
+    post:
+      summary: Создать TOTP secret и otpauth URI
+      responses:
+        '201':
+          description: TOTP setup data
+  /auth/2fa/confirm:
+    post:
+      summary: Подтвердить TOTP и получить recovery codes
+      responses:
+        '201':
+          description: Recovery codes
+  /auth/2fa/disable:
+    post:
+      summary: Отключить TOTP 2FA после password + TOTP/recovery проверки
+      responses:
+        '201':
+          description: Disabled state
+  /auth/2fa/recovery-codes/rotate:
+    post:
+      summary: Перевыпустить recovery codes
+      responses:
+        '201':
+          description: New recovery codes
+  /security/hardening:
+    get:
+      summary: Состояние security hardening
+      responses:
+        '200':
+          description: Hardening status
+  /security/rate-limit-violations:
+    get:
+      summary: Журнал rate-limit violations
+      parameters:
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Rate-limit violations
+  /communities/{communityId}/bot-runtime/status:
+    get:
+      summary: Runtime status активных bot accounts community
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: accountId
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Bot runtime statuses
+  /communities/{communityId}/bot-runtime/inbound-updates:
+    get:
+      summary: Журнал входящих provider updates
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: accountId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Inbound updates
+  /communities/{communityId}/bot-runtime/outbound-messages:
+    get:
+      summary: Журнал исходящих bot messages
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: accountId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Outbound messages
+  /communities/{communityId}/bot-runtime/outbound-messages/{id}/retry:
+    post:
+      summary: Вернуть исходящее bot message в pending для повторной отправки
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Outbound message queued for retry
+  /communities/{communityId}/bot-runtime/accounts/{accountId}/webhook-url:
+    get:
+      summary: Получить callback URL для provider webhook mode
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: accountId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Webhook URL
+  /communities/{communityId}/message-core/catalogs:
+    get:
+      summary: Список locale catalogs Message Core
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: locale
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: namespace
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Locale catalogs
+    put:
+      summary: Создать или обновить locale catalog
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Locale catalog
+  /communities/{communityId}/message-core/button-layouts:
+    get:
+      summary: Список button layouts Message Core
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: code
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: provider
+        required: false
+        schema:
+          enum:
+          - telegram
+          - vk
+          - discord
+      - in: query
+        name: locale
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Button layouts
+    put:
+      summary: Создать или обновить provider-aware button layout
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Button layout
+  /communities/{communityId}/message-core/forms:
+    get:
+      summary: Список форм Message Core
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: locale
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: activeOnly
+        required: false
+        schema:
+          type: boolean
+      responses:
+        '200':
+          description: Forms
+    put:
+      summary: Создать или обновить form definition
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Form definition
+  /communities/{communityId}/message-core/forms/{code}/submit:
+    post:
+      summary: Проверить и сохранить form submission
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: code
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: locale
+        required: false
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Submission with validation result
+  /communities/{communityId}/message-core/form-submissions:
+    get:
+      summary: Журнал form submissions
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: formId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Form submissions
+  /communities/{communityId}/message-core/render:
+    post:
+      summary: Provider-aware preview/render message из text/template/catalog
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Rendered message
+  /communities/{communityId}/message-core/render-logs:
+    get:
+      summary: Журнал рендеров Message Core
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Render logs
+  /events/topics:
+    get:
+      summary: Event API topics
+      responses:
+        '200':
+          description: Event topics
+  /events/topics/{name}:
+    put:
+      summary: Создать или обновить Event API topic
+      parameters:
+      - in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Event topic
+  /events/publish:
+    post:
+      summary: Опубликовать durable event, создать journal record и subscription deliveries
+      responses:
+        '201':
+          description: Published event
+  /events/records:
+    get:
+      summary: Durable event journal
+      parameters:
+      - in: query
+        name: topic
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: type
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: communityId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: aggregateType
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: aggregateId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: source
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Event records
+  /events/records/{id}:
+    get:
+      summary: Event record с deliveries
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Event record
+  /events/records/{id}/replay:
+    post:
+      summary: Replay event record в active subscriptions
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Replay result
+  /events/subscriptions:
+    get:
+      summary: Event subscriptions
+      responses:
+        '200':
+          description: Subscriptions
+    post:
+      summary: Создать event subscription
+      responses:
+        '201':
+          description: Subscription
+  /events/subscriptions/{id}:
+    put:
+      summary: Обновить event subscription
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Subscription
+  /events/subscriptions/{id}/enable:
+    post:
+      summary: Включить event subscription
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Subscription
+  /events/subscriptions/{id}/disable:
+    post:
+      summary: Отключить event subscription
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Subscription
+  /events/deliveries:
+    get:
+      summary: Event subscription deliveries
+      parameters:
+      - in: query
+        name: subscriptionId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Deliveries
+  /events/deliveries/{id}/retry:
+    post:
+      summary: Повторить event delivery
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Delivery
+  /events/dead-letter:
+    get:
+      summary: Event API dead-letter queue
+      parameters:
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Dead letters
+  /events/dead-letter/{id}/resolve:
+    post:
+      summary: Закрыть dead-letter entry
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Dead letter
+  /registry/sources:
+    get:
+      summary: Registry sources
+      responses:
+        '200':
+          description: Sources
+    post:
+      summary: Создать registry source
+      responses:
+        '201':
+          description: Source
+  /registry/sources/{id}:
+    put:
+      summary: Обновить registry source
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Source
+  /registry/sources/{id}/sync:
+    post:
+      summary: Синхронизировать registry source
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Sync result
+  /registry/packages:
+    get:
+      summary: Registry packages
+      parameters:
+      - in: query
+        name: sourceId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: kind
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: q
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Packages
+  /registry/packages/{name}:
+    get:
+      summary: Registry package details
+      parameters:
+      - in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: sourceId
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Package
+  /registry/packages/{name}/install:
+    post:
+      summary: Установить module/plugin из registry
+      parameters:
+      - in: path
+        name: name
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Installed extension
+  /updates/plans:
+    get:
+      summary: Update plans
+      parameters:
+      - in: query
+        name: targetType
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Plans
+  /updates/plans/core:
+    post:
+      summary: Создать core update plan
+      responses:
+        '201':
+          description: Plan
+  /updates/plans/extensions/{id}:
+    post:
+      summary: Создать extension update plan
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Plan
+  /updates/plans/{id}:
+    get:
+      summary: Update plan details
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Plan
+  /updates/plans/{id}/apply:
+    post:
+      summary: Применить update plan
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Applied plan
+  /updates/history:
+    get:
+      summary: Update history
+      parameters:
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: History
+  /jobs:
+    get:
+      summary: Scheduled jobs list
+      parameters:
+      - in: query
+        name: enabled
+        required: false
+        schema:
+          type: boolean
+      - in: query
+        name: type
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: q
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Scheduled jobs
+    put:
+      summary: Upsert scheduled job
+      responses:
+        '200':
+          description: Scheduled job
+  /jobs/queue-summary:
+    get:
+      summary: Scheduler and async queue summary
+      responses:
+        '200':
+          description: Queue summary
+  /jobs/runs:
+    get:
+      summary: Scheduled job run history
+      parameters:
+      - in: query
+        name: jobId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Job runs
+  /jobs/maintenance/snapshots:
+    get:
+      summary: Maintenance snapshots
+      parameters:
+      - in: query
+        name: kind
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Maintenance snapshots
+  /jobs/{idOrCode}:
+    get:
+      summary: Scheduled job details
+      parameters:
+      - in: path
+        name: idOrCode
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Scheduled job
+  /jobs/{idOrCode}/enable:
+    post:
+      summary: Enable scheduled job
+      parameters:
+      - in: path
+        name: idOrCode
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Enabled job
+  /jobs/{idOrCode}/disable:
+    post:
+      summary: Disable scheduled job
+      parameters:
+      - in: path
+        name: idOrCode
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Disabled job
+  /jobs/{idOrCode}/run:
+    post:
+      summary: Run scheduled job now
+      parameters:
+      - in: path
+        name: idOrCode
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Scheduled job run
+  /devtools/debug/sessions:
+    get:
+      summary: Debug sessions list
+      parameters:
+      - in: query
+        name: communityId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Debug sessions
+    post:
+      summary: Start debug session
+      responses:
+        '201':
+          description: Debug session
+  /devtools/debug/sessions/{id}/end:
+    post:
+      summary: End debug session
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Debug session ended
+  /devtools/debug/events:
+    get:
+      summary: Debug events list
+      parameters:
+      - in: query
+        name: sessionId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: communityId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: level
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: category
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Debug events
+    post:
+      summary: Record debug event
+      responses:
+        '201':
+          description: Debug event
+  /devtools/communities/{communityId}/scenarios:
+    get:
+      summary: Bot scenarios list
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: provider
+        required: false
+        schema:
+          enum:
+          - telegram
+          - vk
+          - discord
+      - in: query
+        name: active
+        required: false
+        schema:
+          type: boolean
+      - in: query
+        name: q
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Bot scenarios
+    put:
+      summary: Upsert bot scenario
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Bot scenario
+  /devtools/communities/{communityId}/scenarios/{idOrCode}:
+    get:
+      summary: Bot scenario details
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: idOrCode
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Bot scenario
+  /devtools/communities/{communityId}/scenarios/{idOrCode}/run:
+    post:
+      summary: Run bot scenario
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: idOrCode
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Bot scenario run
+  /devtools/communities/{communityId}/scenario-runs:
+    get:
+      summary: Bot scenario runs
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: scenarioId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Bot scenario runs
+  /devtools/communities/{communityId}/simulate-update:
+    post:
+      summary: Simulate Telegram/VK/Discord provider update
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Simulated inbound update
+  /storage/objects:
+    get:
+      summary: Storage objects catalog
+      parameters:
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: refType
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: refId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Storage objects
+  /storage/objects/{id}:
+    get:
+      summary: Storage object details
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Storage object
+    delete:
+      summary: Delete storage object soft/hard
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Storage object deleted
+  /communities/{communityId}/backups:
+    post:
+      summary: Create community backup artifact
+      parameters:
+      - in: path
+        name: communityId
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Backup artifact created
+  /backups:
+    get:
+      summary: Backup artifacts list
+      parameters:
+      - in: query
+        name: communityId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: take
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Backup artifacts
+  /backups/restore-runs:
+    get:
+      summary: Backup restore run history
+      parameters:
+      - in: query
+        name: artifactId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: communityId
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: status
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Backup restore runs
+  /backups/{id}:
+    get:
+      summary: Backup artifact details
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Backup artifact
+  /backups/{id}/verify:
+    post:
+      summary: Verify backup checksum and payload manifest
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Backup verification result
+  /backups/{id}/restore:
+    post:
+      summary: Restore backup dry-run/apply
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Backup restore run
+  /observability/summary:
+    get:
+      summary: Observability summary
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /observability/collect:
+    post:
+      summary: Collect observability snapshot, probes and alerts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /observability/samples:
+    get:
+      summary: List metric samples
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /observability/probes:
+    get:
+      summary: List probes
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+    put:
+      summary: Upsert probe
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /observability/probes/{idOrCode}/run:
+    post:
+      summary: Run probe now
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: idOrCode
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+  /observability/alert-rules:
+    get:
+      summary: List alert rules
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+    put:
+      summary: Upsert alert rule
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /observability/alert-rules/evaluate:
+    post:
+      summary: Evaluate alert rules
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /observability/incidents:
+    get:
+      summary: List incidents
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /observability/incidents/{idOrCode}/resolve:
+    post:
+      summary: Resolve incident
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: idOrCode
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+  /deployment/targets:
+    get:
+      summary: List deployment targets
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+    put:
+      summary: Upsert deployment target
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /deployment/targets/{targetId}/check:
+    post:
+      summary: Run deployment checks for target
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: targetId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+  /deployment/checks/run:
+    post:
+      summary: Run ad-hoc deployment checks
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /deployment/checks:
+    get:
+      summary: List deployment check history
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /deployment/runs:
+    post:
+      summary: Create deployment run journal record
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /deployment/runs/{id}/finish:
+    post:
+      summary: Finish deployment run journal record
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+  /deployment/env/render:
+    post:
+      summary: Render production env file
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /deployment/env/validate:
+    post:
+      summary: Validate production env text
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /deployment/nginx/render:
+    post:
+      summary: Render Nginx reverse proxy config
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /deployment/systemd/render:
+    post:
+      summary: Render systemd units
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /deployment/release-manifest:
+    post:
+      summary: Build and store release manifest artifact metadata
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /deployment/release-artifacts:
+    get:
+      summary: List release artifacts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /contracts/snapshots:
+    get:
+      operationId: contractSnapshots
+      tags:
+      - Contracts
+      summary: List OpenAPI contract snapshots
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+    post:
+      operationId: createContractSnapshot
+      tags:
+      - Contracts
+      summary: Create OpenAPI contract snapshot
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /contracts/snapshots/{id}:
+    get:
+      operationId: contractSnapshot
+      tags:
+      - Contracts
+      summary: Get OpenAPI contract snapshot
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+  /contracts/checks/run:
+    post:
+      operationId: runContractCheck
+      tags:
+      - Contracts
+      summary: Run contract-first check and SDK coverage validation
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /contracts/checks:
+    get:
+      operationId: contractChecks
+      tags:
+      - Contracts
+      summary: List contract check history
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /contracts/sdk/generate:
+    post:
+      operationId: generateSdkFromContract
+      tags:
+      - Contracts
+      summary: Generate SDK operation map and coverage checklist from OpenAPI snapshot
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /contracts/sdk/runs:
+    get:
+      operationId: sdkGenerationRuns
+      tags:
+      - Contracts
+      summary: List SDK generation runs
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /contracts/deprecations:
+    get:
+      operationId: apiDeprecations
+      tags:
+      - Contracts
+      summary: List API deprecation policy records
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+    put:
+      operationId: upsertApiDeprecation
+      tags:
+      - Contracts
+      summary: Upsert API deprecation policy record
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /docs/collections:
+    get:
+      operationId: documentationCollections
+      tags:
+      - Docs
+      summary: List documentation collections
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+    put:
+      operationId: upsertDocumentationCollection
+      tags:
+      - Docs
+      summary: Upsert documentation collection source
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /docs/collections/{collectionId}/sync:
+    post:
+      operationId: syncDocumentationCollection
+      tags:
+      - Docs
+      summary: Sync local GitFlic Wiki markdown pages into the database
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: collectionId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+  /docs/pages:
+    get:
+      operationId: documentationPages
+      tags:
+      - Docs
+      summary: List documentation pages
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /docs/pages/{idOrSlug}:
+    get:
+      operationId: documentationPage
+      tags:
+      - Docs
+      summary: Read documentation page by id or slug
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: idOrSlug
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+  /docs/search:
+    get:
+      operationId: searchDocumentation
+      tags:
+      - Docs
+      summary: Search documentation pages
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+  /docs/checks/run:
+    post:
+      operationId: runDocumentationCheck
+      tags:
+      - Docs
+      summary: Run documentation quality check
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /docs/checks:
+    get:
+      operationId: documentationChecks
+      tags:
+      - Docs
+      summary: List documentation check history
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /docs/snapshots:
+    get:
+      operationId: documentationSnapshots
+      tags:
+      - Docs
+      summary: List documentation snapshots
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /docs/exports:
+    get:
+      operationId: documentationExports
+      tags:
+      - Docs
+      summary: List documentation exports
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+    post:
+      operationId: createDocumentationExport
+      tags:
+      - Docs
+      summary: Create documentation export bundle
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /release-gates/summary:
+    get:
+      operationId: releaseGateSummary
+      tags:
+      - ReleaseGates
+      summary: Summary of beta release gates and feature-freeze state
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /release-gates/freezes:
+    get:
+      operationId: releaseFreezes
+      tags:
+      - ReleaseGates
+      summary: List release freezes
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+    put:
+      operationId: upsertReleaseFreeze
+      tags:
+      - ReleaseGates
+      summary: Create or update release freeze
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /release-gates/quality-gates:
+    get:
+      operationId: releaseQualityGates
+      tags:
+      - ReleaseGates
+      summary: List release quality gates
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+    put:
+      operationId: upsertReleaseQualityGate
+      tags:
+      - ReleaseGates
+      summary: Create or update release quality gate
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /release-gates/quality-gates/defaults:
+    post:
+      operationId: seedDefaultReleaseGates
+      tags:
+      - ReleaseGates
+      summary: Seed default beta quality gates
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /release-gates/runs:
+    get:
+      operationId: releaseGateRuns
+      tags:
+      - ReleaseGates
+      summary: List release gate runs
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+    post:
+      operationId: runReleaseGates
+      tags:
+      - ReleaseGates
+      summary: Run release quality gates
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /release-gates/runs/{id}:
+    get:
+      operationId: releaseGateRun
+      tags:
+      - ReleaseGates
+      summary: Read release gate run details
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+  /release-gates/blockers:
+    get:
+      operationId: releaseBlockers
+      tags:
+      - ReleaseGates
+      summary: List release blockers
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /release-gates/blockers/{id}:
+    put:
+      operationId: resolveReleaseBlocker
+      tags:
+      - ReleaseGates
+      summary: Resolve, accept or reopen release blocker
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+  /release-gates/reports:
+    get:
+      operationId: releaseCandidateReports
+      tags:
+      - ReleaseGates
+      summary: List release candidate reports
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+    post:
+      operationId: createReleaseCandidateReport
+      tags:
+      - ReleaseGates
+      summary: Create release candidate report
+      security:
+      - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /integration-tests/summary:
+    get:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsSummary
+      summary: Сводка integration tests
+      security: &id001
+      - bearerAuth: []
+      - apiKeyAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+  /integration-tests/defaults:
+    post:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsSeedDefaults
+      summary: Создать default beta integration suites
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+  /integration-tests/suites:
+    get:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsListSuites
+      summary: Список integration test suites
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+    put:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsUpsertSuite
+      summary: Создать/обновить integration test suite
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+  /integration-tests/cases:
+    get:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsListCases
+      summary: Список integration test cases
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+    put:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsUpsertCase
+      summary: Создать/обновить integration test case
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+  /integration-tests/suites/{suiteCode}/cases/{caseCode}:
+    get:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsGetCase
+      summary: Получить integration test case
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+  /integration-tests/suites/{suiteCode}/run:
+    post:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsRunSuite
+      summary: Запустить integration test suite
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+  /integration-tests/suites/{suiteCode}/cases/{caseCode}/run:
+    post:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsRunCase
+      summary: Запустить integration test case
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+  /integration-tests/runs/queue:
+    post:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsQueueRun
+      summary: Поставить integration run в очередь
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+  /integration-tests/runs:
+    get:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsListRuns
+      summary: Список integration test runs
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+  /integration-tests/runs/{id}:
+    get:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsGetRun
+      summary: Получить integration run со steps
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+  /integration-tests/steps:
+    get:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsListSteps
+      summary: Список integration step runs
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+  /integration-tests/coverage:
+    get:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsListCoverage
+      summary: Список integration coverage snapshots
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+    post:
+      tags:
+      - IntegrationTests
+      operationId: integrationTestsCalculateCoverage
+      summary: Рассчитать integration coverage
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+
+  /security/audit/summary:
+    get:
+      tags:
+      - SecurityAudit
+      operationId: securityAuditSummary
+      summary: Security beta audit summary
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+  /security/audit/defaults:
+    post:
+      tags:
+      - SecurityAudit
+      operationId: securityAuditSeedDefaults
+      summary: Seed default security audit policies
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+  /security/audit/policies:
+    get:
+      tags:
+      - SecurityAudit
+      operationId: securityAuditListPolicies
+      summary: List security audit policies
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+    put:
+      tags:
+      - SecurityAudit
+      operationId: securityAuditUpsertPolicy
+      summary: Upsert security audit policy
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /security/audit/runs:
+    get:
+      tags:
+      - SecurityAudit
+      operationId: securityAuditListRuns
+      summary: List security audit runs
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+    post:
+      tags:
+      - SecurityAudit
+      operationId: securityAuditRun
+      summary: Run security beta audit
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+  /security/audit/runs/{id}:
+    get:
+      tags:
+      - SecurityAudit
+      operationId: securityAuditGetRun
+      summary: Get security audit run with findings
+      security: *id001
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+  /security/audit/findings:
+    get:
+      tags:
+      - SecurityAudit
+      operationId: securityAuditListFindings
+      summary: List security audit findings
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+  /security/audit/findings/{id}:
+    put:
+      tags:
+      - SecurityAudit
+      operationId: securityAuditResolveFinding
+      summary: Resolve/accept security audit finding
+      security: *id001
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+  /security/risk-snapshots:
+    get:
+      tags:
+      - SecurityAudit
+      operationId: securityRiskSnapshots
+      summary: List security risk snapshots
+      security: *id001
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {}
+  /release-candidate/summary:
+    get:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateSummary
+      summary: RC1 readiness summary
+      security: *id001
+      responses: {'200': {description: OK, content: {application/json: {schema: {}}}}}
+  /release-candidate/api-freeze/snapshots:
+    get:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateListApiFreezeSnapshots
+      summary: List API freeze snapshots
+      security: *id001
+      responses: {'200': {description: OK, content: {application/json: {schema: {}}}}}
+    post:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateCreateApiFreezeSnapshot
+      summary: Create API freeze snapshot
+      security: *id001
+      requestBody: {required: false, content: {application/json: {schema: {type: object}}}}
+      responses: {'201': {description: Created, content: {application/json: {schema: {}}}}}
+  /release-candidate/api-freeze/verify:
+    post:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateVerifyApiFreeze
+      summary: Verify current OpenAPI against API freeze
+      security: *id001
+      requestBody: {required: false, content: {application/json: {schema: {type: object}}}}
+      responses: {'201': {description: OK, content: {application/json: {schema: {}}}}}
+  /release-candidate/compatibility/defaults:
+    post:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateSeedCompatibilityDefaults
+      summary: Seed default compatibility targets
+      security: *id001
+      responses: {'201': {description: OK, content: {application/json: {schema: {}}}}}
+  /release-candidate/compatibility/targets:
+    get:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateListCompatibilityTargets
+      summary: List compatibility targets
+      security: *id001
+      responses: {'200': {description: OK, content: {application/json: {schema: {}}}}}
+    put:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateUpsertCompatibilityTarget
+      summary: Upsert compatibility target
+      security: *id001
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses: {'200': {description: OK, content: {application/json: {schema: {}}}}}
+  /release-candidate/compatibility/matrix:
+    get:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateListCompatibilityMatrices
+      summary: List compatibility matrices
+      security: *id001
+      responses: {'200': {description: OK, content: {application/json: {schema: {}}}}}
+    post:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateBuildCompatibilityMatrix
+      summary: Build compatibility matrix
+      security: *id001
+      requestBody: {required: false, content: {application/json: {schema: {type: object}}}}
+      responses: {'201': {description: OK, content: {application/json: {schema: {}}}}}
+  /release-candidate/upgrade-plans:
+    get:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateListUpgradePlans
+      summary: List RC upgrade plans
+      security: *id001
+      responses: {'200': {description: OK, content: {application/json: {schema: {}}}}}
+    post:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateCreateUpgradePlan
+      summary: Create RC upgrade plan
+      security: *id001
+      requestBody: {required: false, content: {application/json: {schema: {type: object}}}}
+      responses: {'201': {description: Created, content: {application/json: {schema: {}}}}}
+  /release-candidate/upgrade-plans/{id}/run:
+    post:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateRunUpgradePlan
+      summary: Run RC upgrade rehearsal
+      security: *id001
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: {type: string}
+      requestBody: {required: false, content: {application/json: {schema: {type: object}}}}
+      responses: {'201': {description: OK, content: {application/json: {schema: {}}}}}
+  /release-candidate/upgrade-runs:
+    get:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateListUpgradeRuns
+      summary: List RC upgrade runs
+      security: *id001
+      responses: {'200': {description: OK, content: {application/json: {schema: {}}}}}
+  /release-candidate/readiness-runs:
+    get:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateListReadinessRuns
+      summary: List RC readiness runs
+      security: *id001
+      responses: {'200': {description: OK, content: {application/json: {schema: {}}}}}
+    post:
+      tags: [ReleaseCandidate]
+      operationId: releaseCandidateRunReadiness
+      summary: Run RC readiness checks
+      security: *id001
+      requestBody: {required: false, content: {application/json: {schema: {type: object}}}}
+      responses: {'201': {description: OK, content: {application/json: {schema: {}}}}}
+
+tags:
+- name: IntegrationTests
+  description: Integration suites, cases, runs и coverage для beta regression
+- name: SecurityAudit
+  description: Security beta audit, findings и risk snapshots
+
+- name: ReleaseCandidate
+  description: API freeze, compatibility matrix, RC upgrade rehearsal and readiness checks

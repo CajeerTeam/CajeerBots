@@ -1,0 +1,23 @@
+{
+  "name": "@cajeerbots/bot-runtime",
+  "version": "1.0.0-rc.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cajeerbots/core": "workspace:*",
+    "@cajeerbots/interaction-core": "workspace:*",
+    "@cajeerbots/message-core": "workspace:*",
+    "@cajeerbots/config": "workspace:*",
+    "@cajeerbots/db": "workspace:*",
+    "@cajeerbots/security": "workspace:*",
+    "@cajeerbots/extension-runtime": "workspace:*",
+    "discord.js": "^14.0.0",
+    "fastify": "^5.0.0",
+    "grammy": "^1.0.0",
+    "vk-io": "^4.0.0"
+  }
+}

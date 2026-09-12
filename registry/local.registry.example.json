@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "1.0",
+  "name": "CajeerBots Local Example Registry",
+  "generatedAt": "2026-06-17T00:00:00.000Z",
+  "packages": [
+    {
+      "name": "@cajeerbots/example-extension",
+      "displayName": "Пример расширения",
+      "description": "Локальный пример registry package для проверки sync/install/update workflow.",
+      "kind": "plugin",
+      "publisher": "Cajeer Team",
+      "license": "Apache-2.0",
+      "official": true,
+      "versions": [
+        {
+          "version": "0.6.0",
+          "engine": {
+            "range": ">=0.6.0 <1.0.0"
+          },
+          "channel": "stable",
+          "publishedAt": "2026-06-17T00:00:00.000Z",
+          "yanked": false,
+          "releaseNotes": "Example extension registry package for local development.",
+          "manifest": {
+            "name": "@cajeerbots/example-extension",
+            "version": "0.6.0",
+            "displayName": "Пример расширения",
+            "description": "Рабочий пример расширения CajeerBots с runtime hook, storage и outbound event.",
+            "engine": {
+              "apiVersion": "0.6.0",
+              "range": ">=0.6.0 <1.0.0"
+            },
+            "permissions": [
+              "settings:read"
+            ],
+            "hooks": [
+              "extension.enabled",
+              "webhook.received",
+              "interaction.*"
+            ],
+            "entry": "./dist/index.js",
+            "capabilities": [
+              "runtime-hooks",
+              "storage",
+              "events"
+            ],
+            "commands": [
+              {
+                "name": "example_status",
+                "description": "Проверка example extension",
+                "templateKey": "system.status",
+                "scopes": []
+              }
+            ]
+          },
+          "artifact": {
+            "url": "file://./examples/example-extension/dist/example-extension.zip",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "signatureAlgorithm": "none"
+          }
+        }
+      ]
+    }
+  ]
+}

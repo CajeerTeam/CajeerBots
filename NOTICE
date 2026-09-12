@@ -1,0 +1,28 @@
+CajeerBots
+
+Русскоязычная TypeScript-first платформа для расширения, автоматизации и управления сообществами через Telegram, VK и Discord без внешней веб-панели и обязательных внешних веб-интерфейсов.
+
+Copyright 2026 SkiF4er and Cajeer Team.
+
+Лицензия: Apache License, Version 2.0.
+Полный текст лицензии находится в файле LICENSE.
+
+Роли проекта:
+- Основатель: SkiF4er
+- Мейнтейнеры: Cajeer Team
+- Спонсоры: DeepLayer Team
+- Контрибьюторы: markovav
+
+Официальные контакты:
+- Общие вопросы: contact@cajeer.ru
+- Поддержка: support@cajeer.ru
+- Разработка: dev@cajeer.ru
+- Администрирование: admin@cajeer.ru
+- Безопасность: security@cajeer.ru
+- Правовые вопросы: legal@cajeer.ru
+- Бренд и товарные знаки: brand@cajeer.ru
+- Пресса и публичные запросы: press@cajeer.ru
+- Кодекс поведения: conduct@cajeer.ru
+- Жалобы на злоупотребления: abuse@cajeer.ru
+
+Этот NOTICE должен сохраняться во всех существенных исходных и бинарных распространениях CajeerBots, если это требуется лицензией Apache License 2.0.

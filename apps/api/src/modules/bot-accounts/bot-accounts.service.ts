@@ -1,0 +1,62 @@
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '@cajeerbots/db';
+import type { Principal } from '@cajeerbots/security';
+import type { BotMode, BotProvider } from '@cajeerbots/core';
+
+@Injectable()
+export class BotAccountsService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  list(communityId: string) {
+    return this.prisma.botAccount.findMany({ where: { communityId }, orderBy: { createdAt: 'desc' } });
+  }
+
+  async get(communityId: string, id: string) {
+    const account = await this.prisma.botAccount.findFirst({ where: { id, communityId } });
+    if (!account) throw new NotFoundException('Bot account не найден');
+    return account;
+  }
+
+  async create(
+    communityId: string,
+    data: { provider: BotProvider; mode: BotMode; externalId?: string; username?: string; tokenRef?: string; isActive: boolean },
+    actor: Principal,
+  ) {
+    try {
+      const account = await this.prisma.botAccount.create({ data: { communityId, ...defined(data) } });
+      await this.audit(actor, 'bot_account.create', account.id, { communityId, provider: data.provider, mode: data.mode });
+      return account;
+    } catch (error) {
+      if (isUniqueError(error)) throw new ConflictException('Bot account с таким community/provider/externalId уже существует');
+      throw error;
+    }
+  }
+
+  async update(
+    communityId: string,
+    id: string,
+    data: Partial<{ mode: BotMode; externalId: string; username: string; tokenRef: string; isActive: boolean }>,
+    actor: Principal,
+  ) {
+    await this.get(communityId, id);
+    const account = await this.prisma.botAccount.update({ where: { id }, data: defined(data) });
+    await this.audit(actor, 'bot_account.update', id, { communityId, fields: Object.keys(data) });
+    return account;
+  }
+
+  async setActive(communityId: string, id: string, isActive: boolean, actor: Principal) {
+    return this.update(communityId, id, { isActive }, actor);
+  }
+
+  private audit(actor: Principal, action: string, resourceId: string, metadata: Record<string, unknown>) {
+    return this.prisma.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action, resource: 'bot_account', resourceId, metadata: metadata as never } });
+  }
+}
+
+function defined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
+}
+
+function isUniqueError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'P2002';
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@cajeerbots/extension-runtime",
+  "version": "1.0.0-rc.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cajeerbots/core": "workspace:*",
+    "@cajeerbots/db": "workspace:*",
+    "@cajeerbots/extension-sdk": "workspace:*"
+  }
+}

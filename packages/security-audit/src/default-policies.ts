@@ -1,0 +1,68 @@
+import type { SecurityAuditPolicyDefinition } from './types.js';
+
+export const defaultSecurityAuditPolicies: SecurityAuditPolicyDefinition[] = [
+  {
+    code: 'auth.admin_2fa_required',
+    title: 'Все активные admin accounts должны иметь подтвержденную 2FA',
+    category: 'auth',
+    severity: 'critical',
+    enabled: true,
+    config: { requireForAllAdmins: true },
+  },
+  {
+    code: 'auth.sessions_not_stale',
+    title: 'Активные refresh sessions не должны быть слишком старыми',
+    category: 'auth',
+    severity: 'warning',
+    enabled: true,
+    config: { maxAgeDays: 30 },
+  },
+  {
+    code: 'tokens.expired_api_keys_revoked',
+    title: 'Истекшие API keys должны быть отозваны',
+    category: 'tokens',
+    severity: 'error',
+    enabled: true,
+    config: {},
+  },
+  {
+    code: 'tokens.api_keys_scoped',
+    title: 'Активные API keys должны иметь непустой набор scopes',
+    category: 'tokens',
+    severity: 'error',
+    enabled: true,
+    config: {},
+  },
+  {
+    code: 'secrets.rotation_due',
+    title: 'Secrets должны ротироваться по политике возраста',
+    category: 'secrets',
+    severity: 'warning',
+    enabled: true,
+    config: { maxAgeDays: 90 },
+  },
+  {
+    code: 'webhooks.secret_required',
+    title: 'Активные webhook endpoints должны использовать secretRef',
+    category: 'webhooks',
+    severity: 'error',
+    enabled: true,
+    config: {},
+  },
+  {
+    code: 'rate_limit.violations_threshold',
+    title: 'Rate-limit violations не должны превышать beta-порог',
+    category: 'rate_limit',
+    severity: 'warning',
+    enabled: true,
+    config: { windowHours: 24, maxViolations: 100 },
+  },
+  {
+    code: 'release.no_open_security_blockers',
+    title: 'Не должно быть открытых security/release blockers',
+    category: 'release',
+    severity: 'critical',
+    enabled: true,
+    config: {},
+  },
+];

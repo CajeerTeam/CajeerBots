@@ -1,0 +1,15 @@
+{
+  "name": "@cajeerbots/contracts",
+  "version": "1.0.0-rc.1",
+  "type": "module",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@cajeerbots/core": "workspace:*"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@cajeerbots/deployment",
+  "version": "1.0.0-rc.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run src/**/*.spec.ts"
+  }
+}

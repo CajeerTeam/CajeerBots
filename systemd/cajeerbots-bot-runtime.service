@@ -1,0 +1,20 @@
+[Unit]
+Description=CajeerBots Bot Runtime
+After=network-online.target postgresql.service redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cajeerbots
+WorkingDirectory=/opt/cajeerbots
+EnvironmentFile=/etc/cajeerbots/cajeerbots.env
+ExecStart=node apps/bot-runtime/dist/main.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/cajeerbots /var/lib/cajeerbots /var/log/cajeerbots
+
+[Install]
+WantedBy=multi-user.target

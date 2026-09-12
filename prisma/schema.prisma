@@ -1,0 +1,2036 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "./generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BotProvider {
+  telegram
+  vk
+  discord
+}
+
+enum BotMode {
+  polling
+  webhook
+}
+
+enum ExtensionStatus {
+  installed
+  enabled
+  disabled
+  failed
+}
+
+enum OutboxStatus {
+  pending
+  processing
+  delivered
+  failed
+  dead
+}
+
+enum DeliveryStatus {
+  pending
+  processing
+  delivered
+  failed
+  dead
+}
+
+enum BotOutboundStatus {
+  pending
+  sending
+  sent
+  failed
+  dead
+}
+
+model Community {
+  id          String       @id @default(cuid())
+  slug        String       @unique
+  title       String
+  language    String       @default("ru")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  botAccounts BotAccount[]
+  users       User[]
+  roles       Role[]
+  settings    Setting[]
+  interactionCommands InteractionCommand[]
+  interactionMenus InteractionMenu[]
+  callbackActions InteractionCallbackAction[]
+  conversationFlows ConversationFlow[]
+  interactionEvents InteractionEvent[]
+  localeCatalogs LocaleCatalog[]
+  messageButtonLayouts MessageButtonLayout[]
+  messageFormDefinitions MessageFormDefinition[]
+  messageFormSubmissions MessageFormSubmission[]
+  messageRenderLogs MessageRenderLog[]
+  debugSessions DebugSession[]
+  botScenarios BotScenario[]
+  observabilitySamples ObservabilityMetricSample[]
+
+  @@map("communities")
+}
+
+model BotAccount {
+  id          String      @id @default(cuid())
+  communityId String
+  provider    BotProvider
+  mode        BotMode     @default(polling)
+  externalId  String?
+  username    String?
+  tokenRef    String?
+  isActive    Boolean     @default(true)
+  runtimeStatuses BotRuntimeStatus[]
+  inboundUpdates  BotInboundUpdate[]
+  outboundMessages BotOutboundMessage[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  community   Community   @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, provider, externalId])
+  @@index([provider, isActive])
+  @@map("bot_accounts")
+}
+
+
+model BotRuntimeStatus {
+  id          String      @id @default(cuid())
+  accountId   String
+  provider    BotProvider
+  mode        BotMode
+  status      String      @default("starting")
+  pid         Int?
+  hostname    String?
+  version     String      @default("0.18.0-beta.1")
+  lastBeatAt  DateTime    @default(now())
+  startedAt   DateTime    @default(now())
+  stoppedAt   DateTime?
+  error       String?
+  metadata    Json?
+  account     BotAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, lastBeatAt])
+  @@index([status, lastBeatAt])
+  @@map("bot_runtime_statuses")
+}
+
+model BotInboundUpdate {
+  id               String               @id @default(cuid())
+  accountId        String
+  communityId      String
+  provider         BotProvider
+  providerUpdateId String?
+  type             String
+  userExternalId   String?
+  chatExternalId   String?
+  payload          Json
+  status           String               @default("received")
+  receivedAt       DateTime             @default(now())
+  handledAt        DateTime?
+  error            String?
+  account          BotAccount           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  outboundMessages BotOutboundMessage[]
+
+  @@unique([provider, accountId, providerUpdateId])
+  @@index([communityId, provider, receivedAt])
+  @@index([status, receivedAt])
+  @@map("bot_inbound_updates")
+}
+
+model BotOutboundMessage {
+  id              String            @id @default(cuid())
+  accountId       String
+  communityId     String
+  inboundUpdateId String?
+  provider        BotProvider
+  targetType      String            @default("chat")
+  targetId        String
+  text            String
+  buttons         Json?
+  status          BotOutboundStatus @default(pending)
+  attempts        Int               @default(0)
+  providerMessageId String?
+  lastError       String?
+  availableAt     DateTime          @default(now())
+  sentAt          DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  account         BotAccount        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  inboundUpdate   BotInboundUpdate? @relation(fields: [inboundUpdateId], references: [id], onDelete: SetNull)
+
+  @@index([communityId, provider, createdAt])
+  @@index([status, availableAt])
+  @@map("bot_outbound_messages")
+}
+
+model User {
+  id          String     @id @default(cuid())
+  communityId String
+  externalId  String
+  provider    BotProvider
+  username    String?
+  displayName String?
+  locale      String     @default("ru")
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  community   Community  @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  roles       UserRole[]
+
+  @@unique([communityId, provider, externalId])
+  @@index([communityId, provider])
+  @@map("users")
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  communityId String
+  code        String
+  title       String
+  priority    Int              @default(100)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  community   Community        @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@unique([communityId, code])
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  scope       String           @unique
+  description String?
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  title       String
+  keyHash     String    @unique
+  scopes      String[]
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  @@index([revokedAt, expiresAt])
+  @@map("api_keys")
+}
+
+
+model AdminAccount {
+  id                    String                @id @default(cuid())
+  email                 String                @unique
+  displayName           String?
+  passwordHash          String
+  scopes                String[]              @default([])
+  isActive              Boolean               @default(true)
+  lastLoginAt           DateTime?
+  twoFactorEnabled      Boolean               @default(false)
+  twoFactorConfirmedAt  DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  sessions              AdminSession[]
+  twoFactorSecrets      TwoFactorSecret[]
+  recoveryCodes         RecoveryCode[]
+
+  @@index([isActive, lastLoginAt])
+  @@map("admin_accounts")
+}
+
+model AdminSession {
+  id                String        @id @default(cuid())
+  accountId         String
+  refreshTokenHash  String        @unique
+  userAgent         String?
+  ip                String?
+  expiresAt         DateTime
+  lastUsedAt        DateTime?
+  revokedAt         DateTime?
+  createdAt         DateTime      @default(now())
+  account           AdminAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, revokedAt, expiresAt])
+  @@map("admin_sessions")
+}
+
+model TwoFactorSecret {
+  id          String        @id @default(cuid())
+  accountId   String
+  algorithm   String        @default("totp-sha1")
+  secret      String
+  isActive    Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  confirmedAt DateTime?
+  disabledAt  DateTime?
+  account     AdminAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, isActive])
+  @@map("two_factor_secrets")
+}
+
+model RecoveryCode {
+  id          String        @id @default(cuid())
+  accountId   String
+  codeHash    String        @unique
+  usedAt      DateTime?
+  createdAt   DateTime      @default(now())
+  account     AdminAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, usedAt])
+  @@map("recovery_codes")
+}
+
+model RateLimitViolation {
+  id          String   @id @default(cuid())
+  bucket      String
+  identifier  String
+  route       String?
+  limit       Int
+  count       Int
+  windowMs    Int
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([bucket, identifier, createdAt])
+  @@map("rate_limit_violations")
+}
+
+model Setting {
+  id          String           @id @default(cuid())
+  communityId String
+  key         String
+  value       Json
+  updatedAt   DateTime         @updatedAt
+  community   Community        @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  history     SettingHistory[]
+
+  @@unique([communityId, key])
+  @@map("settings")
+}
+
+model SettingHistory {
+  id        String   @id @default(cuid())
+  settingId String
+  oldValue  Json?
+  newValue  Json
+  actorId   String?
+  reason    String?
+  createdAt DateTime @default(now())
+  setting   Setting  @relation(fields: [settingId], references: [id], onDelete: Cascade)
+
+  @@index([settingId, createdAt])
+  @@map("setting_history")
+}
+
+model Extension {
+  id             String                    @id @default(cuid())
+  name           String
+  version        String
+  engineRange    String
+  status         ExtensionStatus           @default(installed)
+  manifest       Json
+  signature      String?
+  installedAt    DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  configHistory  ExtensionConfigHistory[]
+  permissionGrants ExtensionPermissionGrant[]
+  runtimeEvents  ExtensionRuntimeEvent[]
+  storageItems   ExtensionStorageItem[]
+  runtimeLogs    ExtensionRuntimeLog[]
+  registrySourceId String?
+  registryPackageName String?
+  registryVersionId String?
+
+  @@unique([name, version])
+  @@index([status, installedAt])
+  @@map("extensions")
+}
+
+
+model ExtensionPermissionGrant {
+  id          String    @id @default(cuid())
+  extensionId String
+  permission  String
+  grantedAt   DateTime  @default(now())
+  revokedAt   DateTime?
+  actorId     String?
+  reason      String?
+  extension   Extension @relation(fields: [extensionId], references: [id], onDelete: Cascade)
+
+  @@unique([extensionId, permission])
+  @@index([permission, revokedAt])
+  @@map("extension_permission_grants")
+}
+
+model ExtensionRuntimeEvent {
+  id          String    @id @default(cuid())
+  extensionId String?
+  hook        String
+  status      String    @default("pending")
+  payload     Json
+  result      Json?
+  error       String?
+  attempts    Int       @default(0)
+  availableAt DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  extension   Extension? @relation(fields: [extensionId], references: [id], onDelete: Cascade)
+
+  @@index([status, availableAt])
+  @@index([hook, createdAt])
+  @@map("extension_runtime_events")
+}
+
+model ExtensionStorageItem {
+  id          String    @id @default(cuid())
+  extensionId String
+  namespace   String    @default("default")
+  key         String
+  value       Json
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  extension   Extension @relation(fields: [extensionId], references: [id], onDelete: Cascade)
+
+  @@unique([extensionId, namespace, key])
+  @@index([extensionId, namespace])
+  @@map("extension_storage_items")
+}
+
+model ExtensionRuntimeLog {
+  id          String    @id @default(cuid())
+  extensionId String
+  level       String
+  message     String
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  extension   Extension @relation(fields: [extensionId], references: [id], onDelete: Cascade)
+
+  @@index([extensionId, createdAt])
+  @@index([level, createdAt])
+  @@map("extension_runtime_logs")
+}
+
+model ExtensionConfigHistory {
+  id          String    @id @default(cuid())
+  extensionId String
+  oldValue    Json?
+  newValue    Json
+  actorId     String?
+  reason      String?
+  createdAt   DateTime  @default(now())
+  extension   Extension @relation(fields: [extensionId], references: [id], onDelete: Cascade)
+
+  @@index([extensionId, createdAt])
+  @@map("extension_config_history")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String?
+  actorType   String
+  action      String
+  resource    String
+  resourceId  String?
+  ip          String?
+  userAgent   String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([resource, resourceId])
+  @@map("audit_logs")
+}
+
+model IdempotencyKey {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  scope        String
+  requestHash  String
+  responseBody Json?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([scope, expiresAt])
+  @@map("idempotency_keys")
+}
+
+model OutboxMessage {
+  id          String            @id @default(cuid())
+  topic       String
+  payload     Json
+  headers     Json?
+  status      OutboxStatus      @default(pending)
+  attempts    Int               @default(0)
+  availableAt DateTime          @default(now())
+  deliveredAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  deliveries  WebhookDelivery[]
+
+  @@index([status, availableAt])
+  @@map("outbox_messages")
+}
+
+model WebhookEndpoint {
+  id          String            @id @default(cuid())
+  title       String
+  url         String
+  events      String[]
+  secretRef   String?
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  deliveries  WebhookDelivery[]
+
+  @@index([isActive])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id              String          @id @default(cuid())
+  outboxMessageId String
+  endpointId      String
+  status          DeliveryStatus  @default(pending)
+  attempts        Int             @default(0)
+  responseStatus  Int?
+  responseBody    String?
+  lastError       String?
+  availableAt     DateTime        @default(now())
+  deliveredAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  outboxMessage   OutboxMessage   @relation(fields: [outboxMessageId], references: [id], onDelete: Cascade)
+  endpoint        WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@unique([outboxMessageId, endpointId])
+  @@index([status, availableAt])
+  @@map("webhook_deliveries")
+}
+
+
+
+model EventTopic {
+  id            String              @id @default(cuid())
+  name          String              @unique
+  description   String?
+  schema        Json?
+  isActive      Boolean             @default(true)
+  retentionDays Int                 @default(30)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  records       EventRecord[]
+  subscriptions EventSubscription[]
+
+  @@index([isActive, updatedAt])
+  @@map("event_topics")
+}
+
+model EventRecord {
+  id             String                      @id @default(cuid())
+  eventId        String                      @unique
+  topicId        String?
+  topicName      String
+  type           String
+  source         String                      @default("api")
+  communityId    String?
+  aggregateType  String?
+  aggregateId    String?
+  payload        Json
+  metadata       Json?
+  headers        Json?
+  outboxMessageId String?
+  replayCount    Int                         @default(0)
+  replayedAt     DateTime?
+  publishedAt    DateTime                    @default(now())
+  topic          EventTopic?                 @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  deliveries     EventSubscriptionDelivery[]
+
+  @@index([topicName, publishedAt])
+  @@index([type, publishedAt])
+  @@index([communityId, publishedAt])
+  @@index([aggregateType, aggregateId])
+  @@map("event_records")
+}
+
+model EventSubscription {
+  id             String                      @id @default(cuid())
+  name           String                      @unique
+  topicId        String?
+  topicPattern   String
+  targetType     String
+  targetRef      String
+  filters        Json?
+  isActive       Boolean                     @default(true)
+  maxAttempts    Int                         @default(8)
+  lastDeliveredAt DateTime?
+  disabledAt     DateTime?
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  topic          EventTopic?                 @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  deliveries     EventSubscriptionDelivery[]
+
+  @@index([isActive, topicPattern])
+  @@index([targetType, targetRef])
+  @@map("event_subscriptions")
+}
+
+model EventSubscriptionDelivery {
+  id             String              @id @default(cuid())
+  subscriptionId String
+  eventRecordId  String
+  status         DeliveryStatus      @default(pending)
+  attempts       Int                 @default(0)
+  availableAt    DateTime            @default(now())
+  lockedAt       DateTime?
+  responseStatus Int?
+  responseBody   String?
+  result         Json?
+  lastError      String?
+  deliveredAt    DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  subscription   EventSubscription   @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  eventRecord    EventRecord         @relation(fields: [eventRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, eventRecordId])
+  @@index([status, availableAt])
+  @@index([eventRecordId, createdAt])
+  @@map("event_subscription_deliveries")
+}
+
+model EventDeadLetter {
+  id          String    @id @default(cuid())
+  sourceType  String
+  sourceId    String
+  reason      String
+  payload     Json
+  metadata    Json?
+  status      String    @default("open")
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+  resolvedBy  String?
+
+  @@index([status, createdAt])
+  @@index([sourceType, sourceId])
+  @@map("event_dead_letters")
+}
+
+model Secret {
+  id          String          @id @default(cuid())
+  key         String          @unique
+  description String?
+  algorithm   String          @default("aes-256-gcm")
+  ciphertext  String
+  iv          String
+  authTag     String
+  version     Int             @default(1)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  rotatedAt   DateTime?
+  history     SecretHistory[]
+
+  @@index([updatedAt])
+  @@map("secrets")
+}
+
+model SecretHistory {
+  id          String   @id @default(cuid())
+  secretId    String
+  version     Int
+  algorithm   String
+  ciphertext  String
+  iv          String
+  authTag     String
+  actorId     String?
+  reason      String?
+  createdAt   DateTime @default(now())
+  secret      Secret   @relation(fields: [secretId], references: [id], onDelete: Cascade)
+
+  @@index([secretId, createdAt])
+  @@map("secret_history")
+}
+
+model MessageTemplate {
+  id          String   @id @default(cuid())
+  key         String
+  locale      String   @default("ru")
+  body        String
+  variables   Json?
+  buttons     Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([key, locale])
+  @@map("message_templates")
+}
+
+
+model LocaleCatalog {
+  id             String    @id @default(cuid())
+  communityId    String
+  namespace      String    @default("default")
+  locale         String
+  fallbackLocale String?
+  messages       Json
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  community      Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, namespace, locale])
+  @@index([communityId, locale])
+  @@map("locale_catalogs")
+}
+
+model MessageButtonLayout {
+  id          String       @id @default(cuid())
+  communityId String
+  code        String
+  provider    BotProvider?
+  locale      String       @default("ru")
+  rows        Json
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  community   Community    @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, code, provider, locale])
+  @@index([communityId, code])
+  @@map("message_button_layouts")
+}
+
+model MessageFormDefinition {
+  id                 String                  @id @default(cuid())
+  communityId        String
+  code               String
+  title              String
+  locale             String                  @default("ru")
+  fields             Json
+  submitTemplateKey  String?
+  successTemplateKey String?
+  isActive           Boolean                 @default(true)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  community          Community               @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  submissions        MessageFormSubmission[]
+
+  @@unique([communityId, code, locale])
+  @@index([communityId, isActive])
+  @@map("message_form_definitions")
+}
+
+model MessageFormSubmission {
+  id             String                @id @default(cuid())
+  communityId    String
+  formId         String
+  provider       BotProvider?
+  userExternalId String?
+  payload        Json
+  normalized     Json?
+  errors         Json?
+  status         String                @default("accepted")
+  createdAt      DateTime              @default(now())
+  community      Community             @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  form           MessageFormDefinition @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([communityId, createdAt])
+  @@index([formId, status, createdAt])
+  @@map("message_form_submissions")
+}
+
+model MessageRenderLog {
+  id          String       @id @default(cuid())
+  communityId String?
+  templateKey String?
+  locale      String
+  provider    BotProvider?
+  variables   Json?
+  text        String
+  buttons     Json?
+  createdAt   DateTime     @default(now())
+  community   Community?   @relation(fields: [communityId], references: [id], onDelete: SetNull)
+
+  @@index([communityId, createdAt])
+  @@index([templateKey, locale])
+  @@map("message_render_logs")
+}
+
+model ConversationState {
+  id          String      @id @default(cuid())
+  communityId String
+  provider    BotProvider
+  userId      String
+  flow        String
+  step        String
+  data        Json
+  expiresAt   DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([communityId, provider, userId, flow])
+  @@map("conversation_states")
+}
+
+model InteractionCommand {
+  id              String      @id @default(cuid())
+  communityId     String
+  name            String
+  description     String
+  provider        BotProvider?
+  type            String      @default("command")
+  aliases         String[]    @default([])
+  scopes          String[]    @default([])
+  handler         String      @default("template")
+  templateKey     String?
+  conversationCode String?
+  cooldownSeconds Int         @default(0)
+  isEnabled       Boolean     @default(true)
+  metadata        Json?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  community       Community   @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, provider, name])
+  @@index([communityId, isEnabled])
+  @@map("interaction_commands")
+}
+
+model InteractionMenu {
+  id          String    @id @default(cuid())
+  communityId String
+  code        String
+  title       String
+  locale      String    @default("ru")
+  templateKey String?
+  buttons     Json
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, code, locale])
+  @@index([communityId, isActive])
+  @@map("interaction_menus")
+}
+
+model InteractionCallbackAction {
+  id          String    @id @default(cuid())
+  communityId String
+  code        String
+  title       String
+  handler     String    @default("menu.open")
+  scopes      String[]  @default([])
+  payload     Json?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, code])
+  @@index([communityId, isActive])
+  @@map("interaction_callback_actions")
+}
+
+model ConversationFlow {
+  id          String    @id @default(cuid())
+  communityId String
+  code        String
+  title       String
+  entryCommand String?
+  steps       Json
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@unique([communityId, code])
+  @@index([communityId, isActive])
+  @@map("conversation_flows")
+}
+
+model InteractionEvent {
+  id             String      @id @default(cuid())
+  communityId    String
+  accountId      String?
+  provider       BotProvider
+  type           String
+  name           String?
+  userExternalId String
+  status         String      @default("received")
+  payload        Json?
+  response       Json?
+  error          String?
+  createdAt      DateTime    @default(now())
+  community      Community   @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@index([communityId, createdAt])
+  @@index([provider, type, name])
+  @@map("interaction_events")
+}
+
+
+model RegistrySource {
+  id            String            @id @default(cuid())
+  name          String            @unique
+  url           String
+  type          String            @default("gitflic_registry")
+  authSecretRef String?
+  publicKey     String?
+  isActive      Boolean           @default(true)
+  lastSyncAt    DateTime?
+  syncStatus    String            @default("never")
+  syncError     String?
+  packageCount  Int               @default(0)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  packages      RegistryPackage[]
+  updatePlans   UpdatePlan[]
+
+  @@index([isActive, lastSyncAt])
+  @@map("registry_sources")
+}
+
+model RegistryPackage {
+  id            String                   @id @default(cuid())
+  sourceId      String
+  name          String
+  displayName   String?
+  description   String?
+  kind          String                   @default("plugin")
+  publisher     String?
+  homepage      String?
+  repository    String?
+  license       String?
+  isOfficial    Boolean                  @default(false)
+  latestVersion String?
+  metadata      Json?
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  source        RegistrySource           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  versions      RegistryPackageVersion[]
+
+  @@unique([sourceId, name])
+  @@index([name, kind])
+  @@map("registry_packages")
+}
+
+model RegistryPackageVersion {
+  id            String         @id @default(cuid())
+  packageId     String
+  version       String
+  engineRange   String         @default("*")
+  channel       String         @default("stable")
+  manifest      Json?
+  artifactUrl   String
+  artifactSha256 String
+  artifactSize  Int?
+  signature     String?
+  signatureAlgorithm String    @default("none")
+  releaseNotes  String?
+  isYanked      Boolean        @default(false)
+  metadata      Json?
+  publishedAt   DateTime?
+  createdAt     DateTime       @default(now())
+  package       RegistryPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  updatePlans   UpdatePlan[]
+
+  @@unique([packageId, version])
+  @@index([channel, isYanked, version])
+  @@map("registry_package_versions")
+}
+
+model UpdatePlan {
+  id             String                  @id @default(cuid())
+  targetType     String
+  targetRef      String?
+  packageName    String
+  currentVersion String
+  targetVersion  String
+  sourceId       String?
+  versionId      String?
+  status         String                  @default("planned")
+  steps          Json
+  metadata       Json?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  appliedAt      DateTime?
+  error          String?
+  source         RegistrySource?         @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  version        RegistryPackageVersion? @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  history        UpdateHistory[]
+
+  @@index([targetType, targetRef, status])
+  @@index([packageName, targetVersion])
+  @@map("update_plans")
+}
+
+model UpdateHistory {
+  id             String     @id @default(cuid())
+  planId         String?
+  targetType     String
+  targetRef      String?
+  packageName    String
+  fromVersion    String
+  toVersion      String
+  status         String
+  steps          Json?
+  metadata       Json?
+  error          String?
+  createdAt      DateTime   @default(now())
+  completedAt    DateTime?
+  plan           UpdatePlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  @@index([targetType, targetRef, createdAt])
+  @@index([packageName, createdAt])
+  @@map("update_history")
+}
+
+model ScheduledJob {
+  id             String            @id @default(cuid())
+  code           String            @unique
+  title          String
+  type           String            @default("built_in")
+  handler        String?
+  schedule       String            @default("manual")
+  timezone       String            @default("UTC")
+  payload        Json?
+  isEnabled      Boolean           @default(true)
+  maxAttempts    Int               @default(3)
+  timeoutSeconds Int               @default(300)
+  lockUntil      DateTime?
+  lastRunAt      DateTime?
+  nextRunAt      DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  runs           ScheduledJobRun[]
+
+  @@index([isEnabled, nextRunAt])
+  @@index([type, handler])
+  @@map("scheduled_jobs")
+}
+
+model ScheduledJobRun {
+  id          String       @id @default(cuid())
+  jobId       String
+  status      String       @default("running")
+  attempt     Int          @default(1)
+  triggeredBy String       @default("scheduler")
+  startedAt   DateTime     @default(now())
+  finishedAt  DateTime?
+  durationMs  Int?
+  result      Json?
+  error       String?
+  logs        Json?
+  createdAt   DateTime     @default(now())
+  job         ScheduledJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@index([status, createdAt])
+  @@map("scheduled_job_runs")
+}
+
+model MaintenanceSnapshot {
+  id         String   @id @default(cuid())
+  kind       String
+  status     String   @default("ok")
+  metrics    Json
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([kind, createdAt])
+  @@index([status, createdAt])
+  @@map("maintenance_snapshots")
+}
+
+model DebugSession {
+  id          String       @id @default(cuid())
+  communityId String?
+  title       String
+  status      String       @default("active")
+  actorId     String?
+  actorType   String?
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  endedAt     DateTime?
+  community   Community?   @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  events      DebugEvent[]
+
+  @@index([communityId, status, createdAt])
+  @@index([status, updatedAt])
+  @@map("debug_sessions")
+}
+
+model DebugEvent {
+  id          String        @id @default(cuid())
+  sessionId   String?
+  communityId String?
+  level       String        @default("info")
+  category    String
+  message     String
+  metadata    Json?
+  createdAt   DateTime      @default(now())
+  session     DebugSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, createdAt])
+  @@index([communityId, createdAt])
+  @@index([level, createdAt])
+  @@index([category, createdAt])
+  @@map("debug_events")
+}
+
+model BotScenario {
+  id          String           @id @default(cuid())
+  communityId String
+  code        String
+  title       String
+  provider    BotProvider?
+  accountId   String?
+  definition  Json
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  community   Community        @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  runs        BotScenarioRun[]
+
+  @@unique([communityId, code])
+  @@index([communityId, isActive])
+  @@index([provider, updatedAt])
+  @@map("bot_scenarios")
+}
+
+model BotScenarioRun {
+  id          String      @id @default(cuid())
+  scenarioId  String
+  communityId String
+  status      String      @default("running")
+  provider    BotProvider?
+  accountId   String?
+  triggeredBy String      @default("api")
+  startedAt   DateTime    @default(now())
+  finishedAt  DateTime?
+  durationMs  Int?
+  stepsResult Json?
+  error       String?
+  createdAt   DateTime    @default(now())
+  scenario    BotScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  @@index([scenarioId, createdAt])
+  @@index([communityId, status, createdAt])
+  @@map("bot_scenario_runs")
+}
+
+
+
+model StorageObject {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  driver      String    @default("local")
+  bucket      String?
+  contentType String    @default("application/octet-stream")
+  sizeBytes   Int
+  sha256      String
+  metadata    Json?
+  refType     String?
+  refId       String?
+  status      String    @default("active")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([driver, status])
+  @@index([refType, refId])
+  @@index([status, deletedAt])
+  @@map("storage_objects")
+}
+
+model BackupArtifact {
+  id                String    @id @default(cuid())
+  scope             String    @default("community")
+  communityId       String?
+  title             String
+  storageObjectId   String?
+  storageKey        String
+  format            String    @default("cajeerbots.backup.bundle.v1")
+  sizeBytes         Int
+  sha256            String
+  status            String    @default("created")
+  includedResources String[]  @default([])
+  encryptionRef     String?
+  metadata          Json?
+  createdAt         DateTime  @default(now())
+  completedAt       DateTime?
+  error             String?
+
+  @@index([scope, communityId, createdAt])
+  @@index([status, createdAt])
+  @@index([storageObjectId])
+  @@map("backup_artifacts")
+}
+
+model BackupRestoreRun {
+  id           String   @id @default(cuid())
+  artifactId   String
+  communityId  String?
+  mode         String   @default("dry-run")
+  strategy     String   @default("merge")
+  status       String   @default("running")
+  actorId      String?
+  startedAt    DateTime @default(now())
+  finishedAt   DateTime?
+  durationMs   Int?
+  result       Json?
+  error        String?
+  createdAt    DateTime @default(now())
+
+  @@index([artifactId, createdAt])
+  @@index([communityId, status, createdAt])
+  @@map("backup_restore_runs")
+}
+
+model ObservabilityMetricSample {
+  id            String     @id @default(cuid())
+  communityId   String?
+  source        String
+  metric        String
+  value         Float
+  unit          String?
+  labels        Json?
+  windowSeconds Int?
+  severity      String     @default("info")
+  collectedAt   DateTime   @default(now())
+  createdAt     DateTime   @default(now())
+  community     Community? @relation(fields: [communityId], references: [id], onDelete: SetNull)
+
+  @@index([metric, collectedAt])
+  @@index([source, collectedAt])
+  @@index([communityId, collectedAt])
+  @@index([severity, collectedAt])
+  @@map("observability_metric_samples")
+}
+
+model ObservabilityProbe {
+  id              String    @id @default(cuid())
+  code            String    @unique
+  title           String
+  type            String    @default("database")
+  target          String?
+  intervalSeconds Int       @default(60)
+  timeoutMs       Int       @default(2000)
+  isEnabled       Boolean   @default(true)
+  status          String    @default("unknown")
+  latencyMs       Int?
+  lastCheckedAt   DateTime?
+  nextCheckAt     DateTime?
+  lastError       String?
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([isEnabled, nextCheckAt])
+  @@index([status, lastCheckedAt])
+  @@map("observability_probes")
+}
+
+model ObservabilityAlertRule {
+  id              String                    @id @default(cuid())
+  code            String                    @unique
+  title           String
+  metric          String
+  operator        String                    @default("gte")
+  threshold       Float
+  severity        String                    @default("warning")
+  durationSeconds Int                       @default(0)
+  cooldownSeconds Int                       @default(300)
+  labels          Json?
+  isEnabled       Boolean                   @default(true)
+  lastTriggeredAt DateTime?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  events          ObservabilityAlertEvent[]
+
+  @@index([metric, isEnabled])
+  @@index([severity, isEnabled])
+  @@map("observability_alert_rules")
+}
+
+model ObservabilityIncident {
+  id          String                    @id @default(cuid())
+  code        String                    @unique
+  title       String
+  status      String                    @default("open")
+  severity    String                    @default("warning")
+  source      String                    @default("alert")
+  metric      String?
+  currentValue Float?
+  metadata    Json?
+  startedAt   DateTime                  @default(now())
+  resolvedAt  DateTime?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  events      ObservabilityAlertEvent[]
+
+  @@index([status, severity, startedAt])
+  @@index([metric, startedAt])
+  @@map("observability_incidents")
+}
+
+model ObservabilityAlertEvent {
+  id          String                      @id @default(cuid())
+  ruleId      String?
+  incidentId  String?
+  status      String                      @default("fired")
+  severity    String
+  metric      String
+  value       Float
+  threshold   Float
+  message     String
+  metadata    Json?
+  createdAt   DateTime                    @default(now())
+  resolvedAt  DateTime?
+  rule        ObservabilityAlertRule?      @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  incident    ObservabilityIncident?       @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+
+  @@index([ruleId, createdAt])
+  @@index([incidentId, createdAt])
+  @@index([status, severity, createdAt])
+  @@index([metric, createdAt])
+  @@map("observability_alert_events")
+}
+
+
+model DeploymentTarget {
+  id            String            @id @default(cuid())
+  code          String            @unique
+  title         String
+  kind          String            @default("docker_compose")
+  environment   String            @default("production")
+  baseUrl       String?
+  composeFiles  String[]          @default([])
+  envFile       String?
+  status        String            @default("unknown")
+  lastCheckedAt DateTime?
+  metadata      Json?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  checks        DeploymentCheck[]
+  runs          DeploymentRun[]
+
+  @@index([kind, environment])
+  @@index([status, lastCheckedAt])
+  @@map("deployment_targets")
+}
+
+model DeploymentCheck {
+  id        String            @id @default(cuid())
+  targetId  String?
+  code      String
+  status    String            @default("pass")
+  severity  String            @default("info")
+  message   String
+  details   Json?
+  checkedAt DateTime          @default(now())
+  target    DeploymentTarget? @relation(fields: [targetId], references: [id], onDelete: SetNull)
+
+  @@index([targetId, checkedAt])
+  @@index([status, severity, checkedAt])
+  @@index([code, checkedAt])
+  @@map("deployment_checks")
+}
+
+model DeploymentRun {
+  id         String            @id @default(cuid())
+  targetId   String?
+  action     String
+  status     String            @default("running")
+  actorId    String?
+  startedAt  DateTime          @default(now())
+  finishedAt DateTime?
+  durationMs Int?
+  logs       Json?
+  metadata   Json?
+  error      String?
+  createdAt  DateTime          @default(now())
+  target     DeploymentTarget? @relation(fields: [targetId], references: [id], onDelete: SetNull)
+
+  @@index([targetId, startedAt])
+  @@index([action, status, startedAt])
+  @@map("deployment_runs")
+}
+
+model ReleaseArtifact {
+  id              String    @id @default(cuid())
+  version         String
+  channel         String    @default("alpha")
+  artifactType    String    @default("dist")
+  filename        String
+  storageObjectId String?
+  sha256          String
+  sizeBytes       Int
+  manifest        Json?
+  status          String    @default("created")
+  signature       String?
+  signedAt        DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([version, channel])
+  @@index([status, createdAt])
+  @@index([storageObjectId])
+  @@map("release_artifacts")
+}
+
+model ApiContractSnapshot {
+  id                    String             @id @default(cuid())
+  version               String
+  sourcePath            String             @default("contracts/openapi/cajeerbots.openapi.yaml")
+  sourceSha256          String
+  operationCount        Int
+  pathCount             Int
+  tagCount              Int
+  duplicateOperationIds String[]           @default([])
+  unsecuredOperations   Json?
+  deprecatedOperations  Json?
+  snapshot              Json
+  isBaseline            Boolean            @default(false)
+  createdBy             String?
+  createdAt             DateTime           @default(now())
+  checks                ApiContractCheck[]
+  sdkRuns               SdkGenerationRun[]
+
+  @@index([version, createdAt])
+  @@index([isBaseline, createdAt])
+  @@index([sourceSha256])
+  @@map("api_contract_snapshots")
+}
+
+model ApiContractCheck {
+  id             String               @id @default(cuid())
+  snapshotId     String?
+  baselineId     String?
+  status         String               @default("passed")
+  checkType      String               @default("contract")
+  summary        Json?
+  issues         Json?
+  breakingCount  Int                  @default(0)
+  coveragePercent Float?
+  createdBy      String?
+  createdAt      DateTime             @default(now())
+  snapshot       ApiContractSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@index([status, checkType, createdAt])
+  @@index([snapshotId, createdAt])
+  @@index([baselineId, createdAt])
+  @@map("api_contract_checks")
+}
+
+model SdkGenerationRun {
+  id              String               @id @default(cuid())
+  snapshotId      String?
+  status          String               @default("generated")
+  generatorVersion String              @default("cajeerbots.contracts.v1")
+  outputMode      String               @default("database")
+  artifactName    String?
+  artifactSha256  String?
+  artifactSizeBytes Int?
+  operationCount  Int                  @default(0)
+  coveragePercent Float?
+  missingOperations Json?
+  generatedFiles  Json?
+  error           String?
+  createdBy       String?
+  createdAt       DateTime             @default(now())
+  snapshot        ApiContractSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([snapshotId, createdAt])
+  @@map("sdk_generation_runs")
+}
+
+model ApiDeprecation {
+  id              String   @id @default(cuid())
+  operationId     String   @unique
+  method          String
+  path            String
+  status          String   @default("planned")
+  reason          String?
+  replacement     String?
+  deprecatedSince String?
+  removeAfter     String?
+  metadata        Json?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status, removeAfter])
+  @@index([method, path])
+  @@map("api_deprecations")
+}
+
+model DocumentationCollection {
+  id            String                  @id @default(cuid())
+  code          String                  @unique
+  title         String
+  locale        String                  @default("ru")
+  sourceType    String                  @default("local_wiki")
+  sourcePath    String                  @default("wiki")
+  sourceUrl     String?
+  isActive      Boolean                 @default(true)
+  version       Int                     @default(1)
+  metadata      Json?
+  lastSyncedAt  DateTime?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  pages         DocumentationPage[]
+  snapshots     DocumentationSnapshot[]
+  checks        DocumentationCheck[]
+  exports       DocumentationExport[]
+
+  @@index([sourceType, isActive])
+  @@index([locale, isActive])
+  @@map("documentation_collections")
+}
+
+model DocumentationPage {
+  id            String                  @id @default(cuid())
+  collectionId  String
+  slug          String
+  path          String
+  title         String
+  locale        String                  @default("ru")
+  status        String                  @default("published")
+  body          String
+  excerpt       String?
+  headings      Json?
+  links         Json?
+  frontmatter   Json?
+  tags          String[]                @default([])
+  wordCount     Int                     @default(0)
+  sizeBytes     Int                     @default(0)
+  sha256        String
+  sourceMtime   DateTime?
+  syncedAt      DateTime?
+  metadata      Json?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  collection    DocumentationCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, slug])
+  @@index([collectionId, path])
+  @@index([collectionId, status, updatedAt])
+  @@index([locale, status])
+  @@index([sha256])
+  @@map("documentation_pages")
+}
+
+model DocumentationSnapshot {
+  id            String                  @id @default(cuid())
+  collectionId  String
+  version       Int
+  sourceHash    String
+  pageCount     Int                     @default(0)
+  totalWords    Int                     @default(0)
+  totalBytes    Int                     @default(0)
+  toc           Json?
+  metadata      Json?
+  createdBy     String?
+  createdAt     DateTime                @default(now())
+  collection    DocumentationCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([collectionId, version])
+  @@index([sourceHash])
+  @@map("documentation_snapshots")
+}
+
+model DocumentationCheck {
+  id            String                  @id @default(cuid())
+  collectionId  String?
+  checkType     String                  @default("local_wiki")
+  status        String                  @default("passed")
+  summary       Json?
+  issues        Json?
+  createdBy     String?
+  createdAt     DateTime                @default(now())
+  collection    DocumentationCollection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+
+  @@index([collectionId, createdAt])
+  @@index([status, checkType, createdAt])
+  @@map("documentation_checks")
+}
+
+model DocumentationExport {
+  id            String                  @id @default(cuid())
+  collectionId  String?
+  format        String                  @default("json_bundle")
+  status        String                  @default("created")
+  checksum      String
+  sizeBytes     Int                     @default(0)
+  pageCount     Int                     @default(0)
+  payload       Json?
+  storageObjectId String?
+  createdBy     String?
+  createdAt     DateTime                @default(now())
+  collection    DocumentationCollection? @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+
+  @@index([collectionId, createdAt])
+  @@index([format, status, createdAt])
+  @@index([checksum])
+  @@map("documentation_exports")
+}
+
+model ReleaseFreeze {
+  id        String   @id @default(cuid())
+  version   String
+  channel   String   @default("beta")
+  status    String   @default("locked")
+  scope     Json     @default("{}")
+  reason    String?
+  lockedAt  DateTime @default(now())
+  lockedBy  String?
+  releasedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([version, channel])
+  @@map("release_freezes")
+}
+
+model ReleaseQualityGate {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  title     String
+  category  String
+  severity  String   @default("error")
+  isEnabled Boolean  @default(true)
+  config    Json     @default("{}")
+  lastStatus String?
+  lastRunAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  runs ReleaseGateRun[]
+
+  @@map("release_quality_gates")
+}
+
+model ReleaseGateRun {
+  id          String   @id @default(cuid())
+  version     String
+  channel     String   @default("beta")
+  status      String
+  rootDir     String?
+  trigger     String   @default("manual")
+  summary     Json     @default("{}")
+  results     Json     @default("[]")
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+  durationMs  Int?
+  createdBy   String?
+
+  gateId      String?
+  gate        ReleaseQualityGate? @relation(fields: [gateId], references: [id], onDelete: SetNull)
+  blockers    ReleaseBlocker[]
+  reports     ReleaseCandidateReport[]
+
+  @@index([version, channel, status])
+  @@index([startedAt])
+  @@map("release_gate_runs")
+}
+
+model ReleaseBlocker {
+  id          String   @id @default(cuid())
+  runId       String?
+  run         ReleaseGateRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+  code        String
+  severity    String   @default("blocker")
+  status      String   @default("open")
+  source      String?
+  message     String
+  details     Json     @default("{}")
+  acceptedReason String?
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, severity])
+  @@index([runId])
+  @@map("release_blockers")
+}
+
+model ReleaseCandidateReport {
+  id          String   @id @default(cuid())
+  version     String
+  channel     String   @default("beta")
+  status      String
+  gateRunId   String?
+  gateRun     ReleaseGateRun? @relation(fields: [gateRunId], references: [id], onDelete: SetNull)
+  summary     Json     @default("{}")
+  markdown    String?
+  artifactName String?
+  artifactSha256 String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  @@index([version, channel, status])
+  @@map("release_candidate_reports")
+}
+
+model IntegrationTestSuite {
+  id          String                @id @default(cuid())
+  code        String                @unique
+  title       String
+  category    String                @default("mvp")
+  description String?
+  isActive    Boolean               @default(true)
+  metadata    Json                  @default("{}")
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  cases       IntegrationTestCase[]
+  runs        IntegrationTestRun[]
+
+  @@index([category, isActive])
+  @@map("integration_test_suites")
+}
+
+model IntegrationTestCase {
+  id          String                  @id @default(cuid())
+  suiteId     String
+  code        String
+  title       String
+  target      String                  @default("api")
+  kind        String                  @default("multi_step")
+  provider    String?
+  priority    Int                     @default(100)
+  isActive    Boolean                 @default(true)
+  timeoutMs   Int                     @default(30000)
+  definition  Json                    @default("{}")
+  expected    Json                    @default("{}")
+  lastStatus  String?
+  lastRunAt   DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  suite       IntegrationTestSuite     @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+  runs        IntegrationTestRun[]
+  stepRuns    IntegrationTestStepRun[]
+
+  @@unique([suiteId, code])
+  @@index([suiteId, isActive, priority])
+  @@index([target, kind, provider])
+  @@map("integration_test_cases")
+}
+
+model IntegrationTestRun {
+  id          String                    @id @default(cuid())
+  suiteId     String?
+  caseId      String?
+  version     String                    @default("1.0.0-rc.1")
+  channel     String                    @default("beta")
+  trigger     String                    @default("manual")
+  status      String                    @default("queued")
+  rootDir     String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  durationMs  Int?
+  summary     Json                      @default("{}")
+  environment Json                      @default("{}")
+  createdBy   String?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  suite       IntegrationTestSuite?      @relation(fields: [suiteId], references: [id], onDelete: SetNull)
+  testCase    IntegrationTestCase?       @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  steps       IntegrationTestStepRun[]
+
+  @@index([version, channel, status])
+  @@index([suiteId, status, createdAt])
+  @@index([caseId, status, createdAt])
+  @@map("integration_test_runs")
+}
+
+model IntegrationTestStepRun {
+  id          String              @id @default(cuid())
+  runId       String
+  caseId      String?
+  stepIndex   Int
+  code        String
+  kind        String
+  status      String              @default("running")
+  startedAt   DateTime            @default(now())
+  finishedAt  DateTime?
+  durationMs  Int?
+  request     Json                @default("{}")
+  response    Json                @default("{}")
+  assertion   Json                @default("{}")
+  error       String?
+  run         IntegrationTestRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  testCase    IntegrationTestCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  @@index([runId, stepIndex])
+  @@index([caseId, status])
+  @@index([kind, status])
+  @@map("integration_test_step_runs")
+}
+
+model IntegrationTestCoverage {
+  id          String   @id @default(cuid())
+  version     String   @default("1.0.0-rc.1")
+  channel     String   @default("beta")
+  status      String   @default("unknown")
+  source      String   @default("database")
+  summary     Json     @default("{}")
+  areas       Json     @default("[]")
+  missing     Json     @default("[]")
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  @@index([version, channel, status])
+  @@index([source, createdAt])
+  @@map("integration_test_coverage")
+}
+
+model SecurityAuditPolicy {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  title      String
+  category   String
+  severity   String   @default("error")
+  isEnabled  Boolean  @default(true)
+  config     Json     @default("{}")
+  lastStatus String?
+  lastRunAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([category, isEnabled])
+  @@map("security_audit_policies")
+}
+
+model SecurityAuditRun {
+  id         String                  @id @default(cuid())
+  version    String                  @default("1.0.0-rc.1")
+  channel    String                  @default("beta")
+  trigger    String                  @default("manual")
+  status     String                  @default("running")
+  summary    Json                    @default("{}")
+  results    Json                    @default("[]")
+  startedAt  DateTime                @default(now())
+  finishedAt DateTime?
+  durationMs Int?
+  createdBy  String?
+  createdAt  DateTime                @default(now())
+  findings   SecurityAuditFinding[]
+
+  @@index([version, channel, status])
+  @@index([startedAt])
+  @@map("security_audit_runs")
+}
+
+model SecurityAuditFinding {
+  id          String            @id @default(cuid())
+  runId       String?
+  run         SecurityAuditRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+  code        String
+  category    String
+  severity    String            @default("error")
+  status      String            @default("open")
+  source      String?
+  subjectType String?
+  subjectId   String?
+  message     String
+  evidence    Json              @default("{}")
+  remediation String?
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([runId])
+  @@index([status, severity])
+  @@index([category, status])
+  @@index([subjectType, subjectId])
+  @@map("security_audit_findings")
+}
+
+model SecurityRiskSnapshot {
+  id                 String   @id @default(cuid())
+  version            String   @default("1.0.0-rc.1")
+  channel            String   @default("beta")
+  status             String   @default("unknown")
+  score              Int      @default(0)
+  summary            Json     @default("{}")
+  findingsBySeverity Json     @default("{}")
+  recommendations    Json     @default("[]")
+  createdBy          String?
+  createdAt          DateTime @default(now())
+
+  @@index([version, channel, status])
+  @@index([score, createdAt])
+  @@map("security_risk_snapshots")
+}
+
+model ReleaseApiFreeze {
+  id                    String   @id @default(cuid())
+  version               String
+  channel               String   @default("rc")
+  status                String   @default("frozen")
+  sourcePath            String
+  sourceSha256          String
+  openApiVersion        String
+  operationCount        Int      @default(0)
+  operations            Json     @default("[]")
+  duplicateOperationIds Json     @default("[]")
+  unsecuredOperations   Json     @default("[]")
+  deprecatedOperations  Json     @default("[]")
+  payload               Json     @default("{}")
+  notes                 String?
+  createdBy             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([version, channel, status])
+  @@index([sourceSha256])
+  @@map("release_api_freezes")
+}
+
+model ReleaseCompatibilityTarget {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  kind         String
+  name         String
+  versionRange String
+  required     Boolean  @default(true)
+  status       String   @default("supported")
+  notes        String?
+  checks       Json     @default("[]")
+  lastCheckedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([kind, status])
+  @@index([required, status])
+  @@map("release_compatibility_targets")
+}
+
+model ReleaseCompatibilityMatrix {
+  id        String   @id @default(cuid())
+  version   String
+  channel   String   @default("rc")
+  status    String   @default("unknown")
+  summary   Json     @default("{}")
+  targets   Json     @default("[]")
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([version, channel, status])
+  @@index([createdAt])
+  @@map("release_compatibility_matrices")
+}
+
+model ReleaseUpgradePlan {
+  id          String              @id @default(cuid())
+  fromVersion String
+  toVersion   String
+  channel     String              @default("rc")
+  status      String              @default("draft")
+  steps       Json                @default("[]")
+  risks       Json                @default("[]")
+  checks      Json                @default("[]")
+  payload     Json                @default("{}")
+  createdBy   String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  runs        ReleaseUpgradeRun[]
+
+  @@index([fromVersion, toVersion, channel])
+  @@index([status, createdAt])
+  @@map("release_upgrade_plans")
+}
+
+model ReleaseUpgradeRun {
+  id          String             @id @default(cuid())
+  planId      String
+  plan        ReleaseUpgradePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  mode        String             @default("dry-run")
+  status      String             @default("running")
+  rootDir     String?
+  results     Json               @default("[]")
+  logs        Json               @default("[]")
+  startedAt   DateTime           @default(now())
+  finishedAt  DateTime?
+  durationMs  Int?
+  createdBy   String?
+  createdAt   DateTime           @default(now())
+
+  @@index([planId, status])
+  @@index([mode, createdAt])
+  @@map("release_upgrade_runs")
+}
+
+model ReleaseUpgradeCheck {
+  id        String   @id @default(cuid())
+  version   String
+  channel   String   @default("rc")
+  code      String
+  status    String
+  severity  String   @default("info")
+  message   String
+  details   Json     @default("{}")
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([version, channel, status])
+  @@index([code, createdAt])
+  @@map("release_upgrade_checks")
+}
+
+model ReleaseCandidateReadinessRun {
+  id         String   @id @default(cuid())
+  version    String
+  channel    String   @default("rc")
+  status     String   @default("running")
+  rootDir    String?
+  summary    Json     @default("{}")
+  sections   Json     @default("[]")
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+  durationMs Int?
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  @@index([version, channel, status])
+  @@index([startedAt])
+  @@map("release_candidate_readiness_runs")
+}

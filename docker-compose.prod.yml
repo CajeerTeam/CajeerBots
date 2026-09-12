@@ -1,0 +1,103 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cajeerbots}
+      POSTGRES_USER: ${POSTGRES_USER:-cajeerbots}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cajeerbots} -d ${POSTGRES_DB:-cajeerbots}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    restart: "no"
+    env_file:
+      - .env.production
+    command: ["sh", "-lc", "pnpm prisma migrate deploy && pnpm prisma:seed"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    user: "10001:10001"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - cajeer_storage:/var/lib/cajeerbots/storage
+      - cajeer_extensions:/var/lib/cajeerbots/extensions
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  bot-runtime:
+    build:
+      context: .
+      dockerfile: docker/bot-runtime.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    user: "10001:10001"
+    ports:
+      - "127.0.0.1:3001:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/runtime/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    user: "10001:10001"
+    volumes:
+      - cajeer_storage:/var/lib/cajeerbots/storage
+      - cajeer_extensions:/var/lib/cajeerbots/extensions
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  cajeer_storage:
+  cajeer_extensions:

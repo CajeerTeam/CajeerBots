@@ -1,0 +1,95 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": [
+      "ES2022"
+    ],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "useUnknownInCatchVariables": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@cajeerbots/core": [
+        "packages/core/src/index.ts"
+      ],
+      "@cajeerbots/config": [
+        "packages/config/src/index.ts"
+      ],
+      "@cajeerbots/db": [
+        "packages/db/src/index.ts"
+      ],
+      "@cajeerbots/event-bus": [
+        "packages/event-bus/src/index.ts"
+      ],
+      "@cajeerbots/outbox": [
+        "packages/outbox/src/index.ts"
+      ],
+      "@cajeerbots/security": [
+        "packages/security/src/index.ts"
+      ],
+      "@cajeerbots/message-core": [
+        "packages/message-core/src/index.ts"
+      ],
+      "@cajeerbots/interaction-core": [
+        "packages/interaction-core/src/index.ts"
+      ],
+      "@cajeerbots/extension-sdk": [
+        "packages/extension-sdk/src/index.ts"
+      ],
+      "@cajeerbots/extension-runtime": [
+        "packages/extension-runtime/src/index.ts"
+      ],
+      "@cajeerbots/sdk": [
+        "packages/sdk/src/index.ts"
+      ],
+      "@cajeerbots/storage": [
+        "packages/storage/src/index.ts"
+      ],
+      "@cajeerbots/observability": [
+        "packages/observability/src/index.ts"
+      ],
+      "@cajeerbots/test-kit": [
+        "packages/test-kit/src/index.ts"
+      ],
+      "@cajeerbots/registry": [
+        "packages/registry/src/index.ts"
+      ],
+      "@cajeerbots/scheduler": [
+        "packages/scheduler/src/index.ts"
+      ],
+      "@cajeerbots/devtools": [
+        "packages/devtools/src/index.ts"
+      ],
+      "@cajeerbots/backup": [
+        "packages/backup/src/index.ts"
+      ],
+      "@cajeerbots/deployment": [
+        "packages/deployment/src/index.ts"
+      ],
+      "@cajeerbots/contracts": [
+        "packages/contracts/src/index.ts"
+      ],
+      "@cajeerbots/docs": [
+        "packages/docs/src/index.ts"
+      ],
+      "@cajeerbots/release-gates": [
+        "packages/release-gates/src/index.ts"
+      ],
+      "@cajeerbots/integration-tests": [
+        "packages/integration-tests/src/index.ts"
+      ]
+    }
+  }
+}
