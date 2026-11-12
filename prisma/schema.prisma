@@ -372,6 +372,9 @@ model Extension {
   registrySourceId String?
   registryPackageName String?
   registryVersionId String?
+  artifactSource String? @db.Text
+  artifactCodeSha256 String?
+  releases ExtensionRelease[]
 
   @@unique([name, version])
   @@index([status, installedAt])
@@ -2035,4 +2038,19 @@ model ReleaseCandidateReadinessRun {
   @@index([version, channel, status])
   @@index([startedAt])
   @@map("release_candidate_readiness_runs")
+}
+
+model ExtensionRelease {
+  id String @id @default(cuid())
+  extensionId String
+  version String
+  manifest Json
+  signature String?
+  registryVersionId String?
+  artifactSource String @db.Text
+  artifactCodeSha256 String
+  createdAt DateTime @default(now())
+  extension Extension @relation(fields: [extensionId], references: [id], onDelete: Cascade)
+  @@unique([extensionId, version])
+  @@map("extension_releases")
 }

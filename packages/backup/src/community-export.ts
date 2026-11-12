@@ -43,7 +43,7 @@ export async function exportCommunitySnapshot(prisma: any, communityId: string):
 
   return {
     kind: 'cajeerbots.community.export',
-    version: '1.0.0-rc.3',
+    version: '1.0.0-rc.4',
     exportedAt: new Date().toISOString(),
     community: { slug: community.slug, title: community.title, language: community.language },
     settings: settings.map(({ key, value }: any) => ({ key, value })),

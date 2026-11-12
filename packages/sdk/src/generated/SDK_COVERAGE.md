@@ -1,8 +1,8 @@
 # SDK Coverage
 
-Generated for CajeerBots `1.0.0-rc.1`.
+Generated for CajeerBots `1.0.0-rc.4`.
 
-- OpenAPI operations: 238
+- OpenAPI operations: 239
 - Generated operation map: `packages/sdk/src/generated/generated-api-operations.ts`
 - New beta 2 group: `IntegrationTests`
 

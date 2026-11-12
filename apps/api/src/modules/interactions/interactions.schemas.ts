@@ -37,7 +37,7 @@ export const createInteractionMenuSchema = z.object({
 export const updateInteractionMenuSchema = createInteractionMenuSchema.partial();
 
 export const createCallbackActionSchema = z.object({
-  code: z.string().min(1).max(120).regex(/^[a-z0-9_\-:.]+$/i),
+  code: z.string().min(1).max(64).regex(/^[a-z0-9_\-:.]+$/i).refine((code) => !code.startsWith('rc4:'), 'Reserved callback prefix'),
   title: z.string().min(1).max(160),
   handler: z.string().min(1).max(120).default('menu.open'),
   scopes: z.array(z.string().min(1).max(120)).default([]),
@@ -62,7 +62,15 @@ export const createConversationFlowSchema = z.object({
   code: z.string().min(1).max(120).regex(/^[a-z0-9_\-:.]+$/i),
   title: z.string().min(1).max(160),
   entryCommand: z.string().min(1).max(80).optional().nullable(),
-  steps: z.array(conversationStepSchema).min(1).max(50),
+  steps: z.array(conversationStepSchema).min(1).max(50).superRefine((steps, ctx) => {
+    const ids = new Set(steps.map((step) => step.id));
+    if (ids.size !== steps.length) ctx.addIssue({ code: 'custom', message: 'Duplicate step IDs' });
+    for (const step of steps) {
+      if (step.next && !ids.has(step.next)) ctx.addIssue({ code: 'custom', message: `Unknown next step: ${step.next}` });
+      if (step.input === 'choice' && (!step.choices?.length || new Set(step.choices.map((c) => c.value)).size !== step.choices.length)) ctx.addIssue({ code: 'custom', message: `Invalid choices: ${step.id}` });
+      if (step.variable && ['__proto__', 'constructor', 'prototype'].includes(step.variable)) ctx.addIssue({ code: 'custom', message: 'Unsafe variable' });
+    }
+  }),
   isActive: z.boolean().default(true),
 });
 

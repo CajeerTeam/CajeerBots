@@ -221,6 +221,7 @@ export const generatedApiOperations: GeneratedApiOperation[] = [
   {"method": "post", "path": "/updates/plans/extensions/{id}", "operationId": "generated_post_updates_plans_extensions_id", "tags": [], "deprecated": false, "secured": false},
   {"method": "get", "path": "/updates/plans/{id}", "operationId": "generated_get_updates_plans_id", "tags": [], "deprecated": false, "secured": false},
   {"method": "post", "path": "/updates/plans/{id}/apply", "operationId": "generated_post_updates_plans_id_apply", "tags": [], "deprecated": false, "secured": false},
+  {"method": "post", "path": "/updates/plans/{id}/rollback", "operationId": "rollbackUpdatePlan", "tags": [], "deprecated": false, "secured": false},
   {"method": "get", "path": "/webhook-endpoints", "operationId": "generated_get_webhook_endpoints", "tags": [], "deprecated": false, "secured": false},
   {"method": "post", "path": "/webhook-endpoints", "operationId": "generated_post_webhook_endpoints", "tags": [], "deprecated": false, "secured": false},
   {"method": "post", "path": "/webhooks/events", "operationId": "generated_post_webhooks_events", "tags": [], "deprecated": false, "secured": false},

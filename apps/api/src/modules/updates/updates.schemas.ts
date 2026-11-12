@@ -23,4 +23,7 @@ export const listUpdatePlansQuerySchema = z.object({
 export const applyUpdatePlanSchema = z.object({
   dryRun: z.boolean().default(false),
   autoGrant: z.boolean().default(false),
+  discardPending: z.boolean().default(false),
 });
+
+export const rollbackUpdatePlanSchema = z.object({ discardPending: z.boolean().default(false) });

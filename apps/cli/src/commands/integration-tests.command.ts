@@ -77,7 +77,7 @@ export function integrationTestsCommand(): Command {
 
   command.command('run:suite')
     .argument('<suiteCode>')
-    .option('--version <version>', 'version', '1.0.0-rc.3')
+    .option('--version <version>', 'version', '1.0.0-rc.4')
     .option('--channel <channel>', 'channel', 'beta')
     .option('--base-url <url>')
     .option('--api-token <token>')
@@ -94,7 +94,7 @@ export function integrationTestsCommand(): Command {
   command.command('run:case')
     .requiredOption('--suite <code>')
     .argument('<caseCode>')
-    .option('--version <version>', 'version', '1.0.0-rc.3')
+    .option('--version <version>', 'version', '1.0.0-rc.4')
     .option('--channel <channel>', 'channel', 'beta')
     .option('--base-url <url>')
     .option('--api-token <token>')
@@ -110,7 +110,7 @@ export function integrationTestsCommand(): Command {
   command.command('queue')
     .option('--suite <code>')
     .option('--case <code>')
-    .option('--version <version>', 'version', '1.0.0-rc.3')
+    .option('--version <version>', 'version', '1.0.0-rc.4')
     .option('--channel <channel>', 'channel', 'beta')
     .option('--base-url <url>')
     .action(async (options: { suite?: string; case?: string; version: string; channel: string; baseUrl?: string }) => withPrisma(async (prisma) => {
@@ -138,7 +138,7 @@ export function integrationTestsCommand(): Command {
     }));
 
   command.command('coverage')
-    .option('--version <version>', 'version', '1.0.0-rc.3')
+    .option('--version <version>', 'version', '1.0.0-rc.4')
     .option('--channel <channel>', 'channel', 'beta')
     .action(async (options: { version: string; channel: string }) => withPrisma(async (prisma) => {
       const result = await calculateIntegrationCoverage(prisma, { version: options.version, channel: options.channel, createdBy: 'cli' });

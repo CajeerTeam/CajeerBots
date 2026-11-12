@@ -1,6 +1,6 @@
-# CajeerBots — 1.0.0-rc.3
+# CajeerBots — 1.0.0-rc.4
 
-Русскоязычная self-hosted платформа TypeScript для Telegram, VK и Discord. RC3 реализует Security & Reliability в существующих приложениях: изоляцию, аутентификацию webhook и надёжную доставку. См. [ROADMAP](ROADMAP.md) и [отчёт проверки](RELEASE_VALIDATION_1.0.0-rc.3.md).
+Русскоязычная self-hosted платформа TypeScript для Telegram, VK и Discord. RC4 реализует Product Completion: runtime меню, диалоги и формы, подписанные исполняемые расширения, транзакционное обновление и откат, CLI через API. См. [ROADMAP](ROADMAP.md) и [отчёт проверки](RELEASE_VALIDATION_1.0.0-rc.4.md).
 
 ## Сначала: обязательный lockfile
 
@@ -59,7 +59,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml build
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --wait
 ```
 
-Сервисы используют один образ `cajeerbots:1.0.0-rc.3`. Сначала запускаются PostgreSQL и Redis, затем `migrate` выполняет `prisma migrate deploy` и идемпотентный seed. После успешной миграции запускается API, затем bot-runtime и worker. API и bot-runtime публикуются только на localhost. Worker health доступен внутри сети Compose.
+Сервисы используют один образ `cajeerbots:1.0.0-rc.4`. Сначала запускаются PostgreSQL и Redis, затем `migrate` выполняет `prisma migrate deploy` и идемпотентный seed. После успешной миграции запускается API, затем bot-runtime и worker. API и bot-runtime публикуются только на localhost. Worker health доступен внутри сети Compose.
 
 ```bash
 curl --fail http://127.0.0.1:3000/api/health
@@ -70,9 +70,9 @@ docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api
 
 При обновлении существующей инсталляции не создавайте новые секреты и не удаляйте volumes. Сохраните рабочие `DATABASE_URL`, `SECRETS_ENCRYPTION_KEY`, пароли и все ключи из прежнего `.env.production`. Сделайте резервную копию перед запуском миграций. Если использовались порт 3001 и старые имена переменных, приведите их к текущему конфигу; проверьте nginx. Исторические SQL-миграции не изменены.
 
-## Ограничения RC3
+## Ограничения RC4
 
-- Настройте уникальные webhook credentials, HTTPS и проведите полный прогон RC3 перед публикацией. См. [порядок обновления и проверки](RELEASE_VALIDATION_1.0.0-rc.3.md).
+- Настройте уникальные webhook credentials, HTTPS и проведите полный прогон RC4 перед публикацией. См. [порядок обновления и проверки](RELEASE_VALIDATION_1.0.0-rc.4.md).
 - Полный build, Prisma migrate deploy, E2E и Compose ещё требуют прогона с установленными зависимостями; выпуск не подтверждён как production-ready.
 - Для production поддерживается PostgreSQL, Redis и локальное хранилище как базовый профиль проверки. Альтернативные драйверы и масштабирование не подтверждены этим релизом.
 

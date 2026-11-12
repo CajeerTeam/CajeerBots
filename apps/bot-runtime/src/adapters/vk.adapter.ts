@@ -26,7 +26,7 @@ export class VkAdapter implements BotAdapter {
     this.vk = new VK({ token: account.token });
     this.vk.updates.on('message_new', async (context) => {
       const text = String(context.text ?? '').trim();
-      const parsed = parseCommandFromText(text.startsWith('/') ? text : `/${normalizeVkTextCommand(text)}`);
+      const parsed = parseCommandFromText(text.startsWith('/') ? text : ['статус', 'помощь', 'настройки'].includes(text.toLowerCase()) ? `/${normalizeVkTextCommand(text)}` : text);
       const inbound = await recordInboundUpdate(prisma, account, {
         providerUpdateId: context.id ? String(context.id) : `${context.peerId}:${context.createdAt ?? Date.now()}`,
         type: parsed ? 'command' : 'message',
@@ -44,6 +44,18 @@ export class VkAdapter implements BotAdapter {
       if (response?.text) {
         await sendProviderText(prisma, account, { outboundMessageId: response.outboundMessageId, targetId: String(context.peerId), text: response.text, buttons: response.buttons });
       }
+    });
+
+    this.vk.updates.on('message_event', async (context) => {
+      const event = context as unknown as { eventId: string; userId: number; peerId: number; eventPayload: unknown; answer?: (data: unknown) => Promise<unknown> };
+      const payload = typeof event.eventPayload === 'string' ? JSON.parse(event.eventPayload) : event.eventPayload;
+      const action = payload && typeof payload === 'object' && 'action' in payload ? String(payload.action) : '';
+      if (!action || !event.eventId || !event.userId || !event.peerId) return;
+      const inbound = await recordInboundUpdate(prisma, account, { providerUpdateId: String(event.eventId), type: 'callback', userExternalId: String(event.userId), chatExternalId: String(event.peerId), payload: { action, eventId: event.eventId } });
+      if (inbound.isDuplicate) return;
+      const response = await dispatchRuntimeInteraction(prisma, this.router, account, { type: 'callback', name: action, userId: String(event.userId), payload: { peerId: event.peerId } }, { inboundUpdateId: inbound.id, targetId: String(event.peerId) });
+      if (response?.text) await sendProviderText(prisma, account, { outboundMessageId: response.outboundMessageId, targetId: String(event.peerId), text: response.text, buttons: response.buttons });
+      await event.answer?.({ type: 'show_snackbar', text: response ? 'Готово' : 'Действие недоступно' }).catch(() => undefined);
     });
 
     if (account.mode === 'polling') await this.vk.updates.start();

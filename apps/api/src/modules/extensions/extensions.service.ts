@@ -1,10 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@cajeerbots/db';
-import { DbExtensionRuntime, missingPermissions, parseManifest } from '@cajeerbots/extension-runtime';
+import { DbExtensionRuntime, missingPermissions, parseManifest, resolveExecutable } from '@cajeerbots/extension-runtime';
 import { checkEngineCompatibility, type ExtensionManifest } from '@cajeerbots/extension-sdk';
-import type { Principal } from '@cajeerbots/security';
+import { hasScope, permissions, type Principal } from '@cajeerbots/security';
 
-const ENGINE_API_VERSION = '1.0.0-rc.3';
+const ENGINE_API_VERSION = '1.0.0-rc.4';
 
 @Injectable()
 export class ExtensionsService {
@@ -37,6 +37,9 @@ export class ExtensionsService {
   }
 
   async install(manifest: ExtensionManifest, actor: Principal, signature?: string, autoGrant = false) {
+    if (autoGrant && !hasScope(actor, permissions.extensionsPermissions)) throw new ForbiddenException('Permission grant scope required');
+    if (signature || manifest.signature) throw new BadRequestException('Signed artifacts must be installed via Registry, not manifest-only install');
+    await resolveExecutable({}, manifest).catch((error: Error) => { throw new BadRequestException(error.message); });
     const compatibility = checkEngineCompatibility(manifest.engine.range, ENGINE_API_VERSION);
     if (!compatibility.compatible) throw new BadRequestException({ code: 'EXTENSION_INCOMPATIBLE', reasons: compatibility.reasons });
     try {
@@ -67,9 +70,17 @@ export class ExtensionsService {
     const extension = await this.prisma.extension.findUnique({ where: { id }, include: { permissionGrants: { where: { revokedAt: null } } } });
     if (!extension) throw new NotFoundException('Расширение не найдено');
     const manifest = parseManifest(extension.manifest);
+    await resolveExecutable(extension, manifest).catch((error: Error) => { throw new BadRequestException(error.message); });
     const missing = missingPermissions(manifest.permissions, extension.permissionGrants.map((grant) => grant.permission));
     if (missing.length > 0) throw new BadRequestException({ code: 'EXTENSION_PERMISSIONS_NOT_GRANTED', missing });
-    const enabled = await this.setStatus(id, 'enabled', actor);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM extensions WHERE id = ${id} FOR UPDATE`;
+      const current = await tx.extension.findUniqueOrThrow({ where: { id }, include: { permissionGrants: { where: { revokedAt: null } } } });
+      if (current.version !== extension.version || missingPermissions(manifest.permissions, current.permissionGrants.map((grant) => grant.permission)).length) throw new ConflictException('Extension changed during enable');
+      await tx.extension.update({ where: { id }, data: { status: 'enabled' } });
+      await tx.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action: 'extension.enabled', resource: 'extension', resourceId: id } });
+    });
+    const enabled = await this.get(id);
     const queuedHooks = await this.runtime.enqueueHook({ extensionId: id, hook: 'extension.enabled', payload: { id, name: extension.name, version: extension.version } });
     await this.audit(actor, 'extension.runtime.enqueue', id, { hook: 'extension.enabled', queuedHooks });
     return enabled;

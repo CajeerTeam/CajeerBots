@@ -3,6 +3,7 @@ import { PrismaService } from '@cajeerbots/db';
 import { InteractionRouter, commandMatches, type IncomingInteraction, type InteractionResponse } from '@cajeerbots/interaction-core';
 import { DbExtensionRuntime } from '@cajeerbots/extension-runtime';
 import type { RuntimeBotAccount } from './load-bot-accounts.js';
+import { dispatchProductInteraction } from './product-interactions.js';
 import { createOutboundMessage, markInboundHandled } from './runtime-records.js';
 
 export interface RenderedBotResponse {
@@ -19,7 +20,7 @@ export async function configureRouterFromDatabase(prisma: PrismaService, router:
 
   router.register('status', async (interaction) => ({
     templateKey: 'system.status',
-    variables: { status: 'ok', version: process.env.npm_package_version ?? '1.0.0-rc.3', communityId: String(interaction.payload.communityId ?? '') },
+    variables: { status: 'ok', version: process.env.npm_package_version ?? '1.0.0-rc.4', communityId: String(interaction.payload.communityId ?? '') },
   }));
 
   router.register('help', async (interaction) => ({
@@ -81,7 +82,7 @@ export async function dispatchRuntimeInteraction(
       if (!active) throw new Error('Bot account disabled');
     }
     const commands = await prisma.interactionCommand.findMany({ where: { communityId: account.communityId, OR: [{ provider: account.provider }, { provider: null }] } });
-    const command = commands.find((entry) => commandMatches({ ...entry, isEnabled: true }, normalized.provider, normalized.name ?? ''));
+    const command = normalized.type === 'callback' ? undefined : commands.sort((a, b) => Number(b.provider === account.provider) - Number(a.provider === account.provider)).find((entry) => commandMatches({ ...entry, isEnabled: true }, normalized.provider, normalized.name ?? ''));
     const callback = normalized.type === 'callback' && normalized.name ? await prisma.interactionCallbackAction.findUnique({ where: { communityId_code: { communityId: account.communityId, code: normalized.name } } }) : null;
     if (command?.isEnabled === false || callback?.isActive === false) {
       await prisma.interactionEvent.update({ where: { id: event.id }, data: { status: 'ignored' } });
@@ -99,7 +100,8 @@ export async function dispatchRuntimeInteraction(
         return undefined;
       }
     }
-    const response = await router.dispatch(normalized, command ?? null);
+    const product = await dispatchProductInteraction(prisma, account, normalized, command ?? null, options.targetId ?? resolveTargetId(normalized.payload), options.inboundUpdateId);
+    const response = product === undefined ? await router.dispatch(normalized, command ?? null) : product ?? undefined;
     const rendered = response ? await renderResponse(prisma, account.communityId, response, account.provider) : undefined;
     if (rendered?.text && account.provider !== 'discord') {
       const targetId = options.targetId ?? resolveTargetId(normalized.payload);

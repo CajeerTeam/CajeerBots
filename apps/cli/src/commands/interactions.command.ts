@@ -1,78 +1,18 @@
 import { readFile } from 'node:fs/promises';
 import { Command } from 'commander';
-import { PrismaService } from '@cajeerbots/db';
-
+import { apiClient, print } from '../api-client.js';
+async function json(path: string): Promise<unknown> { return JSON.parse(await readFile(path, 'utf8')); }
+type Provider = 'telegram' | 'vk' | 'discord';
 export function interactionsCommand(): Command {
-  const command = new Command('interactions').description('Команды, меню, callbacks и conversations без внешней панели');
-
-  command.command('commands:list').requiredOption('--community <id>', 'community id').option('--provider <provider>', 'telegram | vk | discord').action(async (options: { community: string; provider?: 'telegram' | 'vk' | 'discord' }) => {
-    await withPrisma(async (prisma) => {
-      const rows = await prisma.interactionCommand.findMany({ where: { communityId: options.community, ...(options.provider ? { OR: [{ provider: options.provider }, { provider: null }] } : {}) }, orderBy: { name: 'asc' } });
-      console.log(JSON.stringify(rows, null, 2));
-    });
-  });
-
-  command.command('command:add')
-    .requiredOption('--community <id>', 'community id')
-    .requiredOption('--name <name>', 'command name')
-    .requiredOption('--description <text>', 'description')
-    .option('--provider <provider>', 'telegram | vk | discord')
-    .option('--alias <alias...>', 'aliases')
-    .option('--handler <handler>', 'handler key', 'template')
-    .option('--template <key>', 'message template key')
-    .option('--scope <scope...>', 'required scopes')
-    .action(async (options: { community: string; name: string; description: string; provider?: 'telegram' | 'vk' | 'discord'; alias?: string[]; handler: string; template?: string; scope?: string[] }) => {
-      await withPrisma(async (prisma) => {
-        const row = await prisma.interactionCommand.create({ data: { communityId: options.community, name: options.name, description: options.description, provider: options.provider, aliases: options.alias ?? [], handler: options.handler, templateKey: options.template, scopes: options.scope ?? [] } });
-        console.log(JSON.stringify(row, null, 2));
-      });
-    });
-
-  command.command('menu:add')
-    .requiredOption('--community <id>', 'community id')
-    .requiredOption('--code <code>', 'menu code')
-    .requiredOption('--title <title>', 'menu title')
-    .requiredOption('--buttons <json-file>', 'JSON file with button rows')
-    .option('--locale <locale>', 'locale', 'ru')
-    .option('--template <key>', 'message template key')
-    .action(async (options: { community: string; code: string; title: string; buttons: string; locale: string; template?: string }) => {
-      const buttons = JSON.parse(await readFile(options.buttons, 'utf8'));
-      await withPrisma(async (prisma) => {
-        const row = await prisma.interactionMenu.create({ data: { communityId: options.community, code: options.code, title: options.title, locale: options.locale, templateKey: options.template, buttons } });
-        console.log(JSON.stringify(row, null, 2));
-      });
-    });
-
-  command.command('events:list').requiredOption('--community <id>', 'community id').option('--take <n>', 'limit', '50').action(async (options: { community: string; take: string }) => {
-    await withPrisma(async (prisma) => {
-      const rows = await prisma.interactionEvent.findMany({ where: { communityId: options.community }, orderBy: { createdAt: 'desc' }, take: Math.min(Number(options.take), 200) });
-      console.log(JSON.stringify(rows, null, 2));
-    });
-  });
-
-  command.command('conversation:add')
-    .requiredOption('--community <id>', 'community id')
-    .requiredOption('--code <code>', 'conversation code')
-    .requiredOption('--title <title>', 'conversation title')
-    .requiredOption('--steps <json-file>', 'JSON file with conversation steps')
-    .option('--entry-command <name>', 'entry command name')
-    .action(async (options: { community: string; code: string; title: string; steps: string; entryCommand?: string }) => {
-      const steps = JSON.parse(await readFile(options.steps, 'utf8'));
-      await withPrisma(async (prisma) => {
-        const row = await prisma.conversationFlow.create({ data: { communityId: options.community, code: options.code, title: options.title, entryCommand: options.entryCommand, steps } });
-        console.log(JSON.stringify(row, null, 2));
-      });
-    });
-
+  const command = new Command('interactions').description('Команды, меню, callbacks, conversations и формы');
+  command.command('commands:list').requiredOption('--community <id>').option('--provider <provider>').action(async (o: { community: string; provider?: Provider }) => print(await apiClient().interactionCommands(o.community, o.provider)));
+  command.command('command:add').requiredOption('--community <id>').requiredOption('--name <name>').requiredOption('--description <text>').option('--provider <provider>').option('--alias <alias...>').option('--handler <handler>', 'handler', 'template').option('--template <key>').option('--scope <scope...>').option('--conversation <code>').option('--code <code>', 'menu/form/flow code').option('--cooldown <seconds>', 'seconds', '0').action(async (o: { community: string; name: string; description: string; provider?: Provider; alias?: string[]; handler: string; template?: string; scope?: string[]; conversation?: string; code?: string; cooldown: string }) => print(await apiClient().createInteractionCommand(o.community, { name: o.name, description: o.description, provider: o.provider, aliases: o.alias ?? [], handler: o.handler, templateKey: o.template, scopes: o.scope ?? [], conversationCode: o.conversation, cooldownSeconds: Number(o.cooldown), ...(o.code ? { metadata: { code: o.code } } : {}) })));
+  command.command('menu:add').requiredOption('--community <id>').requiredOption('--code <code>').requiredOption('--title <title>').requiredOption('--buttons <json-file>').option('--locale <locale>', 'locale', 'ru').option('--template <key>').action(async (o: { community: string; code: string; title: string; buttons: string; locale: string; template?: string }) => print(await apiClient().createInteractionMenu(o.community, { code: o.code, title: o.title, locale: o.locale, templateKey: o.template, buttons: await json(o.buttons) })));
+  command.command('callback:add').requiredOption('--community <id>').requiredOption('--code <code>').requiredOption('--title <title>').requiredOption('--handler <handler>').option('--target <code>').option('--scope <scope...>').option('--template <key>').action(async (o: { community: string; code: string; title: string; handler: string; target?: string; scope?: string[]; template?: string }) => print(await apiClient().createCallbackAction(o.community, { code: o.code, title: o.title, handler: o.handler, scopes: o.scope, payload: { code: o.target, templateKey: o.template } })));
+  command.command('conversation:add').requiredOption('--community <id>').requiredOption('--code <code>').requiredOption('--title <title>').requiredOption('--steps <json-file>').option('--entry-command <name>').action(async (o: { community: string; code: string; title: string; steps: string; entryCommand?: string }) => print(await apiClient().createConversationFlow(o.community, { code: o.code, title: o.title, steps: await json(o.steps), entryCommand: o.entryCommand })));
+  command.command('form:add').requiredOption('--community <id>').requiredOption('--code <code>').requiredOption('--title <title>').requiredOption('--fields <json-file>').option('--locale <locale>', 'locale', 'ru').option('--success-template <key>').action(async (o: { community: string; code: string; title: string; fields: string; locale: string; successTemplate?: string }) => print(await apiClient().upsertMessageForm(o.community, { code: o.code, title: o.title, fields: await json(o.fields), locale: o.locale, successTemplateKey: o.successTemplate })));
+  command.command('forms:list').requiredOption('--community <id>').action(async (o: { community: string }) => print(await apiClient().messageForms(o.community)));
+  command.command('forms:submissions').requiredOption('--community <id>').option('--form <id>').action(async (o: { community: string; form?: string }) => print(await apiClient().messageFormSubmissions(o.community, { formId: o.form })));
+  command.command('events:list').requiredOption('--community <id>').option('--take <n>', 'limit', '50').action(async (o: { community: string; take: string }) => print(await apiClient().interactionEvents(o.community, Number(o.take))));
   return command;
-}
-
-async function withPrisma<T>(fn: (prisma: PrismaService) => Promise<T>): Promise<T> {
-  const prisma = new PrismaService();
-  await prisma.connect();
-  try {
-    return await fn(prisma);
-  } finally {
-    await prisma.close();
-  }
 }

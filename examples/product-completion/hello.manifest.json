@@ -1,0 +1,15 @@
+{
+  "name": "demo-hello",
+  "version": "1.0.0",
+  "displayName": "Hello extension",
+  "engine": {
+    "apiVersion": "1.0.0-rc.4",
+    "range": ">=1.0.0-rc.4 <2.0.0"
+  },
+  "hooks": [
+    "extension.enabled",
+    "interaction.handled"
+  ],
+  "permissions": [],
+  "entry": "./hello.mjs"
+}

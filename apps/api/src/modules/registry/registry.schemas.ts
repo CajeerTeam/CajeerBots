@@ -19,6 +19,7 @@ export const listRegistryPackagesQuerySchema = z.object({
 });
 
 export const installRegistryPackageSchema = z.object({
+  sourceId: z.string().optional(),
   version: z.string().optional(),
   channel: z.enum(['stable', 'lts', 'beta', 'alpha', 'security']).optional(),
   autoGrant: z.boolean().default(false),

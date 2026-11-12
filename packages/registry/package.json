@@ -1,6 +1,6 @@
 {
   "name": "@cajeerbots/registry",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -12,6 +12,7 @@
   "dependencies": {
     "@cajeerbots/core": "workspace:*",
     "@cajeerbots/extension-sdk": "workspace:*",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "@cajeerbots/security": "workspace:*"
   }
 }

@@ -1,3 +1,9 @@
+## 1.0.0-rc.4 — Product Completion
+
+- Stateful commands, menus, callbacks, conversations and forms in provider runtime.
+- Verified Ed25519 extension bundles, executable registry install, transactional update/rollback, CLI SDK parity.
+- Core artifacts are staged, not marked deployed. Full workspace/E2E validation remains required.
+
 # Changelog
 
 ## [1.0.0-rc.3] - 2026-11-12

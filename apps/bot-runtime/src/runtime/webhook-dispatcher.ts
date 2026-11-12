@@ -36,7 +36,7 @@ async function dispatchTelegram(prisma: PrismaService, router: InteractionRouter
   const userId = from?.id === undefined ? 'unknown' : String(from.id);
   const providerUpdateId = payload.update_id === undefined ? undefined : String(payload.update_id);
   const inbound = await recordInboundUpdate(prisma, account, { providerUpdateId, type, userExternalId: userId, chatExternalId: targetId, payload });
-  if (inbound.isDuplicate) return { statusCode: ['handled', 'ignored'].includes(inbound.status ?? '') ? 200 : 503, body: { ok: true, duplicate: true } };
+  if (inbound.isDuplicate) return { statusCode: ['handled', 'ignored'].includes(inbound.status ?? '') ? 200 : 503, body: callback?.id ? { method: 'answerCallbackQuery', callback_query_id: String(callback.id) } : { ok: true, duplicate: true } };
 
   const response = await dispatchRuntimeInteraction(prisma, router, account, {
     type,
@@ -47,25 +47,28 @@ async function dispatchTelegram(prisma: PrismaService, router: InteractionRouter
 
   if (inbound.id && (await prisma.botInboundUpdate.findUnique({ where: { id: inbound.id } }))?.status === 'failed') return { statusCode: 503, body: { ok: false } };
   if (response?.text && targetId) await sendProviderText(prisma, account, { outboundMessageId: response.outboundMessageId, targetId, text: response.text, buttons: response.buttons });
-  return { statusCode: 200, body: { ok: true } };
+  return { statusCode: 200, body: callback?.id ? { method: 'answerCallbackQuery', callback_query_id: String(callback.id) } : { ok: true } };
 }
 
 async function dispatchVk(prisma: PrismaService, router: InteractionRouter, account: RuntimeBotAccount, payload: Record<string, unknown>): Promise<WebhookDispatchResult> {
-  if (payload.type !== 'message_new') return { statusCode: 200, body: 'ok' };
+  if (payload.type !== 'message_new' && payload.type !== 'message_event') return { statusCode: 200, body: 'ok' };
   const object = asRecord(payload.object) ?? {};
   const message = asRecord(object.message) ?? object;
   const text = String(message.text ?? '').trim();
-  const parsed = parseCommandFromText(text.startsWith('/') ? text : `/${normalizeVkTextCommand(text)}`);
+  const callback = payload.type === 'message_event';
+  let rawAction = asRecord(message.payload) ?? {};
+  if (typeof message.payload === 'string') { try { rawAction = asRecord(JSON.parse(message.payload)) ?? {}; } catch { return { statusCode: 200, body: 'ok' }; } }
+  const parsed = parseCommandFromText(text.startsWith('/') ? text : ['статус', 'помощь', 'настройки'].includes(text.toLowerCase()) ? `/${normalizeVkTextCommand(text)}` : text);
   const targetId = message.peer_id === undefined ? undefined : String(message.peer_id);
-  const userId = message.from_id === undefined ? 'unknown' : String(message.from_id);
-  const type = parsed ? 'command' : 'message';
+  const userId = String(message.from_id ?? message.user_id ?? 'unknown');
+  const type = callback ? 'callback' : parsed ? 'command' : 'message';
   const providerUpdateId = payload.event_id ? String(payload.event_id) : message.id ? String(message.id) : undefined;
   const inbound = await recordInboundUpdate(prisma, account, { providerUpdateId, type, userExternalId: userId, chatExternalId: targetId, payload });
   if (inbound.isDuplicate) return { statusCode: ['handled', 'ignored'].includes(inbound.status ?? '') ? 200 : 503, body: 'ok' };
 
   const response = await dispatchRuntimeInteraction(prisma, router, account, {
     type,
-    name: parsed?.name ?? 'message',
+    name: callback ? String(rawAction.action ?? '') : parsed?.name ?? 'message',
     userId,
     payload: { text, args: parsed?.args ?? [], peerId: targetId },
   }, { inboundUpdateId: inbound.id, targetId });
@@ -76,6 +79,7 @@ async function dispatchVk(prisma: PrismaService, router: InteractionRouter, acco
 
 async function dispatchDiscord(prisma: PrismaService, router: InteractionRouter, account: RuntimeBotAccount, payload: Record<string, unknown>): Promise<WebhookDispatchResult> {
   if (payload.type === 1) return { statusCode: 200, body: { type: 1 } };
+  if (payload.type !== 2 && payload.type !== 3) return { statusCode: 400, body: { ok: false } };
   const data = asRecord(payload.data) ?? {};
   delete payload.token;
   const member = asRecord(payload.member);

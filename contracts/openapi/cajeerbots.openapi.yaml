@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerBots API
-  version: 1.0.0-rc.3
+  version: 1.0.0-rc.4
   description: Русскоязычная TypeScript-first платформа для управления сообществами
     через Telegram, VK и Discord.
 servers:
@@ -1788,6 +1788,21 @@ paths:
       responses:
         '201':
           description: Applied plan
+  /updates/plans/{id}/rollback:
+    post:
+      summary: Откатить применённое обновление расширения
+      operationId: rollbackUpdatePlan
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '201':
+          description: Rolled back plan
+        '409':
+          description: Extension active or stale plan
   /updates/history:
     get:
       summary: Update history

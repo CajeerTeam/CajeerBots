@@ -1,0 +1,14 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { createHash, createPrivateKey, sign } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+const [manifestPath, codePath, keyPath, output, url] = process.argv.slice(2);
+if (!manifestPath || !codePath || !keyPath || !output || !url || new URL(url).protocol !== 'https:') throw new Error('Usage: node scripts/package-extension.mjs manifest.json bundled.mjs private.pem output.json https://host/output.json');
+const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+const source = await readFile(codePath, 'utf8');
+if (spawnSync(process.execPath, ['--input-type=module', '--check'], { input: source, timeout: 5000 }).status !== 0) throw new Error('Invalid ESM');
+const key = createPrivateKey(await readFile(keyPath));
+if (key.asymmetricKeyType !== 'ed25519') throw new Error('Ed25519 private key required');
+const bytes = Buffer.from(JSON.stringify({ format: 'cajeer-extension-v1', manifest, source }));
+if (bytes.length > 2 * 1024 * 1024) throw new Error('Artifact exceeds 2 MiB');
+await writeFile(output, bytes, { flag: 'wx' });
+console.log(JSON.stringify({ version: manifest.version, engine: { range: manifest.engine.range }, channel: 'stable', manifest, artifact: { url, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), signature: sign(null, bytes, key).toString('base64'), signatureAlgorithm: 'ed25519' } }, null, 2));

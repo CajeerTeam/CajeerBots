@@ -1,12 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@cajeerbots/db';
-import { checkEngineCompatibility, type ExtensionManifest } from '@cajeerbots/extension-sdk';
-import { compareSemver, latestVersion, parseRegistryManifest, type RegistryChannel, type RegistryManifest } from '@cajeerbots/registry';
-import type { Principal } from '@cajeerbots/security';
+import { compareSemver, latestVersion, parseRegistryManifest, fetchExtensionArtifact, type RegistryChannel, type RegistryManifest } from '@cajeerbots/registry';
+import { safeHttpRequest, hasScope, permissions, type Principal } from '@cajeerbots/security';
 
-const ENGINE_API_VERSION = '1.0.0-rc.3';
+const ENGINE_API_VERSION = '1.0.0-rc.4';
 
 @Injectable()
 export class RegistryService {
@@ -61,13 +58,16 @@ export class RegistryService {
   }
 
   async packageByName(name: string, sourceId?: string) {
-    const row = await this.prisma.registryPackage.findFirst({ where: { name, ...(sourceId ? { sourceId } : {}) }, include: { source: true, versions: { orderBy: { createdAt: 'desc' } } } });
+    const rows = await this.prisma.registryPackage.findMany({ where: { name, ...(sourceId ? { sourceId } : {}) }, take: 2, include: { source: true, versions: { orderBy: { createdAt: 'desc' } } } });
+    if (rows.length > 1) throw new BadRequestException('Ambiguous registry package; specify sourceId');
+    const row = rows[0];
     if (!row) throw new NotFoundException('Registry package не найден');
     return row;
   }
 
-  async installPackage(name: string, input: { version?: string; channel?: RegistryChannel; autoGrant?: boolean }, actor: Principal) {
-    const pkg = await this.packageByName(name);
+  async installPackage(name: string, input: { sourceId?: string; version?: string; channel?: RegistryChannel; autoGrant?: boolean }, actor: Principal) {
+    if (input.autoGrant && !hasScope(actor, permissions.extensionsPermissions)) throw new ForbiddenException('Permission grant scope required');
+    const pkg = await this.packageByName(name, input.sourceId);
     const selected = input.version
       ? pkg.versions.find((version) => version.version === input.version)
       : pkg.versions.filter((version) => !version.isYanked && (!input.channel || version.channel === input.channel)).sort((a, b) => compareSemver(b.version, a.version))[0];
@@ -75,38 +75,26 @@ export class RegistryService {
     if (selected.isYanked) throw new BadRequestException('Выбранная версия package отозвана');
     if (pkg.kind !== 'plugin' && pkg.kind !== 'module') throw new BadRequestException('Через этот endpoint устанавливаются только modules/plugins');
     if (!selected.manifest) throw new BadRequestException('Registry version не содержит extension manifest');
-    const manifest = selected.manifest as ExtensionManifest;
-    const compatibility = checkEngineCompatibility(manifest.engine.range, ENGINE_API_VERSION);
-    if (!compatibility.compatible) throw new BadRequestException({ code: 'EXTENSION_INCOMPATIBLE', reasons: compatibility.reasons });
-
-    const extension = await this.prisma.extension.create({
-      data: {
-        name: manifest.name,
-        version: manifest.version,
-        engineRange: manifest.engine.range,
-        manifest: manifest as never,
-        signature: selected.signature,
-        status: 'installed',
-        registrySourceId: pkg.sourceId,
-        registryPackageName: pkg.name,
-        registryVersionId: selected.id,
-      },
+    const artifact = await fetchExtensionArtifact(selected, pkg.source, pkg.name, ENGINE_API_VERSION).catch((error: Error) => { throw new BadRequestException(error.message); });
+    const { manifest, artifactSource, artifactCodeSha256 } = artifact;
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.extension.findUnique({ where: { name_version: { name: manifest.name, version: manifest.version } } });
+      const data = { name: manifest.name, version: manifest.version, engineRange: manifest.engine.range, manifest: manifest as never, signature: selected.signature, artifactSource, artifactCodeSha256, status: 'installed' as const, registrySourceId: pkg.sourceId, registryPackageName: pkg.name, registryVersionId: selected.id };
+      if (existing && (existing.artifactSource || existing.status === 'enabled' || (existing.registrySourceId && existing.registrySourceId !== pkg.sourceId))) throw new BadRequestException('Release already installed, enabled, or belongs to another registry');
+      if (existing && await tx.extensionRuntimeEvent.count({ where: { extensionId: existing.id, status: 'processing' } })) throw new BadRequestException('Extension has running events');
+      const extension = existing ? await tx.extension.update({ where: { id: existing.id }, data }) : await tx.extension.create({ data });
+      if (input.autoGrant) for (const permission of new Set(manifest.permissions)) await tx.extensionPermissionGrant.upsert({ where: { extensionId_permission: { extensionId: extension.id, permission } }, create: { extensionId: extension.id, permission, actorId: actor.id, reason: 'Registry install' }, update: { revokedAt: null, actorId: actor.id } });
+      await tx.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action: 'registry.package.install', resource: 'extension', resourceId: extension.id, metadata: { packageName: pkg.name, version: selected.version, sha256: selected.artifactSha256 } } });
+      return tx.extension.findUniqueOrThrow({ where: { id: extension.id }, include: { permissionGrants: true } });
     });
-
-    if (input.autoGrant && Array.isArray(manifest.permissions)) {
-      for (const permission of manifest.permissions) {
-        await this.prisma.extensionPermissionGrant.upsert({ where: { extensionId_permission: { extensionId: extension.id, permission } }, create: { extensionId: extension.id, permission, actorId: actor.id, reason: 'autoGrant при установке из registry' }, update: { revokedAt: null, actorId: actor.id } });
-      }
-    }
-    await this.audit(actor, 'registry.package.install', extension.id, { packageName: pkg.name, version: selected.version, autoGrant: Boolean(input.autoGrant) });
-    return this.prisma.extension.findUniqueOrThrow({ where: { id: extension.id }, include: { permissionGrants: true } });
   }
 
   private async upsertManifest(sourceId: string, manifest: RegistryManifest): Promise<{ packages: number; versions: number }> {
+    return this.prisma.$transaction(async (tx) => {
     let versionCount = 0;
     for (const item of manifest.packages) {
       const latest = latestVersion(item.versions);
-      const pkg = await this.prisma.registryPackage.upsert({
+      const pkg = await tx.registryPackage.upsert({
         where: { sourceId_name: { sourceId, name: item.name } },
         create: {
           sourceId,
@@ -136,7 +124,9 @@ export class RegistryService {
         },
       });
       for (const version of item.versions) {
-        await this.prisma.registryPackageVersion.upsert({
+        const old = await tx.registryPackageVersion.findUnique({ where: { packageId_version: { packageId: pkg.id, version: version.version } } });
+        if (old?.signature && old.artifactSha256 !== version.artifact.sha256) throw new Error(`Immutable signed release changed: ${item.name}@${version.version}`);
+        await tx.registryPackageVersion.upsert({
           where: { packageId_version: { packageId: pkg.id, version: version.version } },
           create: {
             packageId: pkg.id,
@@ -173,14 +163,14 @@ export class RegistryService {
       }
     }
     return { packages: manifest.packages.length, versions: versionCount };
+    }, { timeout: 30000 });
   }
 
   private async loadManifest(url: string): Promise<RegistryManifest> {
-    if (url.startsWith('file://')) return parseRegistryManifest(JSON.parse(await readFile(fileURLToPath(url), 'utf8')));
-    if (url.startsWith('/') || url.startsWith('./') || url.startsWith('../')) return parseRegistryManifest(JSON.parse(await readFile(url, 'utf8')));
-    const response = await fetch(url, { headers: { accept: 'application/json' } });
-    if (!response.ok) throw new Error(`HTTP ${response.status} при загрузке registry manifest`);
-    return parseRegistryManifest(await response.json());
+    if (new URL(url).protocol !== 'https:') throw new Error('Registry source requires HTTPS');
+    const response = await safeHttpRequest(url, { method: 'GET', maxResponseBytes: 2 * 1024 * 1024 });
+    if (!response.ok) throw new Error(`Registry HTTP ${response.status}`);
+    return parseRegistryManifest(JSON.parse(await response.text()));
   }
 
   private async requireSource(id: string) {

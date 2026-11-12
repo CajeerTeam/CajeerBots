@@ -16,9 +16,9 @@ try {
   assert.equal((await waitHealth(worker, 'http://127.0.0.1:3302/worker/health')).ok, true);
   const cli = spawnSync(process.execPath, ['apps/cli/dist/main.js', '--version'], { env, encoding: 'utf8', timeout: 15_000 });
   assert.equal(cli.status, 0, cli.stderr);
-  assert.equal(cli.stdout.trim(), '1.0.0-rc.3');
+  assert.equal(cli.stdout.trim(), '1.0.0-rc.4');
   const response = await fetch('http://127.0.0.1:3300/api/system/report', { headers: { 'x-api-key': env.CAJEER_ADMIN_TOKEN ?? '' }, signal: AbortSignal.timeout(5000) });
-  assert.equal(response.status, 200); assert.equal((await response.json()).version, '1.0.0-rc.3');
+  assert.equal(response.status, 200); assert.equal((await response.json()).version, '1.0.0-rc.4');
   const rejected = await fetch('http://127.0.0.1:3300/api/communities', { signal: AbortSignal.timeout(5000) });
   assert.equal(rejected.status, 401);
   console.log('API, bot-runtime, worker and CLI smoke passed');

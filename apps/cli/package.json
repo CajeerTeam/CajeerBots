@@ -1,6 +1,6 @@
 {
   "name": "@cajeerbots/cli",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -30,7 +30,8 @@
     "commander": "13.0.0",
     "@cajeerbots/interaction-core": "workspace:*",
     "@cajeerbots/extension-runtime": "workspace:*",
-    "@cajeerbots/event-bus": "workspace:*"
+    "@cajeerbots/event-bus": "workspace:*",
+    "@cajeerbots/sdk": "workspace:*"
   },
   "main": "dist/main.js",
   "bin": {

@@ -254,6 +254,13 @@ export class CajeerClient {
     return this.request(`/api/communities/${communityId}/interactions/callbacks`);
   }
 
+  createCallbackAction(communityId: string, input: { code: string; title: string; handler?: string; scopes?: string[]; payload?: Record<string, unknown>; isActive?: boolean }): Promise<CallbackActionRecord> {
+    return this.request(`/api/communities/${encodeURIComponent(communityId)}/interactions/callbacks`, { method: 'POST', body: input });
+  }
+  createConversationFlow(communityId: string, input: { code: string; title: string; entryCommand?: string; steps: unknown; isActive?: boolean }): Promise<ConversationFlowRecord> {
+    return this.request(`/api/communities/${encodeURIComponent(communityId)}/interactions/conversations`, { method: 'POST', body: input });
+  }
+
   conversationFlows(communityId: string): Promise<ConversationFlowRecord[]> {
     return this.request(`/api/communities/${communityId}/interactions/conversations`);
   }
@@ -441,7 +448,7 @@ export class CajeerClient {
     return this.request(`/api/registry/packages/${encodeURIComponent(name)}${query}`);
   }
 
-  installRegistryPackage(name: string, input: { version?: string; channel?: 'stable' | 'lts' | 'beta' | 'alpha' | 'security'; autoGrant?: boolean } = {}): Promise<ExtensionRecord> {
+  installRegistryPackage(name: string, input: { sourceId?: string; version?: string; channel?: 'stable' | 'lts' | 'beta' | 'alpha' | 'security'; autoGrant?: boolean } = {}): Promise<ExtensionRecord> {
     return this.request(`/api/registry/packages/${encodeURIComponent(name)}/install`, { method: 'POST', body: input });
   }
 
@@ -460,8 +467,12 @@ export class CajeerClient {
     return this.request(`/api/updates/plans/extensions/${encodeURIComponent(extensionId)}`, { method: 'POST', body: input });
   }
 
-  applyUpdatePlan(id: string, input: { dryRun?: boolean; autoGrant?: boolean } = {}): Promise<UpdatePlanRecord | { dryRun: true; plan: UpdatePlanRecord; steps: unknown }> {
+  applyUpdatePlan(id: string, input: { dryRun?: boolean; autoGrant?: boolean; discardPending?: boolean } = {}): Promise<UpdatePlanRecord | { dryRun: true; plan: UpdatePlanRecord; steps: unknown }> {
     return this.request(`/api/updates/plans/${encodeURIComponent(id)}/apply`, { method: 'POST', body: input });
+  }
+
+  rollbackUpdatePlan(id: string, discardPending = false): Promise<UpdatePlanRecord> {
+    return this.request(`/api/updates/plans/${encodeURIComponent(id)}/rollback`, { method: 'POST', body: { discardPending } });
   }
 
   updateHistory(take?: number): Promise<UpdateHistoryRecord[]> {
@@ -1070,7 +1081,7 @@ export class CajeerClient {
       body = JSON.stringify(options.body);
     }
     if (options.idempotencyKey) headers['idempotency-key'] = options.idempotencyKey;
-    const response = await fetch(new URL(path, this.options.baseUrl), { method: options.method ?? 'GET', headers, body });
+    const response = await fetch(new URL(path, this.options.baseUrl), { method: options.method ?? 'GET', headers, body, redirect: 'error', signal: AbortSignal.timeout(60_000) });
     if (!response.ok) throw new Error(`CajeerBots API error: ${response.status} ${await response.text()}`);
     return (await response.json()) as T;
   }

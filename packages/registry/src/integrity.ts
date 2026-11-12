@@ -36,8 +36,11 @@ export function verifySignature(bytes: Uint8Array | Buffer, signature?: string |
   }
   if (algorithm === 'ed25519') {
     if (!publicKey) return false;
-    const key = createPublicKey(publicKey);
-    return cryptoVerify(null, Buffer.from(bytes), key, Buffer.from(signature, 'base64'));
+    try {
+      const key = createPublicKey(publicKey);
+      const decoded = Buffer.from(signature, 'base64');
+      return key.asymmetricKeyType === 'ed25519' && decoded.length === 64 && cryptoVerify(null, Buffer.from(bytes), key, decoded);
+    } catch { return false; }
   }
   return false;
 }

@@ -1,10 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@cajeerbots/db';
-import { checkEngineCompatibility, type ExtensionManifest } from '@cajeerbots/extension-sdk';
-import { selectUpdateCandidate, updateSteps } from '@cajeerbots/registry';
-import type { Principal } from '@cajeerbots/security';
+import { extensionManifestSchema } from '@cajeerbots/extension-sdk';
+import { selectUpdateCandidate, updateSteps, fetchExtensionArtifact } from '@cajeerbots/registry';
+import { hasScope, permissions, type Principal } from '@cajeerbots/security';
 
-const ENGINE_API_VERSION = '1.0.0-rc.3';
+const ENGINE_API_VERSION = '1.0.0-rc.4';
 
 @Injectable()
 export class UpdatesService {
@@ -63,31 +63,69 @@ export class UpdatesService {
     return this.getPlan(plan.id);
   }
 
-  async applyPlan(id: string, input: { dryRun?: boolean; autoGrant?: boolean }, actor: Principal) {
-    const plan = await this.prisma.updatePlan.findUnique({ where: { id }, include: { version: { include: { package: true } } } });
+  async applyPlan(id: string, input: { dryRun?: boolean; autoGrant?: boolean; discardPending?: boolean }, actor: Principal) {
+    if (input.autoGrant && !hasScope(actor, permissions.extensionsPermissions)) throw new ForbiddenException('Permission grant scope required');
+    const plan = await this.prisma.updatePlan.findUnique({ where: { id }, include: { version: { include: { package: { include: { source: true } } } } } });
     if (!plan) throw new NotFoundException('Update plan не найден');
-    if (!plan.version) throw new BadRequestException('Update plan не содержит registry version');
     if (plan.status === 'applied') return this.getPlan(id);
-    if (input.dryRun) return { dryRun: true, plan, steps: plan.steps };
+    if (plan.status !== 'pending' && plan.status !== 'planned' && plan.status !== 'failed') throw new ConflictException('Plan is not applicable');
+    if (plan.targetType !== 'extension') throw new BadRequestException('Core deployment is a host operation; use update stage-core. API cannot mark it applied.');
+    if (!plan.targetRef || !plan.version || plan.targetVersion !== plan.version.version || plan.sourceId !== plan.version.package.sourceId) throw new BadRequestException('Invalid update plan');
+    const version = plan.version;
+    const artifact = await fetchExtensionArtifact(version, version.package.source, plan.packageName, ENGINE_API_VERSION).catch((error: Error) => { throw new BadRequestException(error.message); });
+    const extensionId = plan.targetRef;
+    const old = await this.prisma.extension.findUniqueOrThrow({ where: { id: extensionId }, include: { permissionGrants: { where: { revokedAt: null } } } });
+    if (old.version !== plan.currentVersion || old.name !== artifact.manifest.name || old.registrySourceId !== plan.sourceId || !old.artifactSource || !old.artifactCodeSha256) throw new ConflictException('Plan is stale or source differs; reinstall legacy extension as a signed release first');
+    const missing = artifact.manifest.permissions.filter((permission) => !old.permissionGrants.some((grant) => grant.permission === permission));
+    if (input.dryRun) return { dryRun: true, plan, steps: plan.steps, missingPermissions: missing, requiresDisabled: old.status === 'enabled', pendingEvents: await this.prisma.extensionRuntimeEvent.count({ where: { extensionId, status: { in: ['processing', 'pending', 'failed'] } } }) };
+    if (missing.length && !input.autoGrant) throw new BadRequestException({ code: 'EXTENSION_PERMISSIONS_NOT_GRANTED', missing });
+    await this.prisma.$transaction(async (tx) => {
+      // Serialize update, rollback and runtime claim for this extension.
+      await tx.$queryRaw`SELECT id FROM extensions WHERE id = ${extensionId} FOR UPDATE`;
+      const current = await tx.extension.findUniqueOrThrow({ where: { id: extensionId }, include: { permissionGrants: { where: { revokedAt: null } } } });
+      if (current.version !== plan.currentVersion || current.registrySourceId !== plan.sourceId || current.status === 'enabled' || !current.artifactSource || !current.artifactCodeSha256) throw new ConflictException('Disable extension and refresh the plan before applying');
+      if (await tx.extensionRuntimeEvent.count({ where: { extensionId, status: 'processing' } })) throw new ConflictException('Wait for running events before update');
+      const pending = await tx.extensionRuntimeEvent.count({ where: { extensionId, status: { in: ['pending', 'failed'] } } });
+      if (pending && !input.discardPending) throw new ConflictException('Drain pending events or explicitly pass discardPending');
+      if (pending) await tx.extensionRuntimeEvent.updateMany({ where: { extensionId, status: { in: ['pending', 'failed'] } }, data: { status: 'dead', error: 'Discarded explicitly during version update', completedAt: new Date() } });
+      const granted = new Set(current.permissionGrants.map((grant) => grant.permission));
+      const required = [...new Set(artifact.manifest.permissions)];
+      if (!input.autoGrant && required.some((permission) => !granted.has(permission))) throw new ConflictException('Permission grants changed');
+      await tx.extensionRelease.upsert({ where: { extensionId_version: { extensionId, version: current.version } }, create: { extensionId, version: current.version, manifest: current.manifest as never, signature: current.signature, registryVersionId: current.registryVersionId, artifactSource: current.artifactSource, artifactCodeSha256: current.artifactCodeSha256 }, update: {} });
+      await tx.extensionPermissionGrant.updateMany({ where: { extensionId, permission: { notIn: required }, revokedAt: null }, data: { revokedAt: new Date() } });
+      if (input.autoGrant) for (const permission of required) await tx.extensionPermissionGrant.upsert({ where: { extensionId_permission: { extensionId, permission } }, create: { extensionId, permission, actorId: actor.id }, update: { revokedAt: null, actorId: actor.id } });
+      await tx.extension.update({ where: { id: extensionId }, data: { version: artifact.manifest.version, engineRange: artifact.manifest.engine.range, manifest: artifact.manifest as never, artifactSource: artifact.artifactSource, artifactCodeSha256: artifact.artifactCodeSha256, signature: version.signature, registryVersionId: version.id, status: 'disabled' } });
+      const steps = [{ step: 'verify_signed_artifact', status: 'completed' }, { step: 'snapshot_previous_release', status: 'completed' }, { step: 'replace_extension_code', status: 'completed' }];
+      await tx.updatePlan.update({ where: { id }, data: { status: 'applied', appliedAt: new Date(), error: null, steps } });
+      await tx.updateHistory.create({ data: { planId: id, targetType: 'extension', targetRef: extensionId, packageName: plan.packageName, fromVersion: plan.currentVersion, toVersion: plan.targetVersion, status: 'applied', steps, completedAt: new Date() } });
+      await tx.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action: 'update.plan.apply', resource: 'extension', resourceId: extensionId, metadata: { planId: id, version: plan.targetVersion, discardedEvents: pending } } });
+    }, { isolationLevel: 'Serializable' });
+    return this.getPlan(id);
+  }
 
-    try {
-      let metadata: Record<string, unknown> = {};
-      if (plan.targetType === 'extension') metadata = await this.applyExtensionPlan(plan, Boolean(input.autoGrant), actor);
-      else if (plan.targetType === 'core') metadata = await this.applyCorePlan(plan);
-      else throw new BadRequestException(`Неподдерживаемый targetType: ${plan.targetType}`);
-
-      await this.prisma.$transaction(async (tx) => {
-        await tx.updatePlan.update({ where: { id }, data: { status: 'applied', appliedAt: new Date(), error: null, metadata: { ...(asObject(plan.metadata)), ...metadata } as never } });
-        await tx.updateHistory.create({ data: { planId: id, targetType: plan.targetType, targetRef: plan.targetRef, packageName: plan.packageName, fromVersion: plan.currentVersion, toVersion: plan.targetVersion, status: 'applied', steps: plan.steps as never, metadata: metadata as never, completedAt: new Date() } });
-      });
-      await this.audit(actor, 'update.plan.apply', id, { targetType: plan.targetType, packageName: plan.packageName, targetVersion: plan.targetVersion });
-      return this.getPlan(id);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await this.prisma.updatePlan.update({ where: { id }, data: { status: 'failed', error: message } });
-      await this.prisma.updateHistory.create({ data: { planId: id, targetType: plan.targetType, targetRef: plan.targetRef, packageName: plan.packageName, fromVersion: plan.currentVersion, toVersion: plan.targetVersion, status: 'failed', steps: plan.steps as never, error: message, completedAt: new Date() } });
-      throw error;
-    }
+  async rollback(id: string, actor: Principal, discardPending = false) {
+    const plan = await this.prisma.updatePlan.findUnique({ where: { id } });
+    if (!plan || plan.targetType !== 'extension' || !plan.targetRef || plan.status !== 'applied') throw new BadRequestException('Applied extension plan required');
+    const extensionId = plan.targetRef;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM extensions WHERE id = ${extensionId} FOR UPDATE`;
+      const current = await tx.extension.findUniqueOrThrow({ where: { id: extensionId } });
+      if (current.version !== plan.targetVersion || current.registryVersionId !== plan.versionId || current.status === 'enabled') throw new ConflictException('Disable current extension; rollback must match installed version');
+      if (await tx.extensionRuntimeEvent.count({ where: { extensionId, status: 'processing' } })) throw new ConflictException('Wait for running events before rollback');
+      const pending = await tx.extensionRuntimeEvent.count({ where: { extensionId, status: { in: ['pending', 'failed'] } } });
+      if (pending && !discardPending) throw new ConflictException('Drain pending events or explicitly pass discardPending');
+      if (pending) await tx.extensionRuntimeEvent.updateMany({ where: { extensionId, status: { in: ['pending', 'failed'] } }, data: { status: 'dead', error: 'Discarded explicitly during rollback', completedAt: new Date() } });
+      const freshPlan = await tx.updatePlan.findUniqueOrThrow({ where: { id } });
+      if (freshPlan.status !== 'applied') throw new ConflictException('Plan already rolled back');
+      const previous = await tx.extensionRelease.findUniqueOrThrow({ where: { extensionId_version: { extensionId, version: plan.currentVersion } } });
+      const manifest = extensionManifestSchema.parse(previous.manifest);
+      await tx.extension.update({ where: { id: extensionId }, data: { version: previous.version, engineRange: manifest.engine.range, manifest: previous.manifest as never, artifactSource: previous.artifactSource, artifactCodeSha256: previous.artifactCodeSha256, signature: previous.signature, registryVersionId: previous.registryVersionId, status: 'disabled' } });
+      await tx.extensionPermissionGrant.updateMany({ where: { extensionId, permission: { notIn: manifest.permissions }, revokedAt: null }, data: { revokedAt: new Date() } });
+      await tx.updatePlan.update({ where: { id }, data: { status: 'rolled_back' } });
+      await tx.updateHistory.create({ data: { planId: id, targetType: 'extension', targetRef: extensionId, packageName: plan.packageName, fromVersion: plan.targetVersion, toVersion: previous.version, status: 'rolled_back', completedAt: new Date() } });
+      await tx.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action: 'update.plan.rollback', resource: 'extension', resourceId: extensionId, metadata: { planId: id, version: previous.version, discardedEvents: pending } } });
+    }, { isolationLevel: 'Serializable' });
+    return this.getPlan(id);
   }
 
   async getPlan(id: string) {
@@ -97,7 +135,9 @@ export class UpdatesService {
   }
 
   private async selectCandidate(packageName: string, currentVersion: string, sourceId?: string, channel = 'stable', includePrerelease = false) {
-    const pkg = await this.prisma.registryPackage.findFirst({ where: { name: packageName, ...(sourceId ? { sourceId } : {}) }, include: { source: true, versions: true } });
+    const packages = await this.prisma.registryPackage.findMany({ where: { name: packageName, source: { isActive: true }, ...(sourceId ? { sourceId } : {}) }, take: 2, include: { source: true, versions: true } });
+    if (packages.length > 1) throw new BadRequestException('Ambiguous registry package; specify sourceId');
+    const pkg = packages[0];
     if (!pkg) throw new NotFoundException(`Registry package не найден: ${packageName}`);
     const result = selectUpdateCandidate({
       currentVersion,
@@ -121,40 +161,8 @@ export class UpdatesService {
     return { ...version, package: pkg };
   }
 
-  private async applyExtensionPlan(plan: { targetRef: string | null; targetVersion: string; currentVersion: string; packageName: string; sourceId: string | null; versionId: string | null; version: { manifest: unknown; signature: string | null; package: { sourceId: string; name: string } } | null }, autoGrant: boolean, actor: Principal): Promise<Record<string, unknown>> {
-    if (!plan.targetRef) throw new BadRequestException('Extension update plan без targetRef');
-    if (!plan.version?.manifest) throw new BadRequestException('Registry version не содержит extension manifest');
-    const oldExtension = await this.prisma.extension.findUnique({ where: { id: plan.targetRef } });
-    if (!oldExtension) throw new NotFoundException('Исходное расширение не найдено');
-    const manifest = plan.version.manifest as ExtensionManifest;
-    const compatibility = checkEngineCompatibility(manifest.engine.range, ENGINE_API_VERSION);
-    if (!compatibility.compatible) throw new BadRequestException({ code: 'EXTENSION_INCOMPATIBLE', reasons: compatibility.reasons });
-
-    const installed = await this.prisma.extension.upsert({
-      where: { name_version: { name: manifest.name, version: manifest.version } },
-      create: { name: manifest.name, version: manifest.version, engineRange: manifest.engine.range, manifest: manifest as never, signature: plan.version.signature ?? manifest.signature, status: 'installed', registrySourceId: plan.sourceId, registryPackageName: plan.packageName, registryVersionId: plan.versionId },
-      update: { manifest: manifest as never, signature: plan.version.signature ?? manifest.signature, registrySourceId: plan.sourceId, registryPackageName: plan.packageName, registryVersionId: plan.versionId },
-    });
-    if (autoGrant) {
-      for (const permission of manifest.permissions) {
-        await this.prisma.extensionPermissionGrant.upsert({ where: { extensionId_permission: { extensionId: installed.id, permission } }, create: { extensionId: installed.id, permission, actorId: actor.id, reason: 'autoGrant при update plan apply' }, update: { revokedAt: null, actorId: actor.id } });
-      }
-    }
-    await this.prisma.extension.update({ where: { id: oldExtension.id }, data: { status: 'disabled' } });
-    return { oldExtensionId: oldExtension.id, newExtensionId: installed.id, autoGrant };
-  }
-
-  private async applyCorePlan(plan: { packageName: string; currentVersion: string; targetVersion: string; versionId: string | null }) {
-    // Самообновление исходного кода должно выполняться CLI/CI на хосте. API фиксирует проверенный план и историю,
-    // чтобы Docker/CI job мог безопасно скачать artifact, проверить checksum/signature и применить release.
-    return { requiresHostApply: true, packageName: plan.packageName, from: plan.currentVersion, to: plan.targetVersion, versionId: plan.versionId };
-  }
-
   private audit(actor: Principal, action: string, resourceId: string, metadata: Record<string, unknown>) {
     return this.prisma.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action, resource: 'update', resourceId, metadata: metadata as never } });
   }
 }
 
-function asObject(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}

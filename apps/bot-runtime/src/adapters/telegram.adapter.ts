@@ -34,7 +34,7 @@ export class TelegramAdapter implements BotAdapter {
         chatExternalId: ctx.callbackQuery.message?.chat.id ? String(ctx.callbackQuery.message.chat.id) : undefined,
         payload: ctx.update as Record<string, unknown>,
       });
-      if (inbound.isDuplicate) return;
+      if (inbound.isDuplicate) { await ctx.answerCallbackQuery().catch(() => undefined); return; }
       const response = await dispatchRuntimeInteraction(prisma, this.router, account, {
         type: 'callback',
         name: ctx.callbackQuery.data,

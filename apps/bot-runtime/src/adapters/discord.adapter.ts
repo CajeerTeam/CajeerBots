@@ -39,8 +39,9 @@ export class DiscordAdapter implements BotAdapter {
           type: 'slash_command',
           name: interaction.commandName.replace(/^cajeer-/, ''),
           userId: interaction.user.id,
-          payload: { guildId: interaction.guildId, channelId: interaction.channelId },
+          payload: { guildId: interaction.guildId, channelId: interaction.channelId, options: interaction.options.data.map((option) => ({ name: option.name, value: option.value })) },
         }, { inboundUpdateId: inbound.id, targetId: interaction.channelId ?? undefined });
+        if (!response?.text) { await interaction.reply({ content: 'Команда недоступна.', ephemeral: true, allowedMentions: { parse: [] } }); return; }
         if (response?.text) {
           try {
             await interaction.reply({ content: response.text, components: renderProviderButtons('discord', response.buttons) as never, ephemeral: response.ephemeral ?? true, allowedMentions: { parse: [] } });
@@ -66,6 +67,7 @@ export class DiscordAdapter implements BotAdapter {
           userId: interaction.user.id,
           payload: { guildId: interaction.guildId, channelId: interaction.channelId },
         }, { inboundUpdateId: inbound.id, targetId: interaction.channelId ?? undefined });
+        if (!response?.text) { await interaction.reply({ content: 'Команда недоступна.', ephemeral: true, allowedMentions: { parse: [] } }); return; }
         if (response?.text) {
           try {
             await interaction.reply({ content: response.text, components: renderProviderButtons('discord', response.buttons) as never, ephemeral: response.ephemeral ?? true, allowedMentions: { parse: [] } });

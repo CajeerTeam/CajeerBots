@@ -1,0 +1,9 @@
+[
+  [
+    {
+      "id": "survey",
+      "label": "Анкета",
+      "action": "survey.open"
+    }
+  ]
+]

@@ -41,7 +41,14 @@ export const upsertFormSchema = z.object({
   code: z.string().min(1).max(120),
   title: z.string().min(1).max(240),
   locale: z.string().min(2).max(12).default('ru'),
-  fields: z.array(formFieldSchema).min(1).max(40),
+  fields: z.array(formFieldSchema).min(1).max(40).superRefine((fields, ctx) => {
+    if (new Set(fields.map((field) => field.name)).size !== fields.length) ctx.addIssue({ code: 'custom', message: 'Duplicate form fields' });
+    for (const field of fields) {
+      if (['__proto__', 'constructor', 'prototype'].includes(field.name)) ctx.addIssue({ code: 'custom', message: 'Unsafe form field name' });
+      if (['select', 'multiselect'].includes(field.type) && (!field.options?.length || new Set(field.options.map((o) => o.value)).size !== field.options.length)) ctx.addIssue({ code: 'custom', message: `Invalid options: ${field.name}` });
+      if (field.pattern) { try { new RegExp(field.pattern); } catch { ctx.addIssue({ code: 'custom', message: `Invalid pattern: ${field.name}` }); } }
+    }
+  }),
   submitTemplateKey: z.string().min(1).max(160).optional().nullable(),
   successTemplateKey: z.string().min(1).max(160).optional().nullable(),
   isActive: z.boolean().default(true),

@@ -4,7 +4,7 @@ import { CurrentPrincipal } from '../shared/auth-context.js';
 import { RequireScopes } from '../shared/scopes.decorator.js';
 import { ScopedAuthGuard } from '../shared/scoped-auth.guard.js';
 import { parseBody } from '../shared/zod.js';
-import { applyUpdatePlanSchema, listUpdatePlansQuerySchema, planCoreUpdateSchema, planExtensionUpdateSchema } from './updates.schemas.js';
+import { applyUpdatePlanSchema, listUpdatePlansQuerySchema, planCoreUpdateSchema, planExtensionUpdateSchema, rollbackUpdatePlanSchema } from './updates.schemas.js';
 import { UpdatesService } from './updates.service.js';
 
 @Controller('updates')
@@ -40,6 +40,12 @@ export class UpdatesController {
   @RequireScopes(permissions.updatesApply)
   apply(@Param('id') id: string, @Body() body: unknown, @CurrentPrincipal() principal: Principal) {
     return this.updates.applyPlan(id, parseBody(applyUpdatePlanSchema, body ?? {}), principal);
+  }
+
+  @Post('plans/:id/rollback')
+  @RequireScopes(permissions.updatesApply)
+  rollback(@Param('id') id: string, @Body() body: unknown, @CurrentPrincipal() principal: Principal) {
+    return this.updates.rollback(id, principal, parseBody(rollbackUpdatePlanSchema, body ?? {}).discardPending);
   }
 
   @Get('history')

@@ -1,6 +1,6 @@
 # Roadmap CajeerBots до production
 
-Текущая ветка: `1.0.0-rc.3` — Security & Reliability (кандидат, требуется полный прогон).
+Текущая ветка: `1.0.0-rc.4` — Product Completion (кандидат, требуется полный прогон).
 
 | Релиз | Работы | Критерий допуска |
 |---|---|---|
@@ -12,4 +12,4 @@
 | 1.0.0 | Stable / limited production | Все блокеры закрыты, ограниченный pilot, мониторинг и rollback |
 | 1.0.x | Production stabilization / GA | Исправления пилота, SLO, проверка восстановления, эксплуатационный допуск |
 
-Подробные фактические проверки RC2: [RELEASE_VALIDATION_1.0.0-rc.2.md](RELEASE_VALIDATION_1.0.0-rc.2.md). Выпуск RC3 требует зелёного прогона RC2 и RC3; см. RELEASE_VALIDATION_1.0.0-rc.3.md. Не добавлять новые слои метаданных readiness вместо исправления работающего продукта.
+Подробные фактические проверки RC2: [RELEASE_VALIDATION_1.0.0-rc.2.md](RELEASE_VALIDATION_1.0.0-rc.2.md). Выпуск RC4 требует зелёного прогона RC2–RC4; см. RELEASE_VALIDATION_1.0.0-rc.4.md. Не добавлять новые слои метаданных readiness вместо исправления работающего продукта.

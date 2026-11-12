@@ -369,7 +369,7 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
 
   await prisma.debugSession.upsert({
     where: { id: 'seed-devtools-session' },
-    create: { id: 'seed-devtools-session', communityId: community.id, title: 'Seed DevTools session', status: 'ended', actorId: 'seed', actorType: 'system', endedAt: new Date(), metadata: { version: '1.0.0-rc.3' } },
+    create: { id: 'seed-devtools-session', communityId: community.id, title: 'Seed DevTools session', status: 'ended', actorId: 'seed', actorType: 'system', endedAt: new Date(), metadata: { version: '1.0.0-rc.4' } },
     update: {},
   });
 
@@ -451,7 +451,7 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
       sourceType: 'local_wiki',
       sourcePath: 'wiki',
       sourceUrl: 'https://gitflic.ru/project/cajeer/cajeerbots/wiki',
-      metadata: { product: 'CajeerBots', version: '1.0.0-rc.3', docsLanguage: 'ru' },
+      metadata: { product: 'CajeerBots', version: '1.0.0-rc.4', docsLanguage: 'ru' },
     },
     update: {},
   });
@@ -489,9 +489,9 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
   });
 
   await prisma.releaseFreeze.upsert({
-    where: { version_channel: { version: '1.0.0-rc.3', channel: 'rc' } },
+    where: { version_channel: { version: '1.0.0-rc.4', channel: 'rc' } },
     create: {
-      version: '1.0.0-rc.3',
+      version: '1.0.0-rc.4',
       channel: 'rc',
       status: 'locked',
       reason: 'Beta 1 feature freeze: разрешены bugfix/test/docs/security изменения, новые крупные подсистемы блокируются до RC.',
@@ -527,7 +527,7 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
       type: 'built_in',
       handler: 'maintenance.release_gates',
       schedule: 'cron:30 7 * * *',
-      payload: { version: '1.0.0-rc.3', channel: 'rc', rootDir: '.' },
+      payload: { version: '1.0.0-rc.4', channel: 'rc', rootDir: '.' },
       nextRunAt: new Date(Date.now() + 120_000),
       maxAttempts: 2,
       timeoutSeconds: 300,
@@ -544,7 +544,7 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
       title: 'MVP smoke: API, DB, Event API, Outbox',
       category: 'mvp',
       description: 'Базовый integration smoke-набор для RC1.',
-      metadata: { seededBy: '1.0.0-rc.3' },
+      metadata: { seededBy: '1.0.0-rc.4' },
     },
     update: {},
   });
@@ -588,7 +588,7 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
 
   const botIntegrationSuite = await prisma.integrationTestSuite.upsert({
     where: { code: 'bot-runtime-smoke' },
-    create: { code: 'bot-runtime-smoke', title: 'Bot Runtime scenario smoke', category: 'bot-runtime', description: 'Dry-run проверка bot scenario без внешних provider API.', metadata: { seededBy: '1.0.0-rc.3' } },
+    create: { code: 'bot-runtime-smoke', title: 'Bot Runtime scenario smoke', category: 'bot-runtime', description: 'Dry-run проверка bot scenario без внешних provider API.', metadata: { seededBy: '1.0.0-rc.4' } },
     update: {},
   });
 
@@ -615,7 +615,7 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
       type: 'built_in',
       handler: 'maintenance.integration_smoke',
       schedule: 'cron:0 8 * * *',
-      payload: { suiteCode: 'mvp-smoke', version: '1.0.0-rc.3', channel: 'rc', dryRun: true },
+      payload: { suiteCode: 'mvp-smoke', version: '1.0.0-rc.4', channel: 'rc', dryRun: true },
       nextRunAt: new Date(Date.now() + 150_000),
       maxAttempts: 2,
       timeoutSeconds: 300,
@@ -652,7 +652,7 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
       type: 'built_in',
       handler: 'maintenance.security_audit',
       schedule: 'cron:30 8 * * *',
-      payload: { version: '1.0.0-rc.3', channel: 'rc', persist: true },
+      payload: { version: '1.0.0-rc.4', channel: 'rc', persist: true },
       nextRunAt: new Date(Date.now() + 180_000),
       maxAttempts: 2,
       timeoutSeconds: 300,
@@ -688,9 +688,9 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
   }
 
   await prisma.releaseFreeze.upsert({
-    where: { version_channel: { version: '1.0.0-rc.3', channel: 'rc' } },
+    where: { version_channel: { version: '1.0.0-rc.4', channel: 'rc' } },
     create: {
-      version: '1.0.0-rc.3',
+      version: '1.0.0-rc.4',
       channel: 'rc',
       status: 'locked',
       reason: 'RC1 API/feature freeze: допускаются только bugfix, docs, tests, security fixes.',
@@ -708,7 +708,7 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
       type: 'built_in',
       handler: 'maintenance.rc_readiness',
       schedule: 'cron:0 9 * * *',
-      payload: { version: '1.0.0-rc.3', channel: 'rc', rootDir: '.', persist: true },
+      payload: { version: '1.0.0-rc.4', channel: 'rc', rootDir: '.', persist: true },
       nextRunAt: new Date(Date.now() + 210_000),
       maxAttempts: 2,
       timeoutSeconds: 360,
