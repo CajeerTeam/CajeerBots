@@ -33,7 +33,7 @@ export class ReleaseCandidateService {
 
   async createApiFreeze(input: CreateApiFreezeInput, principal: Principal) {
     const payload = await createApiFreezeSnapshot({ version: input.version, channel: input.channel, rootDir: input.rootDir, sourcePath: input.sourcePath });
-    const row = await this.prisma.releaseApiFreeze.create({ data: { version: input.version, channel: input.channel, status: input.status, sourcePath: input.sourcePath, sourceSha256: payload.sourceSha256, openApiVersion: payload.openApiVersion, operationCount: payload.operationCount, operations: payload.operations as never, duplicateOperationIds: payload.duplicateOperationIds as never, unsecuredOperations: payload.unsecuredOperations as never, deprecatedOperations: payload.deprecatedOperations as never, payload: payload as never, notes: input.notes, createdBy: principal.sub } });
+    const row = await this.prisma.releaseApiFreeze.create({ data: { version: input.version, channel: input.channel, status: input.status, sourcePath: input.sourcePath, sourceSha256: payload.sourceSha256, openApiVersion: payload.openApiVersion, operationCount: payload.operationCount, operations: payload.operations as never, duplicateOperationIds: payload.duplicateOperationIds as never, unsecuredOperations: payload.unsecuredOperations as never, deprecatedOperations: payload.deprecatedOperations as never, payload: payload as never, notes: input.notes, createdBy: principal.id } });
     await this.audit(principal, 'release_candidate.api_freeze.create', 'release_api_freeze', row.id, { version: input.version, operationCount: payload.operationCount });
     return { freeze: row, payload };
   }
@@ -46,7 +46,7 @@ export class ReleaseCandidateService {
     const freeze = input.freezeId ? await this.prisma.releaseApiFreeze.findUnique({ where: { id: input.freezeId } }) : await this.prisma.releaseApiFreeze.findFirst({ where: { version: input.version, channel: input.channel, status: 'frozen' }, orderBy: { createdAt: 'desc' } });
     if (!freeze) throw new NotFoundException('API freeze snapshot не найден');
     const report = await verifyApiFreeze({ freeze: freeze.payload as never, rootDir: input.rootDir, sourcePath: input.sourcePath ?? freeze.sourcePath, allowAdditive: input.allowAdditive });
-    const check = await this.prisma.releaseUpgradeCheck.create({ data: { version: freeze.version, channel: freeze.channel, code: 'api_freeze.verify', status: report.status, severity: report.status === 'failed' ? 'blocker' : report.status === 'warning' ? 'warning' : 'info', message: `API freeze verification: ${report.status}`, details: report as never, createdBy: principal.sub } });
+    const check = await this.prisma.releaseUpgradeCheck.create({ data: { version: freeze.version, channel: freeze.channel, code: 'api_freeze.verify', status: report.status, severity: report.status === 'failed' ? 'blocker' : report.status === 'warning' ? 'warning' : 'info', message: `API freeze verification: ${report.status}`, details: report as never, createdBy: principal.id } });
     await this.audit(principal, 'release_candidate.api_freeze.verify', 'release_upgrade_check', check.id, { status: report.status, issues: report.issues.length });
     return { check, report };
   }
@@ -72,7 +72,7 @@ export class ReleaseCandidateService {
     const rows = await this.prisma.releaseCompatibilityTarget.findMany({ orderBy: [{ kind: 'asc' }, { code: 'asc' }] });
     const targets = rows.length ? rows.map((row) => ({ code: row.code, kind: row.kind as never, name: row.name, versionRange: row.versionRange, required: row.required, status: row.status as never, notes: row.notes ?? undefined, checks: row.checks as never })) : defaultCompatibilityTargets;
     const matrix = buildCompatibilityMatrix({ version: input.version, channel: input.channel, targets });
-    const row = input.persist ? await this.prisma.releaseCompatibilityMatrix.create({ data: { version: input.version, channel: input.channel, status: matrix.status, summary: matrix.summary as never, targets: matrix.targets as never, createdBy: principal.sub } }) : null;
+    const row = input.persist ? await this.prisma.releaseCompatibilityMatrix.create({ data: { version: input.version, channel: input.channel, status: matrix.status, summary: matrix.summary as never, targets: matrix.targets as never, createdBy: principal.id } }) : null;
     if (row) await this.audit(principal, 'release_candidate.compatibility.matrix', 'release_compatibility_matrix', row.id, { version: input.version, status: matrix.status });
     return { matrix: row, report: matrix };
   }
@@ -87,7 +87,7 @@ export class ReleaseCandidateService {
       this.prisma.backupArtifact.findFirst({ orderBy: { createdAt: 'desc' } }).catch(() => null),
     ]);
     const payload = createUpgradePlan({ fromVersion: input.fromVersion, toVersion: input.toVersion, channel: input.channel, hasBackup: input.hasBackup || Boolean(latestBackup), openBlockers });
-    const row = await this.prisma.releaseUpgradePlan.create({ data: { fromVersion: input.fromVersion, toVersion: input.toVersion, channel: input.channel, status: input.status ?? payload.status, steps: payload.steps as never, risks: payload.risks as never, checks: payload.checks as never, payload: payload as never, createdBy: principal.sub } });
+    const row = await this.prisma.releaseUpgradePlan.create({ data: { fromVersion: input.fromVersion, toVersion: input.toVersion, channel: input.channel, status: input.status ?? payload.status, steps: payload.steps as never, risks: payload.risks as never, checks: payload.checks as never, payload: payload as never, createdBy: principal.id } });
     await this.audit(principal, 'release_candidate.upgrade_plan.create', 'release_upgrade_plan', row.id, { fromVersion: input.fromVersion, toVersion: input.toVersion, status: row.status });
     return { plan: row, payload };
   }
@@ -105,7 +105,7 @@ export class ReleaseCandidateService {
     const planRisks = (plan.risks as Array<{ severity?: string }> | null) ?? [];
     const blockers = planRisks.filter((risk) => risk.severity === 'blocker').length;
     const status = blockers > 0 ? 'failed' : 'passed';
-    const row = await this.prisma.releaseUpgradeRun.create({ data: { planId: plan.id, mode: input.mode, status, rootDir: input.rootDir, results: results as never, logs: [{ message: 'RC upgrade rehearsal completed', mode: input.mode, notes: input.notes ?? null }] as never, startedAt: new Date(started), finishedAt: new Date(), durationMs: Date.now() - started, createdBy: principal.sub } });
+    const row = await this.prisma.releaseUpgradeRun.create({ data: { planId: plan.id, mode: input.mode, status, rootDir: input.rootDir, results: results as never, logs: [{ message: 'RC upgrade rehearsal completed', mode: input.mode, notes: input.notes ?? null }] as never, startedAt: new Date(started), finishedAt: new Date(), durationMs: Date.now() - started, createdBy: principal.id } });
     await this.audit(principal, 'release_candidate.upgrade_plan.run', 'release_upgrade_run', row.id, { planId: id, status, mode: input.mode });
     return { run: row, plan, results };
   }
@@ -124,7 +124,7 @@ export class ReleaseCandidateService {
       this.prisma.integrationTestCoverage.findFirst({ where: { version: input.version, channel: input.channel }, orderBy: { createdAt: 'desc' } }),
     ]);
     const report = await runRcReadiness({ version: input.version, channel: input.channel, rootDir: input.rootDir, freeze: freeze?.payload as never, compatibilityTargets: targets.map((row) => ({ code: row.code, kind: row.kind as never, name: row.name, versionRange: row.versionRange, required: row.required, status: row.status as never, notes: row.notes ?? undefined, checks: row.checks as never })), openBlockers, securityOpenFindings: openFindings, latestIntegrationStatus: latestIntegration?.status ?? null });
-    const row = input.persist ? await this.prisma.releaseCandidateReadinessRun.create({ data: { version: input.version, channel: input.channel, status: report.status, rootDir: input.rootDir, summary: report.summary as never, sections: report.sections as never, startedAt: new Date(started), finishedAt: new Date(), durationMs: Date.now() - started, createdBy: principal.sub } }) : null;
+    const row = input.persist ? await this.prisma.releaseCandidateReadinessRun.create({ data: { version: input.version, channel: input.channel, status: report.status, rootDir: input.rootDir, summary: report.summary as never, sections: report.sections as never, startedAt: new Date(started), finishedAt: new Date(), durationMs: Date.now() - started, createdBy: principal.id } }) : null;
     if (row) await this.audit(principal, 'release_candidate.readiness.run', 'release_candidate_readiness_run', row.id, { version: input.version, status: report.status });
     return { run: row, report };
   }
@@ -134,6 +134,6 @@ export class ReleaseCandidateService {
   }
 
   private audit(principal: Principal, action: string, resource: string, resourceId: string | null, metadata: unknown) {
-    return this.prisma.auditLog.create({ data: { actorType: principal.type, actorId: principal.sub, action, resource, resourceId, metadata: metadata as never } });
+    return this.prisma.auditLog.create({ data: { actorType: principal.type, actorId: principal.id, action, resource, resourceId, metadata: metadata as never } });
   }
 }

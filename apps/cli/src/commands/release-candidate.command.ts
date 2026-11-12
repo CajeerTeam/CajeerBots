@@ -19,7 +19,7 @@ export function releaseCandidateCommand(): Command {
   }));
 
   command.command('api-freeze:create')
-    .option('--version <version>', 'release version', '1.0.0-rc.1')
+    .option('--version <version>', 'release version', '1.0.0-rc.2')
     .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
     .option('--root <dir>', 'project root', process.cwd())
     .option('--source <path>', 'OpenAPI source path', 'contracts/openapi/cajeerbots.openapi.yaml')
@@ -31,7 +31,7 @@ export function releaseCandidateCommand(): Command {
     }));
 
   command.command('api-freeze:verify')
-    .option('--version <version>', 'release version', '1.0.0-rc.1')
+    .option('--version <version>', 'release version', '1.0.0-rc.2')
     .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
     .option('--freeze <id>')
     .option('--root <dir>', 'project root', process.cwd())
@@ -53,7 +53,7 @@ export function releaseCandidateCommand(): Command {
   }));
 
   command.command('compatibility:matrix')
-    .option('--version <version>', 'release version', '1.0.0-rc.1')
+    .option('--version <version>', 'release version', '1.0.0-rc.2')
     .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
     .option('--no-persist')
     .action(async (options: { version: string; channel: any; persist?: boolean }) => withPrisma(async (prisma) => {
@@ -67,7 +67,7 @@ export function releaseCandidateCommand(): Command {
 
   command.command('upgrade-plan:create')
     .option('--from <version>', 'from version', '0.18.0-beta.3')
-    .option('--to <version>', 'to version', '1.0.0-rc.1')
+    .option('--to <version>', 'to version', '1.0.0-rc.2')
     .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
     .option('--has-backup', 'confirm fresh backup exists', false)
     .action(async (options: { from: string; to: string; channel: any; hasBackup?: boolean }) => withPrisma(async (prisma) => {
@@ -97,7 +97,7 @@ export function releaseCandidateCommand(): Command {
     }));
 
   command.command('readiness:run')
-    .option('--version <version>', 'release version', '1.0.0-rc.1')
+    .option('--version <version>', 'release version', '1.0.0-rc.2')
     .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
     .option('--root <dir>', 'project root', process.cwd())
     .option('--no-persist')

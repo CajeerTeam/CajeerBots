@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
-import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, relative } from 'node:path';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -10,23 +9,25 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const version = (await readFile(join(root, 'VERSION'), 'utf8')).trim();
 const outDir = join(root, 'dist-release');
 const archive = join(outDir, `cajeerbots-${version}.zip`);
+await access(join(root, "pnpm-lock.yaml"));
 await mkdir(outDir, { recursive: true });
+await rm(archive, { force: true });
 
 const include = [
   'apps', 'packages', 'prisma', 'contracts', 'docker', 'systemd', 'wiki',
-  'package.json', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'tsconfig.json',
+  'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.nvmrc', '.npmrc', '.dockerignore', 'scripts', 'examples', 'registry', 'eslint.config.mjs', 'vitest.config.ts', 'vitest.e2e.config.ts', 'tsconfig.base.json', 'tsconfig.json',
   'README.md', 'CHANGELOG.md', 'LICENSE', 'NOTICE', 'SECURITY.md', 'VERSION',
   'docker-compose.yml', 'docker-compose.prod.yml', '.env.example', '.env.production.example'
 ];
 
-const zip = spawnSync('zip', ['-qr', archive, ...include], { cwd: root, stdio: 'inherit' });
+const zip = spawnSync('zip', ['-qr', archive, ...include, '-x', '*/node_modules/*', '*/dist/*', 'prisma/generated/*', '*/.env', '*/.env.*'], { cwd: root, stdio: 'inherit' });
 if (zip.status !== 0) process.exit(zip.status ?? 1);
 const buffer = await readFile(archive);
 const manifest = {
   schema: 'cajeerbots.release.manifest.v1',
   product: 'cajeerbots',
   version,
-  channel: process.env.RELEASE_CHANNEL ?? 'alpha',
+  channel: process.env.RELEASE_CHANNEL ?? 'rc',
   createdAt: new Date().toISOString(),
   files: [{ path: basename(archive), sizeBytes: buffer.length, sha256: createHash('sha256').update(buffer).digest('hex') }],
 };

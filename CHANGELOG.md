@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.0.0-rc.2] - 2026-11-12
+
+### Исправлено
+- Build: workspace-зависимости разрешаются через собранные пакеты; согласованы Prisma Client, ESM, TypeScript и CLI.
+- Runtime: health в polling/webhook mode, корректная готовность Telegram polling, обработка остановки worker без наложения tick, PostgreSQL readiness и Redis PING.
+- Deployment: единый non-root образ, порты 3000/3101/3102, обязательные миграции до старта, безопасная генерация конфигурации, повторяемый seed.
+
+### Добавлено
+- Обязательные frozen install, CI-проверки сборки, миграций, тестов и запуска Compose; сквозной smoke всех runtime-процессов.
+- Регрессионные тесты стабилизации и документация фактических ограничений в RELEASE_VALIDATION_1.0.0-rc.2.md.
+
+### Изменено
+- Версия `1.0.0-rc.2`; публичные bot webhook routes в production nginx закрыты до RC3.
+- Прямые версии закреплены; настоящий pnpm-lock.yaml должен быть создан на машине с доступом к registry. Полный build и production запуск не подтверждены в среде подготовки.
+
 ## [1.0.0-rc.1] - 2026-06-17
 
 ### Добавлено

@@ -60,8 +60,8 @@ export function extractHeadings(content: string): Array<{ level: number; title: 
   for (const line of content.split(/\r?\n/)) {
     const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
     if (!match) continue;
-    const title = match[2].replace(/#+$/, '').trim();
-    headings.push({ level: match[1].length, title, anchor: slugifyAnchor(title) });
+    const title = match[2]!.replace(/#+$/, '').trim();
+    headings.push({ level: match[1]!.length, title, anchor: slugifyAnchor(title) });
   }
   return headings;
 }
@@ -71,8 +71,8 @@ export function extractLinks(content: string): Array<{ label: string; href: stri
   const regex = /!?\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content))) {
-    const href = match[2].trim();
-    links.push({ label: match[1].trim(), href, type: classifyHref(href) });
+    const href = match[2]!.trim();
+    links.push({ label: match[1]!.trim(), href, type: classifyHref(href) });
   }
   return links;
 }

@@ -85,7 +85,7 @@ export class DocsService {
     }
     const sourceHash = sha256Hex(scanned.pages.map((page) => `${page.slug}:${page.sha256}`).join('\n'));
     const snapshot = input.createSnapshot
-      ? await this.prisma.documentationSnapshot.create({ data: { collectionId: collection.id, version: collection.version + 1, sourceHash, pageCount: scanned.pages.length, totalWords: scanned.pages.reduce((sum, page) => sum + page.wordCount, 0), totalBytes: scanned.totalBytes, toc: scanned.pages.map((page) => ({ slug: page.slug, title: page.title, path: page.path })) as never, metadata: { rootDir: input.rootDir, created, updated, unchanged, missing: missing.length } as never, createdBy: principal.sub } })
+      ? await this.prisma.documentationSnapshot.create({ data: { collectionId: collection.id, version: collection.version + 1, sourceHash, pageCount: scanned.pages.length, totalWords: scanned.pages.reduce((sum, page) => sum + page.wordCount, 0), totalBytes: scanned.totalBytes, toc: scanned.pages.map((page) => ({ slug: page.slug, title: page.title, path: page.path })) as never, metadata: { rootDir: input.rootDir, created, updated, unchanged, missing: missing.length } as never, createdBy: principal.id } })
       : null;
     await this.prisma.documentationCollection.update({ where: { id: collection.id }, data: { lastSyncedAt: scanned.scannedAt, version: { increment: 1 }, metadata: { ...(collection.metadata as Record<string, unknown> | null ?? {}), lastSync: { created, updated, unchanged, missing: missing.length, sourceHash } } as never } });
     await this.audit(principal, 'docs.collection.sync', 'documentation_collection', collection.id, { created, updated, unchanged, missing: missing.length, snapshotId: snapshot?.id });
@@ -123,7 +123,7 @@ export class DocsService {
     const collection = await this.ensureCollection(input.collectionCode, input.rootDir);
     const scanned = await scanWikiDirectory({ rootDir: safeProjectPath(input.rootDir), includeDrafts: input.includeDrafts });
     const result = checkDocumentationPages(scanned.pages);
-    const row = await this.prisma.documentationCheck.create({ data: { collectionId: collection.id, checkType: 'local_wiki', status: result.status, summary: result.summary as never, issues: result.issues as never, createdBy: principal.sub } });
+    const row = await this.prisma.documentationCheck.create({ data: { collectionId: collection.id, checkType: 'local_wiki', status: result.status, summary: result.summary as never, issues: result.issues as never, createdBy: principal.id } });
     await this.audit(principal, 'docs.check.run', 'documentation_check', row.id, { collectionCode: collection.code, status: result.status, issues: result.issues.length });
     return { check: row, ...result };
   }
@@ -142,7 +142,7 @@ export class DocsService {
     const bundle = buildDocumentationExportBundle({ collection: { code: collection.code, title: collection.title, locale: collection.locale, sourceType: collection.sourceType }, pages: scanned.pages });
     const content = input.format === 'markdown_index' ? bundleToMarkdownIndex(bundle) : JSON.stringify(input.includeBody ? bundle : { ...bundle, pages: bundle.pages.map(({ body, ...page }) => page) }, null, 2);
     const checksum = sha256Hex(content);
-    const row = await this.prisma.documentationExport.create({ data: { collectionId: collection.id, format: input.format, status: 'created', checksum, sizeBytes: Buffer.byteLength(content), pageCount: scanned.pages.length, payload: { content } as never, createdBy: principal.sub } });
+    const row = await this.prisma.documentationExport.create({ data: { collectionId: collection.id, format: input.format, status: 'created', checksum, sizeBytes: Buffer.byteLength(content), pageCount: scanned.pages.length, payload: { content } as never, createdBy: principal.id } });
     await this.audit(principal, 'docs.export.create', 'documentation_export', row.id, { collectionCode: collection.code, format: input.format, pageCount: scanned.pages.length });
     return row;
   }
@@ -160,7 +160,7 @@ export class DocsService {
   }
 
   private audit(principal: Principal, action: string, resource: string, resourceId: string, metadata: Record<string, unknown>) {
-    return this.prisma.auditLog.create({ data: { actorType: principal.type, actorId: principal.sub, action, resource, resourceId, metadata: metadata as never } });
+    return this.prisma.auditLog.create({ data: { actorType: principal.type, actorId: principal.id, action, resource, resourceId, metadata: metadata as never } });
   }
 }
 

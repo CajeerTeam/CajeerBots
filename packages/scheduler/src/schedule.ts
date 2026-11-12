@@ -37,13 +37,13 @@ export function parseDurationSeconds(value: string): number {
   const amount = Number(match[1]);
   const unit = match[2] ?? 's';
   const multipliers: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
-  return amount * multipliers[unit];
+  return amount * (multipliers[unit] ?? 1);
 }
 
 export function nextCronRun(expression: string, from = new Date()): Date {
   const parts = expression.trim().split(/\s+/);
   if (parts.length !== 5) throw new Error(`Поддерживается только 5-field cron: ${expression}`);
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts as [string, string, string, string, string];
   const start = new Date(from.getTime() + 60_000);
   start.setSeconds(0, 0);
   for (let i = 0; i < 527_040; i += 1) {
@@ -65,16 +65,16 @@ export function matchesCronField(field: string, value: number, min: number, max:
     if (part.includes('/')) {
       const [base, stepRaw] = part.split('/');
       const step = Number(stepRaw);
-      if (!Number.isInteger(step) || step <= 0) return false;
+      if (!base || !Number.isInteger(step) || step <= 0) return false;
       if (base === '*') return (value - min) % step === 0;
       if (base.includes('-')) {
         const [from, to] = base.split('-').map(Number);
-        return value >= from && value <= to && (value - from) % step === 0;
+        return from !== undefined && to !== undefined && value >= from && value <= to && (value - from) % step === 0;
       }
     }
     if (part.includes('-')) {
       const [from, to] = part.split('-').map(Number);
-      return value >= from && value <= to;
+      return from !== undefined && to !== undefined && value >= from && value <= to;
     }
     const numeric = Number(part);
     return value === numeric || (max === 7 && numeric === 7 && value === 0);

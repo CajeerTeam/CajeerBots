@@ -175,7 +175,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
 
 
     case 'maintenance.release_gates': {
-      const version = String(context.job.payload?.version ?? '1.0.0-rc.1');
+      const version = String(context.job.payload?.version ?? '1.0.0-rc.2');
       const channel = String(context.job.payload?.channel ?? 'beta') as never;
       const rootDir = String(context.job.payload?.rootDir ?? process.cwd());
       const databaseGates = await prisma.releaseQualityGate.findMany({ where: { isEnabled: true }, orderBy: [{ category: 'asc' }, { code: 'asc' }] }).catch(() => []);
@@ -190,13 +190,13 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
           await prisma.releaseBlocker.create({ data: { runId: run.id, code: issue.code, severity: issue.severity, source: issue.source, message: issue.message, details: { gateCode: gate.code, ...(issue.details ?? {}) } as never } });
         }
       }
-      return { status: report.status === 'failed' ? 'failed' : 'succeeded', result: { runId: run.id, status: report.status, ...report.summary }, logs: report.results.map((gate) => ({ code: gate.code, status: gate.status, issues: gate.issues.length })) };
+      return { status: report.status === 'failed' ? 'failed' : 'succeeded', result: { runId: run.id, ...report.summary, status: report.status }, logs: report.results.map((gate) => ({ code: gate.code, status: gate.status, issues: gate.issues.length })) };
     }
 
 
     case 'maintenance.integration_smoke': {
       const suiteCode = String(context.job.payload?.suiteCode ?? 'mvp-smoke');
-      const version = String(context.job.payload?.version ?? '1.0.0-rc.1');
+      const version = String(context.job.payload?.version ?? '1.0.0-rc.2');
       const channel = String(context.job.payload?.channel ?? 'beta');
       const suite = await prisma.integrationTestSuite.findUnique({ where: { code: suiteCode } });
       if (!suite) return { status: 'failed', error: `Integration suite не найден: ${suiteCode}` };
@@ -214,7 +214,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
 
     case 'maintenance.rc_readiness': {
       const payload = context.job.payload ?? {};
-      const version = String(payload.version ?? '1.0.0-rc.1');
+      const version = String(payload.version ?? '1.0.0-rc.2');
       const channel = String(payload.channel ?? 'rc') as never;
       const rootDir = String(payload.rootDir ?? process.cwd());
       const [freeze, targets, openBlockers, openFindings, latestIntegration] = await Promise.all([
@@ -235,7 +235,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
     }
 
     case 'maintenance.security_audit': {
-      const version = String(context.job.payload?.version ?? '1.0.0-rc.1');
+      const version = String(context.job.payload?.version ?? '1.0.0-rc.2');
       const channel = String(context.job.payload?.channel ?? 'beta');
       await seedDefaultSecurityAuditPolicies(prisma);
       const result = await runSecurityAudit({ prisma, version, channel, trigger: 'scheduler', createdBy: 'scheduler', persist: context.job.payload?.persist !== false, now: context.now ?? new Date() });

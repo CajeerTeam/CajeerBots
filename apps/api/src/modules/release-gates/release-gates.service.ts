@@ -30,7 +30,7 @@ export class ReleaseGatesService {
   async upsertFreeze(input: UpsertFreezeInput, principal: Principal) {
     const row = await this.prisma.releaseFreeze.upsert({
       where: { version_channel: { version: input.version, channel: input.channel } },
-      create: { version: input.version, channel: input.channel, status: input.status, reason: input.reason, scope: input.scope as never, lockedBy: principal.sub, lockedAt: new Date(), releasedAt: input.status === 'released' ? new Date() : null },
+      create: { version: input.version, channel: input.channel, status: input.status, reason: input.reason, scope: input.scope as never, lockedBy: principal.id, lockedAt: new Date(), releasedAt: input.status === 'released' ? new Date() : null },
       update: { status: input.status, reason: input.reason, scope: input.scope as never, releasedAt: input.status === 'released' ? new Date() : null },
     });
     await this.audit(principal, 'release.freeze.upsert', 'release_freeze', row.id, input);
@@ -65,7 +65,7 @@ export class ReleaseGatesService {
     const gates = input.useDatabaseGates ? await this.databaseGates() : defaultReleaseGates;
     const started = Date.now();
     const report = await evaluateReleaseGates({ rootDir: input.rootDir, version: input.version, channel: input.channel, gates });
-    const run = await this.prisma.releaseGateRun.create({ data: { version: input.version, channel: input.channel, status: report.status, rootDir: input.rootDir, trigger: input.trigger, summary: report.summary as never, results: report.results as never, finishedAt: new Date(), durationMs: Date.now() - started, createdBy: principal.sub } });
+    const run = await this.prisma.releaseGateRun.create({ data: { version: input.version, channel: input.channel, status: report.status, rootDir: input.rootDir, trigger: input.trigger, summary: report.summary as never, results: report.results as never, finishedAt: new Date(), durationMs: Date.now() - started, createdBy: principal.id } });
     for (const result of report.results) {
       await this.prisma.releaseQualityGate.updateMany({ where: { code: result.code }, data: { lastStatus: result.status, lastRunAt: new Date() } });
     }
@@ -95,7 +95,7 @@ export class ReleaseGatesService {
   }
 
   async resolveBlocker(id: string, input: z.infer<typeof resolveBlockerSchema>, principal: Principal) {
-    const row = await this.prisma.releaseBlocker.update({ where: { id }, data: { status: input.status, acceptedReason: input.reason, resolvedAt: input.status === 'open' ? null : new Date(), resolvedBy: input.status === 'open' ? null : principal.sub } });
+    const row = await this.prisma.releaseBlocker.update({ where: { id }, data: { status: input.status, acceptedReason: input.reason, resolvedAt: input.status === 'open' ? null : new Date(), resolvedBy: input.status === 'open' ? null : principal.id } });
     await this.audit(principal, 'release.blocker.resolve', 'release_blocker', row.id, input);
     return row;
   }
@@ -112,7 +112,7 @@ export class ReleaseGatesService {
     } else throw new NotFoundException('Нет gate run для отчёта');
     const summary = buildReleaseCandidateSummary(reportPayload, run.id);
     const markdown = renderMarkdownReport(reportPayload);
-    const report = await this.prisma.releaseCandidateReport.create({ data: { version: input.version, channel: input.channel, status: summary.status, gateRunId: run.id, summary: summary as never, markdown, artifactName: `release-gate-report-${input.version}.md`, createdBy: principal.sub } });
+    const report = await this.prisma.releaseCandidateReport.create({ data: { version: input.version, channel: input.channel, status: summary.status, gateRunId: run.id, summary: summary as never, markdown, artifactName: `release-gate-report-${input.version}.md`, createdBy: principal.id } });
     await this.audit(principal, 'release.report.create', 'release_candidate_report', report.id, { version: input.version, channel: input.channel, status: summary.status });
     return { report, summary, markdown };
   }
@@ -133,6 +133,6 @@ export class ReleaseGatesService {
   }
 
   private audit(principal: Principal, action: string, resource: string, resourceId: string | null, metadata: unknown) {
-    return this.prisma.auditLog.create({ data: { actorType: principal.type, actorId: principal.sub, action, resource, resourceId, metadata: metadata as never } });
+    return this.prisma.auditLog.create({ data: { actorType: principal.type, actorId: principal.id, action, resource, resourceId, metadata: metadata as never } });
   }
 }

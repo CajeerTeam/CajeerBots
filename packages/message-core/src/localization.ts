@@ -1,4 +1,4 @@
-import { renderVariables, type RenderVariableValue } from './variables.js';
+import { renderVariables } from './variables.js';
 
 export interface MessageCatalog {
   locale: string;
@@ -9,7 +9,7 @@ export interface MessageCatalog {
 export class Localizer {
   constructor(private readonly catalogs: MessageCatalog[]) {}
 
-  t(locale: string, key: string, variables: Record<string, RenderVariableValue> = {}): string {
+  t(locale: string, key: string, variables: Record<string, unknown> = {}): string {
     const template = this.resolve(locale, key) ?? key;
     return renderVariables(template, variables);
   }

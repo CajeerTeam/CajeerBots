@@ -15,3 +15,6 @@ coverage
 prisma/generated
 .tmp
 .cache
+
+!.env.production.example
+*.tsbuildinfo

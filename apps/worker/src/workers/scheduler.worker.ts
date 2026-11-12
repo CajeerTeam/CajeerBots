@@ -1,3 +1,4 @@
+import { SerialPoller } from '@cajeerbots/core';
 import { PrismaService } from '@cajeerbots/db';
 import { calculateJobNextRun, executeScheduledJob } from '@cajeerbots/scheduler';
 
@@ -8,7 +9,7 @@ export interface SchedulerWorkerOptions {
 }
 
 export class SchedulerWorker {
-  private timer?: NodeJS.Timeout;
+  private poller?: SerialPoller;
   private running = false;
 
   constructor(
@@ -18,13 +19,13 @@ export class SchedulerWorker {
 
   async start(): Promise<void> {
     await this.prisma.connect();
-    await this.tick();
-    this.timer = setInterval(() => void this.tick(), this.options.pollIntervalMs ?? Number(process.env.SCHEDULER_WORKER_INTERVAL_MS ?? 10000));
-    console.log('[worker] scheduler worker 1.0.0-rc.1 started');
+    this.poller = new SerialPoller(this.options.pollIntervalMs ?? Number(process.env.SCHEDULER_WORKER_INTERVAL_MS ?? 10000), () => this.tick(), (error) => console.error('[worker] scheduler.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
+    await this.poller.start();
+    console.log('[worker] scheduler worker 1.0.0-rc.2 started');
   }
 
   async stop(): Promise<void> {
-    if (this.timer) clearInterval(this.timer);
+    await this.poller?.stop();
     await this.prisma.close();
   }
 

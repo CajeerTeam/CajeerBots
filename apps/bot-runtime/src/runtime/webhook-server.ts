@@ -11,6 +11,8 @@ export class BotWebhookServer {
     private readonly prisma: PrismaService,
     private readonly router: InteractionRouter,
     private readonly accounts: RuntimeBotAccount[],
+    private readonly isReady: () => boolean = () => true,
+    private readonly mode: string = "webhook",
   ) {}
 
   async start(): Promise<void> {
@@ -19,7 +21,12 @@ export class BotWebhookServer {
     const accountMap = new Map(this.accounts.map((account) => [account.id, account]));
     this.server = Fastify({ logger: true });
 
-    this.server.get('/runtime/health', async () => ({ ok: true, accounts: this.accounts.length, mode: 'webhook' }));
+    this.server.get('/runtime/health', async (_request, reply) => {
+      let ok = this.isReady();
+      if (ok) { try { await this.prisma.health(); } catch { ok = false; } }
+      return reply.status(ok ? 200 : 503).send({ ok, mode: this.mode });
+    });
+    if (this.accounts.length > 0) {
     this.server.post('/runtime/webhooks/:accountId', async (request, reply) => {
       const { accountId } = request.params as { accountId: string };
       const account = accountMap.get(accountId);
@@ -36,6 +43,7 @@ export class BotWebhookServer {
       return reply.status(result.statusCode).send(result.body);
     });
 
+    }
     await this.server.listen({ port, host });
   }
 

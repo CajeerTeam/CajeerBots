@@ -1,11 +1,11 @@
 import { renderProviderButtons, type MessageProvider } from './buttons.js';
-import { extractVariables, renderVariables, type RenderVariableValue } from './variables.js';
+import { extractVariables, renderVariables } from './variables.js';
 
 export interface StructuredMessageInput {
   text: string;
   locale?: string;
   provider?: MessageProvider;
-  variables?: Record<string, RenderVariableValue>;
+  variables?: Record<string, unknown>;
   buttons?: unknown;
   parseMode?: 'plain' | 'markdown' | 'html';
   missingVariables?: 'empty' | 'keep' | 'throw';

@@ -9,6 +9,8 @@ import { sendProviderText } from '../runtime/provider-sender.js';
 
 export class TelegramAdapter implements BotAdapter {
   private bot?: Bot;
+  private polling?: Promise<void>;
+  private stopping = false;
 
   constructor(
     private readonly router: InteractionRouter,
@@ -68,10 +70,28 @@ export class TelegramAdapter implements BotAdapter {
       }
     });
 
-    if (account.mode === 'polling') await this.bot.start();
+    if (account.mode === 'polling') {
+      const bot = this.bot;
+      await bot.init();
+      if (this.stopping) return;
+      // grammY start resolves only when polling stops; readiness comes from onStart.
+      await new Promise<void>((resolve, reject) => {
+        this.polling = bot.start({ onStart: () => resolve() });
+        void this.polling?.catch((error: unknown) => {
+          reject(error);
+          if (!this.stopping) {
+            console.error('[bot-runtime] Telegram polling stopped unexpectedly');
+            process.kill(process.pid, 'SIGTERM');
+            process.exitCode = 1;
+          }
+        });
+      });
+    }
   }
 
   async stop(): Promise<void> {
-    await this.bot?.stop();
+    this.stopping = true;
+    if (this.bot?.isRunning()) await this.bot.stop();
+    await this.polling?.catch(() => undefined);
   }
 }

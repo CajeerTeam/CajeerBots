@@ -34,7 +34,7 @@ const program = new Command();
 program
   .name('cajeer')
   .description('CajeerBots command suite')
-  .version('1.0.0-rc.1');
+  .version('1.0.0-rc.2');
 
 program.addCommand(devCommand());
 program.addCommand(installCommand());

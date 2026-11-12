@@ -82,7 +82,7 @@ export function deploymentCommand(): Command {
   command.command('nginx:config')
     .requiredOption('--server-name <name>')
     .option('--api-upstream <url>', 'API upstream', 'http://127.0.0.1:3000')
-    .option('--bot-upstream <url>', 'Bot webhook upstream', 'http://127.0.0.1:3001')
+    .option('--bot-upstream <url>', 'Bot webhook upstream', 'http://127.0.0.1:3101')
     .option('--tls')
     .option('--out <file>')
     .action(async (options: { serverName: string; apiUpstream: string; botUpstream: string; tls?: boolean; out?: string }) => {

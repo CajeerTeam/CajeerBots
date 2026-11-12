@@ -7,7 +7,7 @@ export interface RenderVariablesOptions {
 
 export function renderVariables(
   template: string,
-  variables: Record<string, RenderVariableValue>,
+  variables: Record<string, unknown>,
   options: RenderVariablesOptions = {},
 ): string {
   const missing = options.missing ?? 'empty';
@@ -17,14 +17,15 @@ export function renderVariables(
       if (missing === 'throw') throw new Error(`Переменная не найдена: ${path}`);
       return missing === 'keep' ? match : '';
     }
-    if (transform && options.transforms?.[transform]) return options.transforms[transform](value);
+    const transformFn = transform ? options.transforms?.[transform] : undefined;
+    if (transformFn) return transformFn(value);
     return stringifyVariable(value);
   });
 }
 
 export function extractVariables(template: string): string[] {
   const keys = new Set<string>();
-  for (const match of template.matchAll(/\{\{\s*([\w.-]+)(?:\|[\w.-]+)?\s*\}\}/g)) keys.add(match[1]);
+  for (const match of template.matchAll(/\{\{\s*([\w.-]+)(?:\|[\w.-]+)?\s*\}\}/g)) if (match[1]) keys.add(match[1]);
   return [...keys];
 }
 

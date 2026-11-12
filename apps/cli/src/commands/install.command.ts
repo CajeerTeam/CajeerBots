@@ -13,8 +13,8 @@ export function installCommand(): Command {
         return;
       }
       await mkdir('storage', { recursive: true });
-      await writeFile('.env', envTemplate());
-      console.log('Создан .env и директория storage/. Дальше: pnpm prisma:migrate && pnpm dev');
+      await writeFile('.env', envTemplate(), { mode: 0o600, flag: options.force ? 'w' : 'wx' });
+      console.log('Создан .env и директория storage/. Дальше: pnpm prisma:deploy && pnpm prisma:seed && pnpm dev');
     });
 }
 
@@ -30,6 +30,10 @@ REDIS_URL=redis://localhost:6379
 JWT_SECRET=${randomSecret()}
 JWT_ACCESS_TTL_SECONDS=3600
 API_TOKEN_PEPPER=${randomSecret()}
+SECRETS_ENCRYPTION_KEY=${randomSecret()}
+PASSWORD_PEPPER=${randomSecret()}
+REFRESH_TOKEN_PEPPER=${randomSecret()}
+RECOVERY_CODE_PEPPER=${randomSecret()}
 CAJEER_ADMIN_TOKEN=${randomSecret()}
 WEBHOOK_SIGNING_SECRET=${randomSecret()}
 BOT_MODE=polling

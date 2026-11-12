@@ -1,6 +1,8 @@
 import { access, mkdir, writeFile, rm } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { Redis } from 'ioredis';
 import type { HealthStatus } from './health.js';
 
 export interface DiagnosticCheck {
@@ -25,7 +27,7 @@ export interface DiagnosticOptions {
 export async function createDiagnosticReport(options: DiagnosticOptions = {}): Promise<DiagnosticReport> {
   const checks = {
     database: await checkDatabase(options),
-    cache: await checkTcpUrl(options.redisUrl, 'Redis'),
+    cache: await checkRedis(options.redisUrl),
     queue: await checkQueue(options),
     storage: await checkStorage(options.storageRoot ?? './storage'),
   };
@@ -41,18 +43,29 @@ async function checkDatabase(options: DiagnosticOptions): Promise<DiagnosticChec
 
 async function checkQueue(options: DiagnosticOptions): Promise<DiagnosticCheck> {
   const driver = options.queueDriver ?? 'redis';
-  if (driver === 'redis') return checkTcpUrl(options.redisUrl, 'Redis Queue');
+  if (driver === 'redis') return checkRedis(options.redisUrl);
   if (driver === 'postgres') return checkDatabase(options);
   return { status: 'degraded', message: `Драйвер очереди ${driver} требует отдельного runtime-плагина` };
 }
 
 async function checkStorage(root: string): Promise<DiagnosticCheck> {
-  const probe = join(root, '.cajeer-healthcheck');
+  const probe = join(root, `.cajeer-healthcheck-${randomUUID()}`);
   return timed(`Local storage доступен: ${root}`, async () => {
     await mkdir(dirname(probe), { recursive: true });
-    await writeFile(probe, 'ok');
-    await access(probe);
-    await rm(probe, { force: true });
+    try { await writeFile(probe, 'ok', { flag: 'wx' }); await access(probe); } finally { await rm(probe, { force: true }); }
+  });
+}
+
+async function checkRedis(rawUrl: string | undefined): Promise<DiagnosticCheck> {
+  if (!rawUrl) return { status: 'down', message: 'Redis: URL не задан' };
+  return timed('Redis PING', async () => {
+    const redis = new Redis(rawUrl, { lazyConnect: true, connectTimeout: 1500, commandTimeout: 1500, maxRetriesPerRequest: 0, retryStrategy: () => null, enableOfflineQueue: false });
+    redis.on('error', () => undefined);
+    try {
+      await redis.connect();
+      if (await redis.ping() !== 'PONG') throw new Error('unexpected Redis response');
+    } catch { throw new Error('Redis PING failed'); }
+    finally { redis.disconnect(); }
   });
 }
 

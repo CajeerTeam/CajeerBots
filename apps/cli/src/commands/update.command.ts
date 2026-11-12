@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { PrismaService } from '@cajeerbots/db';
 import { selectUpdateCandidate, updateSteps } from '@cajeerbots/registry';
 
-const ENGINE_API_VERSION = '1.0.0-rc.1';
+const ENGINE_API_VERSION = '1.0.0-rc.2';
 
 export function updateCommand(): Command {
   const command = new Command('update').description('Планы обновления ядра, модулей и плагинов через Registry');

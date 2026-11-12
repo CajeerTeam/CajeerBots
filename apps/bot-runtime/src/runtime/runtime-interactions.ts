@@ -19,7 +19,7 @@ export async function configureRouterFromDatabase(prisma: PrismaService, router:
 
   router.register('status', async (interaction) => ({
     templateKey: 'system.status',
-    variables: { status: 'ok', version: process.env.npm_package_version ?? '1.0.0-rc.1', communityId: String(interaction.payload.communityId ?? '') },
+    variables: { status: 'ok', version: process.env.npm_package_version ?? '1.0.0-rc.2', communityId: String(interaction.payload.communityId ?? '') },
   }));
 
   router.register('help', async (interaction) => ({
@@ -114,7 +114,7 @@ export async function renderResponse(prisma: PrismaService, communityId: string,
     buttons = buttons ?? (template?.buttons as InteractionResponse['buttons'] | undefined);
   }
 
-  const rendered = renderStructuredMessage({ text: body, locale, provider, variables: response.variables ?? {}, buttons });
+  const rendered = renderStructuredMessage({ text: body ?? '', locale, provider, variables: response.variables ?? {}, buttons });
   await prisma.messageRenderLog.create({
     data: {
       communityId,

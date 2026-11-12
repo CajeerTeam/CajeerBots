@@ -50,7 +50,7 @@ export function checkDocumentationPages(pages: ScannedWikiPage[]): Documentation
       if (link.type !== 'internal') continue;
       internalLinks += 1;
       const [rawTarget, rawAnchor] = link.href.split('#');
-      const targetSlug = normalizeSlug(resolveRelative(page.slug, rawTarget));
+      const targetSlug = normalizeSlug(resolveRelative(page.slug, rawTarget ?? ""));
       const target = bySlug.get(targetSlug) ?? byPath.get(targetSlug);
       if (!target) {
         issues.push({ severity: 'error', code: 'broken_internal_link', pageSlug: page.slug, message: `Внутренняя ссылка не найдена: ${link.href}`, details: { href: link.href, targetSlug } });

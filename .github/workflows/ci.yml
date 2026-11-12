@@ -1,0 +1,72 @@
+name: Build and runtime
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build-runtime:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.5-bookworm
+        env:
+          POSTGRES_DB: cajeerbots
+          POSTGRES_USER: cajeerbots
+          POSTGRES_PASSWORD: cajeerbots
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U cajeerbots -d cajeerbots"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4.3-bookworm
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://cajeerbots:cajeerbots@localhost:5432/cajeerbots?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-jwt-secret-not-for-production
+      API_TOKEN_PEPPER: ci-only-token-pepper-not-for-production
+      CAJEER_ADMIN_TOKEN: ci-only-admin-token-not-for-production
+      SECRETS_ENCRYPTION_KEY: ci-only-secret-key-not-for-production
+      NODE_ENV: test
+      CAJEER_SMOKE_ISOLATED: '1'
+      STORAGE_LOCAL_ROOT: ./storage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm install --global pnpm@9.15.9
+      - name: Require committed lockfile
+        run: test -f pnpm-lock.yaml || (echo 'Run pnpm deps:lock and commit pnpm-lock.yaml' >&2; exit 1)
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm prisma:validate
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm prisma:deploy
+      - run: pnpm prisma:seed
+      - run: pnpm prisma:seed
+      - run: pnpm prisma:deploy
+      - run: pnpm test
+      - run: pnpm test:stabilization
+      - run: pnpm test:e2e
+      - run: pnpm smoke:runtime
+      - name: Build and validate Compose
+        run: |
+          pnpm setup:production https://bots.example.org
+          docker compose --env-file .env.production -f docker-compose.prod.yml config --quiet
+          docker compose --env-file .env.production -f docker-compose.prod.yml build
+      - name: Start isolated production Compose and verify services
+        run: |
+          docker compose --env-file .env.production -f docker-compose.prod.yml up -d --wait --wait-timeout 240
+          curl --fail --silent http://127.0.0.1:3000/api/health
+          curl --fail --silent http://127.0.0.1:3101/runtime/health
+          docker compose --env-file .env.production -f docker-compose.prod.yml exec -T worker node -e "fetch('http://127.0.0.1:3102/worker/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+          docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api node apps/cli/dist/main.js --version
+      - name: Compose cleanup
+        if: always()
+        run: |
+          if test -f .env.production; then docker compose --env-file .env.production -f docker-compose.prod.yml down -v --remove-orphans; fi

@@ -101,6 +101,7 @@ async function tcpUrl(rawUrl: string | undefined, timeoutMs: number): Promise<vo
 async function tcpTarget(target: string | null | undefined, timeoutMs: number): Promise<void> {
   if (!target) throw new Error('target не задан');
   const [host, rawPort] = target.split(':');
+  if (!host || !rawPort) throw new Error("Некорректный TCP target");
   await tcpConnect(host, Number(rawPort), timeoutMs);
 }
 

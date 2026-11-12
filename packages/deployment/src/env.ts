@@ -6,8 +6,13 @@ const requiredProductionKeys = [
   'DATABASE_URL',
   'REDIS_URL',
   'JWT_SECRET',
-  'ADMIN_BOOTSTRAP_TOKEN',
-  'SECRETS_MASTER_KEY',
+  'CAJEER_ADMIN_TOKEN',
+  'API_TOKEN_PEPPER',
+  'PASSWORD_PEPPER',
+  'REFRESH_TOKEN_PEPPER',
+  'RECOVERY_CODE_PEPPER',
+  'WEBHOOK_SIGNING_SECRET',
+  'SECRETS_ENCRYPTION_KEY',
   'APP_PUBLIC_URL',
 ] as const;
 
@@ -17,24 +22,33 @@ export function generateSecret(bytes = 32): string {
 
 export function generateProductionEnv(options: Partial<ProductionEnvOptions> = {}): string {
   const appUrl = options.appUrl ?? 'https://example.cajeer.ru';
-  const botWebhookPublicUrl = options.botWebhookPublicUrl ?? `${appUrl.replace(/\/$/, '')}/bot-webhooks`;
+  const botWebhookPublicUrl = options.botWebhookPublicUrl ?? appUrl;
+  const postgresPassword = generateSecret(32);
   const values: Record<string, string> = {
+    POSTGRES_DB: 'cajeerbots',
+    POSTGRES_USER: 'cajeerbots',
+    POSTGRES_PASSWORD: postgresPassword,
     NODE_ENV: 'production',
     APP_NAME: 'CajeerBots',
     APP_HOST: '0.0.0.0',
     APP_PORT: '3000',
     APP_PUBLIC_URL: appUrl,
-    DATABASE_URL: options.databaseUrl ?? 'postgresql://cajeerbots:change-me@postgres:5432/cajeerbots?schema=public',
+    DATABASE_URL: options.databaseUrl ?? `postgresql://cajeerbots:${postgresPassword}@postgres:5432/cajeerbots?schema=public`,
     REDIS_URL: options.redisUrl ?? 'redis://redis:6379/0',
     JWT_SECRET: options.jwtSecret ?? generateSecret(48),
-    ADMIN_BOOTSTRAP_TOKEN: options.adminToken ?? generateSecret(32),
-    SECRETS_MASTER_KEY: options.encryptionKey ?? createHash('sha256').update(generateSecret(64)).digest('base64'),
+    CAJEER_ADMIN_TOKEN: options.adminToken ?? generateSecret(32),
+    SECRETS_ENCRYPTION_KEY: options.encryptionKey ?? createHash('sha256').update(generateSecret(64)).digest('base64'),
+    API_TOKEN_PEPPER: generateSecret(32),
+    WEBHOOK_SIGNING_SECRET: generateSecret(32),
     PASSWORD_PEPPER: generateSecret(32),
     REFRESH_TOKEN_PEPPER: generateSecret(32),
     RECOVERY_CODE_PEPPER: generateSecret(32),
     TOTP_ISSUER: 'CajeerBots',
     BOT_WEBHOOK_HOST: '0.0.0.0',
-    BOT_WEBHOOK_PORT: '3001',
+    BOT_WEBHOOK_PORT: '3101',
+    BOT_MODE: 'polling',
+    QUEUE_DRIVER: 'redis',
+    WORKER_HEALTH_PORT: '3102',
     BOT_WEBHOOK_PUBLIC_URL: botWebhookPublicUrl,
     BOT_RUNTIME_HEARTBEAT_MS: '15000',
     BOT_RUNTIME_STALE_MS: '60000',
@@ -77,10 +91,10 @@ export function validateProductionEnv(env: Record<string, string>): { valid: boo
   for (const key of requiredProductionKeys) {
     if (!env[key]) errors.push(`Не задана переменная ${key}`);
   }
-  for (const key of ['JWT_SECRET', 'ADMIN_BOOTSTRAP_TOKEN', 'SECRETS_MASTER_KEY', 'PASSWORD_PEPPER', 'REFRESH_TOKEN_PEPPER']) {
+  for (const key of ['JWT_SECRET', 'CAJEER_ADMIN_TOKEN', 'SECRETS_ENCRYPTION_KEY', 'PASSWORD_PEPPER', 'REFRESH_TOKEN_PEPPER', 'RECOVERY_CODE_PEPPER', 'API_TOKEN_PEPPER', 'WEBHOOK_SIGNING_SECRET']) {
     const value = env[key] ?? '';
     if (value && value.length < 32) errors.push(`${key} слишком короткая для production`);
-    if (/change-me|secret|password|example/i.test(value)) warnings.push(`${key} выглядит как демонстрационное значение`);
+    if (/^(change-me|development|secret|example|replace)/i.test(value)) errors.push(`${key} содержит демонстрационное значение`);
   }
   if (env.NODE_ENV !== 'production') warnings.push('NODE_ENV не равен production');
   if (env.APP_PUBLIC_URL && !/^https:\/\//.test(env.APP_PUBLIC_URL)) warnings.push('APP_PUBLIC_URL для production должен использовать HTTPS');

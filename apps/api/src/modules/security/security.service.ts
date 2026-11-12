@@ -65,7 +65,7 @@ export class SecurityService {
 
   async runAudit(input: z.infer<typeof runSecurityAuditSchema>, principal: Principal) {
     await seedDefaultSecurityAuditPolicies(this.prisma);
-    const result = await runSecurityAudit({ prisma: this.prisma, version: input.version, channel: input.channel, trigger: input.trigger, persist: input.persist, createdBy: principal.sub });
+    const result = await runSecurityAudit({ prisma: this.prisma, version: input.version, channel: input.channel, trigger: input.trigger, persist: input.persist, createdBy: principal.id });
     await this.audit(principal, 'security.audit.run', 'security_audit_run', result.run?.id ?? null, result.report.summary);
     return result;
   }
@@ -85,7 +85,7 @@ export class SecurityService {
   }
 
   async resolveFinding(id: string, input: z.infer<typeof resolveSecurityFindingSchema>, principal: Principal) {
-    const row = await this.prisma.securityAuditFinding.update({ where: { id }, data: { status: input.status, resolvedAt: input.status === 'open' ? null : new Date(), resolvedBy: input.status === 'open' ? null : principal.sub, evidence: { resolutionReason: input.reason ?? null } as never } });
+    const row = await this.prisma.securityAuditFinding.update({ where: { id }, data: { status: input.status, resolvedAt: input.status === 'open' ? null : new Date(), resolvedBy: input.status === 'open' ? null : principal.id, evidence: { resolutionReason: input.reason ?? null } as never } });
     await this.audit(principal, 'security.audit.finding.resolve', 'security_audit_finding', id, input);
     return row;
   }
@@ -95,6 +95,6 @@ export class SecurityService {
   }
 
   private audit(principal: Principal, action: string, resource: string, resourceId: string | null, metadata: unknown) {
-    return this.prisma.auditLog.create({ data: { actorId: principal.sub, actorType: principal.type, action, resource, resourceId, metadata: metadata as never } });
+    return this.prisma.auditLog.create({ data: { actorId: principal.id, actorType: principal.type, action, resource, resourceId, metadata: metadata as never } });
   }
 }

@@ -4,48 +4,42 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { loadConfigOrThrow } from '@cajeerbots/config';
+import { PrismaService } from '@cajeerbots/db';
 import { startTracing } from '@cajeerbots/observability';
 import { AppModule } from './modules/app.module.js';
-import { PrismaClient } from '../../../prisma/generated/client/index.js';
 
 async function bootstrap(): Promise<void> {
   const config = loadConfigOrThrow();
   await startTracing();
-
-  const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule,
-    new FastifyAdapter({ logger: true }),
-  );
-
-  await app.register(helmet);
-  const rateLimitPrisma = new PrismaClient();
-  await app.register(rateLimit, {
-    max: Number(process.env.API_RATE_LIMIT_MAX ?? 300),
-    timeWindow: process.env.API_RATE_LIMIT_WINDOW ?? '1 minute',
-    onExceeding: async (request: any, key: string) => {
-      try {
-        await rateLimitPrisma.rateLimitViolation.create({
-          data: {
-            bucket: 'api',
-            identifier: key,
-            route: request.routeOptions?.url,
-            limit: Number(process.env.API_RATE_LIMIT_MAX ?? 300),
-            count: Number(request.rateLimit?.current ?? 0),
-            windowMs: 60_000,
-            ip: request.ip,
-            userAgent: request.headers?.['user-agent'],
-          },
-        });
-      } catch {
-        // Rate-limit telemetry must never break user requests.
-      }
-    },
-  } as any);
-
-  app.enableShutdownHooks();
-  app.setGlobalPrefix('api');
-
-  await app.listen({ port: config.APP_PORT, host: config.APP_HOST });
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({
+    logger: { redact: ['req.headers.authorization', 'req.headers["x-api-key"]', 'req.headers.cookie'] },
+  }));
+  try {
+    const prisma = app.get(PrismaService);
+    await app.register(helmet);
+    await app.register(rateLimit, {
+      max: config.API_RATE_LIMIT_MAX,
+      timeWindow: config.API_RATE_LIMIT_WINDOW,
+      onExceeding: async (request, key) => {
+        try {
+          await prisma.rateLimitViolation.create({ data: {
+            bucket: 'api', identifier: key, route: request.routeOptions.url,
+            limit: config.API_RATE_LIMIT_MAX, count: config.API_RATE_LIMIT_MAX + 1,
+            windowMs: 60_000, ip: request.ip, userAgent: request.headers['user-agent'],
+          } });
+        } catch { /* Telemetry must not interrupt the request. */ }
+      },
+    });
+    app.enableShutdownHooks();
+    app.setGlobalPrefix('api');
+    await app.listen({ port: config.APP_PORT, host: config.APP_HOST });
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
 }
 
-void bootstrap();
+bootstrap().catch((error: unknown) => {
+  console.error('[api] startup failed:', error instanceof Error ? error.name : 'unknown');
+  process.exitCode = 1;
+});

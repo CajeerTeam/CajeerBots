@@ -1,15 +1,17 @@
 {
   "name": "@cajeerbots/observability",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "prom-client": "^15.0.0",
-    "@opentelemetry/sdk-node": "^0.57.0"
+    "prom-client": "15.0.0",
+    "@opentelemetry/sdk-node": "0.57.0",
+    "ioredis": "5.0.0"
   }
 }

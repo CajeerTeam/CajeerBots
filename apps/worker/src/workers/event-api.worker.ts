@@ -1,3 +1,4 @@
+import { SerialPoller } from '@cajeerbots/core';
 import { PrismaService } from '@cajeerbots/db';
 import { nextBackoffDate } from '@cajeerbots/event-bus';
 import { DbExtensionRuntime } from '@cajeerbots/extension-runtime';
@@ -9,7 +10,7 @@ export interface EventApiWorkerOptions {
 }
 
 export class EventApiDeliveryWorker {
-  private timer?: NodeJS.Timeout;
+  private poller?: SerialPoller;
   private running = false;
   private readonly extensionRuntime: DbExtensionRuntime;
 
@@ -22,13 +23,13 @@ export class EventApiDeliveryWorker {
 
   async start(): Promise<void> {
     await this.prisma.connect();
-    await this.tick();
-    this.timer = setInterval(() => void this.tick(), this.options.pollIntervalMs ?? Number(process.env.EVENT_API_WORKER_INTERVAL_MS ?? 5000));
-    console.log('[worker] event-api delivery worker 1.0.0-rc.1 started');
+    this.poller = new SerialPoller(this.options.pollIntervalMs ?? Number(process.env.EVENT_API_WORKER_INTERVAL_MS ?? 5000), () => this.tick(), (error) => console.error('[worker] event-api.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
+    await this.poller.start();
+    console.log('[worker] event-api delivery worker 1.0.0-rc.2 started');
   }
 
   async stop(): Promise<void> {
-    if (this.timer) clearInterval(this.timer);
+    await this.poller?.stop();
     await this.prisma.close();
   }
 

@@ -1,77 +1,77 @@
+x-app: &app
+  image: cajeerbots:1.0.0-rc.2
+  build: {context: ., dockerfile: docker/api.Dockerfile}
+  env_file: .env
+  environment:
+    NODE_ENV: development
+    DATABASE_URL: postgresql://cajeerbots:cajeerbots@postgres:5432/cajeerbots?schema=public
+    REDIS_URL: redis://redis:6379
+    APP_HOST: 0.0.0.0
+    APP_PORT: "3000"
+    BOT_WEBHOOK_PORT: "3101"
+    BOT_WEBHOOK_HOST: 0.0.0.0
+    WORKER_HEALTH_PORT: "3102"
+    STORAGE_LOCAL_ROOT: /var/lib/cajeerbots/storage
+    EXTENSIONS_ROOT: /var/lib/cajeerbots/extensions
+  profiles: [app]
+  init: true
+  stop_grace_period: 40s
+  volumes:
+    - app-storage:/var/lib/cajeerbots/storage
+    - app-extensions:/var/lib/cajeerbots/extensions
 services:
   postgres:
-    image: postgres:17-alpine
-    container_name: cajeerbots-postgres
+    image: postgres:17.5-bookworm
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: cajeerbots
-      POSTGRES_PASSWORD: cajeerbots
-      POSTGRES_DB: cajeerbots
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
+    environment: {POSTGRES_USER: cajeerbots, POSTGRES_PASSWORD: cajeerbots, POSTGRES_DB: cajeerbots}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [postgres-data:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cajeerbots -d cajeerbots"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
-
+      retries: 20
   redis:
-    image: redis:7-alpine
-    container_name: cajeerbots-redis
+    image: redis:7.4.3-bookworm
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    ports: ["127.0.0.1:6379:6379"]
     command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redis-data:/data
+    volumes: [redis-data:/data]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  migrate:
+    <<: *app
+    command: ["sh", "-ec", "pnpm prisma:deploy && pnpm prisma:seed"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
   api:
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
-    env_file: .env
+    <<: *app
+    command: ["node", "apps/api/dist/main.js"]
+    ports: ["127.0.0.1:3000:3000"]
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    ports:
-      - "3000:3000"
-    profiles: ["app"]
-
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
   bot-runtime:
-    build:
-      context: .
-      dockerfile: docker/bot-runtime.Dockerfile
-    env_file: .env
+    <<: *app
+    command: ["node", "apps/bot-runtime/dist/main.js"]
+    ports: ["127.0.0.1:3101:3101"]
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    ports:
-      - "3101:3101"
-    profiles: ["app"]
-
+      api: {condition: service_healthy}
   worker:
-    build:
-      context: .
-      dockerfile: docker/worker.Dockerfile
-    env_file: .env
+    <<: *app
+    command: ["node", "apps/worker/dist/main.js"]
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    profiles: ["app"]
-
+      api: {condition: service_healthy}
 volumes:
   postgres-data:
   redis-data:
+  app-storage:
+  app-extensions:

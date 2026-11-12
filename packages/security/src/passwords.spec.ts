@@ -11,6 +11,7 @@ describe('password security helpers', () => {
 
   it('creates hashable recovery codes', () => {
     const [code] = createRecoveryCodes(1);
+    if (!code) throw new Error("recovery code missing");
     expect(code).toContain('-');
     expect(hashRecoveryCode(code, 'pepper')).toBe(hashRecoveryCode(code.toLowerCase().replace('-', ' - '), 'pepper'));
   });

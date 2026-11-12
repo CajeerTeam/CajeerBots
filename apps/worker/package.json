@@ -1,11 +1,12 @@
 {
   "name": "@cajeerbots/worker",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/main.ts",
-    "build": "tsc -p tsconfig.json"
+    "dev": "node --env-file-if-exists=../../.env --watch dist/main.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@cajeerbots/core": "workspace:*",
@@ -19,6 +20,8 @@
     "@cajeerbots/backup": "workspace:*",
     "@cajeerbots/storage": "workspace:*",
     "@cajeerbots/observability": "workspace:*",
-    "@cajeerbots/integration-tests": "workspace:*"
-  }
+    "@cajeerbots/integration-tests": "workspace:*",
+    "@cajeerbots/config": "workspace:*"
+  },
+  "main": "dist/main.js"
 }

@@ -1,26 +1,21 @@
-FROM node:lts-alpine AS base
+FROM node:22.16.0-bookworm-slim AS base
 WORKDIR /app
-RUN corepack enable
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssl && rm -rf /var/lib/apt/lists/* \
+    && npm install --global pnpm@9.15.9
 
-FROM base AS deps
-COPY package.json pnpm-workspace.yaml ./
-COPY apps ./apps
-COPY packages ./packages
-COPY prisma ./prisma
-RUN pnpm install --frozen-lockfile=false
-
-FROM deps AS build
+FROM base AS build
 COPY . .
-RUN pnpm prisma:generate && pnpm build
+# No dependency resolution during release builds: require the committed lockfile.
+RUN test -f pnpm-lock.yaml || (echo 'Generate and commit pnpm-lock.yaml: pnpm deps:lock' >&2; exit 1)
+RUN pnpm install --frozen-lockfile
+RUN pnpm build
 
-FROM node:lts-alpine AS runtime
-WORKDIR /app
+FROM base AS runtime
 ENV NODE_ENV=production
-RUN corepack enable && addgroup -S -g 10001 cajeerbots && adduser -S -D -H -u 10001 -G cajeerbots cajeerbots && mkdir -p /var/lib/cajeerbots/storage /var/lib/cajeerbots/extensions && chown -R cajeerbots:cajeerbots /app /var/lib/cajeerbots
-COPY --from=build --chown=cajeerbots:cajeerbots /app/package.json /app/pnpm-workspace.yaml ./
-COPY --from=build --chown=cajeerbots:cajeerbots /app/node_modules ./node_modules
-COPY --from=build --chown=cajeerbots:cajeerbots /app/apps ./apps
-COPY --from=build --chown=cajeerbots:cajeerbots /app/packages ./packages
-COPY --from=build --chown=cajeerbots:cajeerbots /app/prisma ./prisma
-USER cajeerbots
+RUN groupadd --gid 10001 cajeerbots && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /app cajeerbots \
+    && mkdir -p /var/lib/cajeerbots/storage /var/lib/cajeerbots/extensions \
+    && chown -R 10001:10001 /app /var/lib/cajeerbots
+# Keep schema, migrations, docs and contracts used by the existing maintenance jobs.
+COPY --from=build --chown=10001:10001 /app/ /app/
+USER 10001:10001
 CMD ["node", "apps/api/dist/main.js"]

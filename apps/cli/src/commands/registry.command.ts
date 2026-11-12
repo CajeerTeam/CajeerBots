@@ -4,7 +4,7 @@ import { PrismaService } from '@cajeerbots/db';
 import { parseRegistryManifest, latestVersion } from '@cajeerbots/registry';
 import { checkEngineCompatibility, type ExtensionManifest } from '@cajeerbots/extension-sdk';
 
-const ENGINE_API_VERSION = '1.0.0-rc.1';
+const ENGINE_API_VERSION = '1.0.0-rc.2';
 
 export function registryCommand(): Command {
   const command = new Command('registry').description('Extension registry/store, синхронизация manifest и установка packages');

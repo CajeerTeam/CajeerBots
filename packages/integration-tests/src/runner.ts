@@ -11,10 +11,10 @@ export async function runIntegrationTestCase(options: IntegrationRunOptions & { 
   const definition = normalizeDefinition(options.testCase.definition);
   const run = options.runId
     ? await options.prisma.integrationTestRun.update({ where: { id: options.runId }, data: { status: 'running', startedAt: new Date(), rootDir: options.rootDir, environment: runtimeEnvironment(options) as never } })
-    : await options.prisma.integrationTestRun.create({ data: { suiteId: options.testCase.suiteId, caseId: options.testCase.id, status: 'running', version: options.version ?? '1.0.0-rc.1', channel: options.channel ?? 'beta', trigger: options.triggeredBy ?? 'manual', startedAt: new Date(), rootDir: options.rootDir, environment: runtimeEnvironment(options) as never, createdBy: options.triggeredBy } });
+    : await options.prisma.integrationTestRun.create({ data: { suiteId: options.testCase.suiteId, caseId: options.testCase.id, status: 'running', version: options.version ?? '1.0.0-rc.2', channel: options.channel ?? 'beta', trigger: options.triggeredBy ?? 'manual', startedAt: new Date(), rootDir: options.rootDir, environment: runtimeEnvironment(options) as never, createdBy: options.triggeredBy } });
   const steps: StepExecutionResult[] = [];
   for (let index = 0; index < definition.steps.length; index += 1) {
-    const step = definition.steps[index];
+    const step = definition.steps[index]!;
     const result = await runStep(options, step, index);
     steps.push(result);
     await options.prisma.integrationTestStepRun.create({ data: { runId: run.id, caseId: options.testCase.id, stepIndex: index, code: result.code, kind: result.kind, status: result.status, startedAt: new Date(Date.now() - result.durationMs), finishedAt: new Date(), durationMs: result.durationMs, request: result.request as never, response: result.response as never, assertion: result.assertion as never, error: result.error } });
@@ -28,7 +28,7 @@ export async function runIntegrationTestCase(options: IntegrationRunOptions & { 
 
 export async function runIntegrationTestSuite(options: IntegrationRunOptions & { suite: any; cases: any[] }) {
   const started = Date.now();
-  const parent = await options.prisma.integrationTestRun.create({ data: { suiteId: options.suite.id, status: 'running', version: options.version ?? '1.0.0-rc.1', channel: options.channel ?? 'beta', trigger: options.triggeredBy ?? 'manual', startedAt: new Date(), rootDir: options.rootDir, environment: runtimeEnvironment(options) as never, createdBy: options.triggeredBy } });
+  const parent = await options.prisma.integrationTestRun.create({ data: { suiteId: options.suite.id, status: 'running', version: options.version ?? '1.0.0-rc.2', channel: options.channel ?? 'beta', trigger: options.triggeredBy ?? 'manual', startedAt: new Date(), rootDir: options.rootDir, environment: runtimeEnvironment(options) as never, createdBy: options.triggeredBy } });
   const caseResults = [];
   for (const testCase of options.cases) caseResults.push(await runIntegrationTestCase({ ...options, testCase }));
   const failed = caseResults.filter((item) => item.summary.status === 'failed').length;

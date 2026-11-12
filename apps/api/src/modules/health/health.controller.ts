@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { createDiagnosticReport } from '@cajeerbots/observability';
 import { PrismaService } from '@cajeerbots/db';
 
@@ -8,12 +8,14 @@ export class HealthController {
 
   @Get()
   async getHealth() {
-    return createDiagnosticReport({
+    const report = await createDiagnosticReport({
       databaseUrl: process.env.DATABASE_URL,
       redisUrl: process.env.REDIS_URL,
       queueDriver: process.env.QUEUE_DRIVER,
       storageRoot: process.env.STORAGE_LOCAL_ROOT ?? './storage',
       databaseProbe: async () => { await this.prisma.health(); },
     });
+    if (report.status === 'down') throw new ServiceUnavailableException(report);
+    return report;
   }
 }

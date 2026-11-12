@@ -170,7 +170,7 @@ async function expandPackageGlobs(rootDir: string, globs: string[]): Promise<str
   const result: string[] = [];
   for (const glob of globs) {
     const [root, star, file] = glob.split('/');
-    if (star !== '*' || file !== 'package.json') continue;
+    if (!root || star !== '*' || file !== 'package.json') continue;
     const dir = join(rootDir, root);
     const entries = await import('node:fs/promises').then((fs) => fs.readdir(dir, { withFileTypes: true }).catch(() => []));
     for (const entry of entries) if (entry.isDirectory()) result.push(`${root}/${entry.name}/package.json`);

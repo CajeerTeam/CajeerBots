@@ -26,7 +26,7 @@ export async function dispatchProviderWebhook(
 async function dispatchTelegram(prisma: PrismaService, router: InteractionRouter, account: RuntimeBotAccount, payload: Record<string, unknown>): Promise<WebhookDispatchResult> {
   const message = asRecord(payload.message);
   const callback = asRecord(payload.callback_query);
-  const chat = asRecord(message?.chat ?? callback?.message && asRecord(callback.message)?.chat);
+  const chat = asRecord(message?.chat ?? asRecord(callback?.message)?.chat);
   const from = asRecord(message?.from ?? callback?.from);
   const text = String(message?.text ?? '').trim();
   const callbackData = callback?.data ? String(callback.data) : undefined;

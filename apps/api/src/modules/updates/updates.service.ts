@@ -4,7 +4,7 @@ import { checkEngineCompatibility, type ExtensionManifest } from '@cajeerbots/ex
 import { selectUpdateCandidate, updateSteps } from '@cajeerbots/registry';
 import type { Principal } from '@cajeerbots/security';
 
-const ENGINE_API_VERSION = '1.0.0-rc.1';
+const ENGINE_API_VERSION = '1.0.0-rc.2';
 
 @Injectable()
 export class UpdatesService {

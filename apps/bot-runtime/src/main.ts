@@ -1,15 +1,22 @@
+import { loadConfigOrThrow } from '@cajeerbots/config';
 import { createRuntime } from './runtime/create-runtime.js';
 
 async function main(): Promise<void> {
-  const runtime = await createRuntime({ mode: process.env.BOT_MODE === 'webhook' ? 'webhook' : 'polling' });
-  await runtime.start();
-
-  const stop = async () => {
-    await runtime.stop();
-    process.exit(0);
+  const config = loadConfigOrThrow();
+  const runtime = await createRuntime({ mode: config.BOT_MODE });
+  let startup: Promise<void> | undefined;
+  let shutdown: Promise<void> | undefined;
+  const stop = (): Promise<void> => {
+    if (shutdown) return shutdown;
+    shutdown = (async () => {
+      const timeout = setTimeout(() => process.exit(1), 30_000).unref();
+      try { await startup?.catch(() => undefined); await runtime.stop(); } finally { clearTimeout(timeout); }
+    })();
+    return shutdown;
   };
-  process.once('SIGTERM', () => void stop());
-  process.once('SIGINT', () => void stop());
+  const onSignal = () => { void stop().catch(() => { process.exitCode = 1; }); };
+  process.once('SIGTERM', onSignal); process.once('SIGINT', onSignal);
+  startup = runtime.start();
+  try { await startup; } catch (error) { await stop(); throw error; }
 }
-
-void main();
+main().catch((error: unknown) => { console.error('[bot-runtime] startup failed:', error instanceof Error ? error.name : 'unknown'); process.exitCode = 1; });

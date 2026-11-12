@@ -18,16 +18,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CajeerEnv {
 export function loadConfigOrThrow(env: NodeJS.ProcessEnv = process.env): CajeerEnv {
   const config = loadConfig(env);
   if (config.NODE_ENV === 'production') {
-    const weak = ['change-me-development-only', 'development-secret', 'secret'];
-    if (weak.includes(config.JWT_SECRET) || weak.includes(config.API_TOKEN_PEPPER) || weak.includes(config.SECRETS_ENCRYPTION_KEY ?? '') || weak.includes(config.PASSWORD_PEPPER ?? '') || weak.includes(config.REFRESH_TOKEN_PEPPER ?? '')) {
-      throw new ConfigError(['production нельзя запускать с дефолтными секретами']);
-    }
-    if (!config.SECRETS_ENCRYPTION_KEY) {
-      throw new ConfigError(['SECRETS_ENCRYPTION_KEY обязателен в production']);
-    }
-    if (!config.PASSWORD_PEPPER || !config.REFRESH_TOKEN_PEPPER || !config.RECOVERY_CODE_PEPPER) {
-      throw new ConfigError(['PASSWORD_PEPPER, REFRESH_TOKEN_PEPPER и RECOVERY_CODE_PEPPER обязательны в production']);
-    }
+    const required = ['JWT_SECRET', 'API_TOKEN_PEPPER', 'SECRETS_ENCRYPTION_KEY', 'PASSWORD_PEPPER', 'REFRESH_TOKEN_PEPPER', 'RECOVERY_CODE_PEPPER', 'CAJEER_ADMIN_TOKEN', 'WEBHOOK_SIGNING_SECRET'] as const;
+    const issues = required.filter((key) => {
+      const value = config[key];
+      return !value || value.length < 32 || /^(change-me|development|secret|example|replace)/i.test(value);
+    }).map((key) => `${key}: требуется отдельный сильный секрет (не менее 32 символов)`);
+    if (issues.length) throw new ConfigError(issues);
   }
   return config;
 }

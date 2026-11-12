@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 const secret = z.string().min(16);
-const optionalUrl = z.string().url().optional();
+const optionalUrl = z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional());
+const bool = z.preprocess((value) => typeof value === 'string' ? (value.toLowerCase() === 'true' || value === '1' ? true : value.toLowerCase() === 'false' || value === '0' ? false : value) : value, z.boolean());
 
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -50,8 +51,8 @@ export const envSchema = z.object({
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
 
-  PROMETHEUS_ENABLED: z.coerce.boolean().default(true),
-  OTEL_ENABLED: z.coerce.boolean().default(false),
+  PROMETHEUS_ENABLED: bool.default(true),
+  OTEL_ENABLED: bool.default(false),
   OTEL_SERVICE_NAME: z.string().default('cajeerbots'),
 
   IMPORT_EXPORT_MAX_BYTES: z.coerce.number().int().positive().default(5_000_000),
@@ -60,7 +61,7 @@ export const envSchema = z.object({
   BACKUP_WORKER_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   BACKUP_DELETED_OBJECT_RETENTION_DAYS: z.coerce.number().int().nonnegative().default(7),
   EXTENSIONS_ROOT: z.string().default('./extensions'),
-  EXTENSION_RUNTIME_ENABLED: z.coerce.boolean().default(true),
+  EXTENSION_RUNTIME_ENABLED: bool.default(true),
 
   EVENT_API_WORKER_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
   EVENT_API_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(25),

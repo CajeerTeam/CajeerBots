@@ -51,10 +51,10 @@ export class ContractsService {
         deprecatedOperations: snapshot.deprecatedOperations as never,
         snapshot: snapshot as never,
         isBaseline: input.makeBaseline,
-        createdBy: principal.sub,
+        createdBy: principal.id,
       },
     });
-    await this.prisma.auditLog.create({ data: { actorType: principal.type, actorId: principal.sub, action: 'contracts.snapshot.create', resource: 'api_contract_snapshot', resourceId: created.id, metadata: { version, sourcePath: input.sourcePath, makeBaseline: input.makeBaseline } as never } });
+    await this.prisma.auditLog.create({ data: { actorType: principal.type, actorId: principal.id, action: 'contracts.snapshot.create', resource: 'api_contract_snapshot', resourceId: created.id, metadata: { version, sourcePath: input.sourcePath, makeBaseline: input.makeBaseline } as never } });
     return created;
   }
 
@@ -85,7 +85,7 @@ export class ContractsService {
         issues: issues as never,
         breakingCount: diff?.summary.breaking ?? 0,
         coveragePercent: sdkCoverage.percent,
-        createdBy: principal.sub,
+        createdBy: principal.id,
       },
     });
     return { check, snapshot: snapshotRow, baseline, diff, sdkCoverage, issues };
@@ -113,7 +113,7 @@ export class ContractsService {
     }
     const serialized = files.map((file) => ({ filename: file.filename, sha256: sha256Hex(file.content), sizeBytes: Buffer.byteLength(file.content), operations: file.operations, ...(input.outputMode === 'database' ? { content: file.content } : {}) }));
     const aggregate = serialized.map((file) => `${file.filename}:${file.sha256}`).join('\n');
-    const run = await this.prisma.sdkGenerationRun.create({ data: { snapshotId: snapshotRow.id, status: 'generated', outputMode: input.outputMode, artifactName: input.outputMode === 'file' ? input.outputDir : 'database:generated_files', artifactSha256: sha256Hex(aggregate), artifactSizeBytes: serialized.reduce((sum, file) => sum + file.sizeBytes, 0), operationCount: snapshot.operations.length, coveragePercent: coverage.percent, missingOperations: coverage.missing as never, generatedFiles: serialized as never, createdBy: principal.sub } });
+    const run = await this.prisma.sdkGenerationRun.create({ data: { snapshotId: snapshotRow.id, status: 'generated', outputMode: input.outputMode, artifactName: input.outputMode === 'file' ? input.outputDir : 'database:generated_files', artifactSha256: sha256Hex(aggregate), artifactSizeBytes: serialized.reduce((sum, file) => sum + file.sizeBytes, 0), operationCount: snapshot.operations.length, coveragePercent: coverage.percent, missingOperations: coverage.missing as never, generatedFiles: serialized as never, createdBy: principal.id } });
     return { run, coverage, files: serialized };
   }
 
@@ -128,7 +128,7 @@ export class ContractsService {
   upsertDeprecation(input: UpsertDeprecationInput, principal: Principal) {
     return this.prisma.apiDeprecation.upsert({
       where: { operationId: input.operationId },
-      create: { ...input, createdBy: principal.sub, metadata: input.metadata as never },
+      create: { ...input, createdBy: principal.id, metadata: input.metadata as never },
       update: { ...input, metadata: input.metadata as never },
     });
   }

@@ -1,5 +1,19 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": ["apps/**/*.ts", "packages/**/*.ts", "examples/**/*.ts", "*.ts"],
-  "exclude": ["node_modules", "dist", "coverage"]
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "apps/*/src/**/*.ts",
+    "packages/*/src/**/*.ts",
+    "examples/*/src/**/*.ts",
+    "prisma/seed.ts",
+    "*.ts"
+  ],
+  "exclude": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "prisma/generated/**",
+    "coverage"
+  ]
 }

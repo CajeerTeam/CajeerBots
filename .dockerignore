@@ -8,3 +8,11 @@ coverage
 !.env.example
 *.log
 .DS_Store
+
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+prisma/generated
+.pnpm-store
+
+!.env.production.example
