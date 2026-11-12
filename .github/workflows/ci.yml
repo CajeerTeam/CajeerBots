@@ -39,9 +39,40 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: npm install --global pnpm@9.15.9
-      - name: Require committed lockfile
-        run: test -f pnpm-lock.yaml || (echo 'Run pnpm deps:lock and commit pnpm-lock.yaml' >&2; exit 1)
-      - run: pnpm install --frozen-lockfile
+      - name: Prepare dependency lockfile
+        id: lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f pnpm-lock.yaml ]]; then
+            # An existing lockfile must be committed and non-empty. Never regenerate it in CI.
+            git ls-files --error-unmatch pnpm-lock.yaml >/dev/null
+            test -s pnpm-lock.yaml
+            echo 'generated=false' >> "$GITHUB_OUTPUT"
+          else
+            # Bootstrap source-only checkouts once; the Stable release workflow remains strict.
+            pnpm deps:lock
+            test -s pnpm-lock.yaml
+            echo 'generated=true' >> "$GITHUB_OUTPUT"
+            echo '::warning title=Uncommitted lockfile::Download the generated-pnpm-lockfile artifact, review it and commit pnpm-lock.yaml before releasing.'
+            printf '%s\n' '### Dependency lockfile bootstrap' 'This run generated a lockfile. Download the **generated-pnpm-lockfile** artifact, review and commit it. A successful build here does not authorize a Stable release.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Save generated lockfile for review
+        if: steps.lockfile.outputs.generated == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-pnpm-lockfile
+          path: pnpm-lock.yaml
+          if-no-files-found: error
+          retention-days: 14
+      - name: Install frozen dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          before=$(sha256sum pnpm-lock.yaml)
+          pnpm install --frozen-lockfile
+          test "$before" = "$(sha256sum pnpm-lock.yaml)"
+          git diff --exit-code -- pnpm-lock.yaml
       - run: pnpm prisma:validate
       - run: pnpm build
       - run: pnpm typecheck

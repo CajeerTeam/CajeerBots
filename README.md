@@ -12,7 +12,17 @@ pnpm deps:lock
 pnpm install --frozen-lockfile
 ```
 
-Зафиксируйте сгенерированный `pnpm-lock.yaml` в Git. Все последующие CI/Docker сборки требуют его и выполняют только frozen install. Для выпуска без изменения зависимостей повторно `deps:lock` не запускайте.
+Зафиксируйте сгенерированный `pnpm-lock.yaml` в Git. Для выпуска без изменения зависимостей повторно `deps:lock` не запускайте.
+
+Если локально нет доступа к npm registry, обычный workflow **Build and runtime** при отсутствии lockfile автоматически выполняет `pnpm deps:lock` на GitHub runner, сохраняет настоящий файл в артефакте **generated-pnpm-lockfile**, затем устанавливает зависимости через `pnpm install --frozen-lockfile` и запускает все проверки. Скачайте артефакт из соответствующего запуска GitHub Actions, извлеките `pnpm-lock.yaml` в корень проекта, проверьте его и добавьте в Git:
+
+```bash
+git add pnpm-lock.yaml
+git commit -m "chore: commit resolved dependency lockfile"
+git push origin main
+```
+
+При наличии зафиксированного lockfile CI не пересоздаёт его. Docker и **Stable verified release artifacts** по-прежнему требуют существующий lockfile; релизный workflow требует его также в точном baseline rc.6. Успешный bootstrap CI не является разрешением на публикацию Stable.
 
 ## Локальная установка и проверка
 
