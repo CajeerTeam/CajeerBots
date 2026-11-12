@@ -1,5 +1,5 @@
 import { SerialPoller } from '@cajeerbots/core';
-import { PrismaService } from '@cajeerbots/db';
+import { PrismaService, type Prisma } from '@cajeerbots/db';
 import { nextBackoffDate, subscriptionAllowsEvent } from '@cajeerbots/event-bus';
 import { DbExtensionRuntime } from '@cajeerbots/extension-runtime';
 import { signPayload, safeHttpRequest } from '@cajeerbots/security';
@@ -25,7 +25,7 @@ export class EventApiDeliveryWorker {
     await this.prisma.connect();
     this.poller = new SerialPoller(this.options.pollIntervalMs ?? Number(process.env.EVENT_API_WORKER_INTERVAL_MS ?? 5000), () => this.tick(), (error) => console.error('[worker] event-api.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
     await this.poller.start();
-    console.log('[worker] event-api delivery worker 1.0.0-rc.4 started');
+    console.log('[worker] event-api delivery worker 1.0.0-rc.5 started');
   }
 
   async stop(): Promise<void> {
@@ -158,10 +158,7 @@ export class EventApiDeliveryWorker {
   }
 }
 
-type DeliveryWithRelations = Awaited<ReturnType<PrismaService['eventSubscriptionDelivery']['findFirst']>> & {
-  subscription: { id: string; targetType: string; targetRef: string; maxAttempts: number };
-  eventRecord: { communityId: string | null; id: string; eventId: string; topicName: string; type: string; source: string; payload: unknown; metadata: unknown; publishedAt: Date };
-};
+type DeliveryWithRelations = Prisma.EventSubscriptionDeliveryGetPayload<{ include: { subscription: true; eventRecord: true } }>;
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};

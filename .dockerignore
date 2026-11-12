@@ -16,3 +16,8 @@ prisma/generated
 .pnpm-store
 
 !.env.production.example
+
+# Never copy generated releases or rehearsal evidence into runtime images.
+dist-release
+.tmp
+rehearsal-report*.json

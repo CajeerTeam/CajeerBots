@@ -64,7 +64,7 @@ export function verifyBackupBundle(bundle: BackupBundle): { valid: boolean; expe
   const payloadJson = stableSerialize(bundle.payload);
   const actualSha256 = sha256Hex(payloadJson);
   return {
-    valid: bundle.kind === 'cajeerbots.backup.bundle' && bundle.version === 1 && actualSha256 === bundle.manifest.payloadSha256,
+    valid: bundle.kind === 'cajeerbots.backup.bundle' && bundle.version === 1 && actualSha256 === bundle.manifest.payloadSha256 && byteLength(payloadJson) === bundle.manifest.payloadBytes,
     expectedSha256: bundle.manifest.payloadSha256,
     actualSha256,
     payloadBytes: byteLength(payloadJson),

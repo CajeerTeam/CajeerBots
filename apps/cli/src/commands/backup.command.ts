@@ -1,4 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { Command } from 'commander';
 import { PrismaService } from '@cajeerbots/db';
 import { createBackupBundle, createConfiguredStorage, decodeBackupBundle, encodeBackupBundle, exportCommunitySnapshot, includedResourcesFromCommunityPayload, sha256Hex, verifyBackupBundle, restoreCommunitySnapshot } from '@cajeerbots/backup';
@@ -19,7 +20,7 @@ export function backupCommand(): Command {
     const bytes = encodeBackupBundle(bundle);
     const sha256 = sha256Hex(bytes);
     const storage = createConfiguredStorage();
-    const key = options.key ?? `${process.env.BACKUP_OBJECT_PREFIX ?? 'backups'}/community/${options.community}/${new Date().toISOString().replace(/[:.]/g, '-')}.cajeer-backup.json`;
+    const key = options.key ?? `${process.env.BACKUP_OBJECT_PREFIX ?? 'backups'}/community/${options.community}/${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}.cajeer-backup.json`;
     const storageObject = await prisma.storageObject.create({ data: { key, driver: storage.driverName, bucket: storage.bucket, contentType: 'application/vnd.cajeerbots.backup+json', sizeBytes: bytes.byteLength, sha256, refType: 'backup_artifact', status: 'uploading', metadata: { root: storage.root, resources: includedResources } as never } });
     const artifact = await prisma.backupArtifact.create({ data: { scope: 'community', communityId: options.community, title, storageObjectId: storageObject.id, storageKey: key, format: bundle.format, sizeBytes: bytes.byteLength, sha256, status: 'creating', includedResources, metadata: options.metadata ? JSON.parse(options.metadata) as never : undefined } });
     await prisma.storageObject.update({ where: { id: storageObject.id }, data: { refId: artifact.id } });
@@ -50,7 +51,9 @@ export function backupCommand(): Command {
     const actualObjectSha256 = sha256Hex(bytes);
     const bundle = decodeBackupBundle(bytes);
     const payload = verifyBackupBundle(bundle);
-    console.log(JSON.stringify({ artifactId: id, valid: artifact.sha256 === actualObjectSha256 && payload.valid, expectedObjectSha256: artifact.sha256, actualObjectSha256, payload }, null, 2));
+    const valid = artifact.sha256 === actualObjectSha256 && payload.valid;
+    console.log(JSON.stringify({ artifactId: id, valid, expectedObjectSha256: artifact.sha256, actualObjectSha256, payload }, null, 2));
+    if (!valid) throw new Error('Backup checksum verification failed');
   }));
 
   command.command('download').argument('<id>').requiredOption('--output <file>').action(async (id: string, options: { output: string }) => withPrisma(async (prisma) => {
@@ -64,14 +67,24 @@ export function backupCommand(): Command {
   command.command('upload').requiredOption('--input <file>').option('--title <title>').option('--community <id>').option('--key <storageKey>').action(async (options: { input: string; title?: string; community?: string; key?: string }) => withPrisma(async (prisma) => {
     const bytes = new Uint8Array(await readFile(options.input));
     const bundle = decodeBackupBundle(bytes);
+    if (bundle.scope !== 'community' || !bundle.resourceId || (options.community && options.community !== bundle.resourceId)) throw new Error('Backup community identity mismatch');
     const storage = createConfiguredStorage();
     const sha256 = sha256Hex(bytes);
-    const key = options.key ?? `${process.env.BACKUP_OBJECT_PREFIX ?? 'backups'}/uploaded/${new Date().toISOString().replace(/[:.]/g, '-')}.cajeer-backup.json`;
-    await storage.driver.put(key, bytes);
-    const storageObject = await prisma.storageObject.create({ data: { key, driver: storage.driverName, bucket: storage.bucket, contentType: 'application/vnd.cajeerbots.backup+json', sizeBytes: bytes.byteLength, sha256, refType: 'backup_artifact', status: 'active' } });
-    const artifact = await prisma.backupArtifact.create({ data: { scope: bundle.scope, communityId: options.community ?? bundle.resourceId, title: options.title ?? bundle.title, storageObjectId: storageObject.id, storageKey: key, format: bundle.format, sizeBytes: bytes.byteLength, sha256, status: 'created', includedResources: bundle.manifest.includedResources, completedAt: new Date() } });
+    const key = options.key ?? `${process.env.BACKUP_OBJECT_PREFIX ?? 'backups'}/uploaded/${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID()}.cajeer-backup.json`;
+    const storageObject = await prisma.storageObject.create({ data: { key, driver: storage.driverName, bucket: storage.bucket, contentType: 'application/vnd.cajeerbots.backup+json', sizeBytes: bytes.byteLength, sha256, refType: 'backup_artifact', status: 'uploading' } });
+    const artifact = await prisma.backupArtifact.create({ data: { scope: bundle.scope, communityId: options.community ?? bundle.resourceId, title: options.title ?? bundle.title, storageObjectId: storageObject.id, storageKey: key, format: bundle.format, sizeBytes: bytes.byteLength, sha256, status: 'creating', includedResources: bundle.manifest.includedResources } });
     await prisma.storageObject.update({ where: { id: storageObject.id }, data: { refId: artifact.id } });
-    console.log(JSON.stringify(artifact, null, 2));
+    try {
+      await storage.driver.put(key, bytes);
+      const saved = await prisma.$transaction(async tx => {
+        await tx.storageObject.update({ where: { id: storageObject.id }, data: { status: 'active' } });
+        return tx.backupArtifact.update({ where: { id: artifact.id }, data: { status: 'created', completedAt: new Date() } });
+      });
+      console.log(JSON.stringify(saved, null, 2));
+    } catch (error) {
+      await prisma.$transaction([prisma.storageObject.update({ where: { id: storageObject.id }, data: { status: 'failed' } }), prisma.backupArtifact.update({ where: { id: artifact.id }, data: { status: 'failed', error: error instanceof Error ? error.message : String(error) } })]);
+      throw error;
+    }
   }));
 
   command.command('runs:list').option('--artifact <id>').option('--community <id>').option('--status <status>').option('--take <n>', 'limit', '100').action(async (options: { artifact?: string; community?: string; status?: string; take: string }) => withPrisma(async (prisma) => {
@@ -86,7 +99,10 @@ export function backupCommand(): Command {
     const started = Date.now();
     try {
       const storage = createConfiguredStorage();
-      const bundle = decodeBackupBundle(await storage.driver.get(artifact.storageKey));
+      const bytes = await storage.driver.get(artifact.storageKey);
+      if (sha256Hex(bytes) !== artifact.sha256) throw new Error('Backup object checksum verification failed');
+      const bundle = decodeBackupBundle(bytes);
+      if (bundle.scope !== 'community' || bundle.resourceId !== artifact.communityId) throw new Error('Backup identity mismatch');
       const verification = verifyBackupBundle(bundle);
       const restore = await restoreCommunitySnapshot(prisma, options.community, bundle.payload, options.apply ? 'apply' : 'dry-run');
       const saved = await prisma.backupRestoreRun.update({ where: { id: run.id }, data: { status: 'completed', finishedAt: new Date(), durationMs: Date.now() - started, result: { verification, restore } as never } });
@@ -95,6 +111,7 @@ export function backupCommand(): Command {
       const message = error instanceof Error ? error.message : String(error);
       const saved = await prisma.backupRestoreRun.update({ where: { id: run.id }, data: { status: 'failed', finishedAt: new Date(), durationMs: Date.now() - started, error: message } });
       console.log(JSON.stringify(saved, null, 2));
+      throw error;
     }
   }));
 

@@ -1,6 +1,6 @@
 {
   "name": "@cajeerbots/backup",
-  "version": "1.0.0-rc.4",
+  "version": "1.0.0-rc.5",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@cajeerbots/storage": "workspace:*"
+    "@cajeerbots/storage": "workspace:*",
+    "@cajeerbots/db": "workspace:*"
   }
 }

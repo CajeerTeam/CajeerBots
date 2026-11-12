@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '@cajeerbots/db';
 import { createBackupBundle, createConfiguredStorage, decodeBackupBundle, encodeBackupBundle, exportCommunitySnapshot, includedResourcesFromCommunityPayload, sha256Hex, verifyBackupBundle } from '@cajeerbots/backup';
 import type { Principal } from '@cajeerbots/security';
+import { importCommunitySchema } from '../import-export/import-export.schemas.js';
 import { ImportExportService } from '../import-export/import-export.service.js';
 
 interface CreateBackupInput { title?: string; key?: string; metadata?: Record<string, unknown> }
@@ -141,12 +142,14 @@ export class BackupsService {
     const run = await this.prisma.backupRestoreRun.create({ data: { artifactId: id, communityId: targetCommunityId, mode: input.apply ? 'apply' : 'dry-run', strategy: input.strategy, status: 'running', actorId: actor.id } });
     const started = Date.now();
     try {
-      const verification = await this.verifyBackup(id);
-      if (!verification.valid) throw new Error('Backup checksum verification failed');
       const storage = createConfiguredStorage();
       const bytes = await storage.driver.get(artifact.storageKey);
+      if (sha256Hex(bytes) !== artifact.sha256) throw new Error('Backup object checksum verification failed');
       const bundle = decodeBackupBundle(bytes);
-      const result = await this.importExport.importCommunity(targetCommunityId, { mode: input.apply ? 'apply' : 'dry-run', data: bundle.payload as never }, actor);
+      if (bundle.scope !== 'community' || bundle.resourceId !== artifact.communityId) throw new Error('Backup identity mismatch');
+      const verification = verifyBackupBundle(bundle);
+      if (!verification.valid) throw new Error('Backup payload checksum verification failed');
+      const result = await this.importExport.importCommunity(targetCommunityId, importCommunitySchema.parse({ mode: input.apply ? 'apply' : 'dry-run', data: bundle.payload }), actor);
       const saved = await this.prisma.backupRestoreRun.update({ where: { id: run.id }, data: { status: 'completed', finishedAt: new Date(), durationMs: Date.now() - started, result: { verification, import: result } as never } });
       await this.audit(actor, input.apply ? 'backup.restore.apply' : 'backup.restore.dry_run', 'backup_artifact', id, { targetCommunityId, runId: run.id, strategy: input.strategy });
       return saved;

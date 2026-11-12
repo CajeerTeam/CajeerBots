@@ -20,7 +20,7 @@ export async function configureRouterFromDatabase(prisma: PrismaService, router:
 
   router.register('status', async (interaction) => ({
     templateKey: 'system.status',
-    variables: { status: 'ok', version: process.env.npm_package_version ?? '1.0.0-rc.4', communityId: String(interaction.payload.communityId ?? '') },
+    variables: { status: 'ok', version: process.env.npm_package_version ?? '1.0.0-rc.5', communityId: String(interaction.payload.communityId ?? '') },
   }));
 
   router.register('help', async (interaction) => ({

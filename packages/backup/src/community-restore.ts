@@ -1,3 +1,8 @@
+import { Prisma } from '@cajeerbots/db';
+
+const optionalJson = (value: unknown) => value === null ? Prisma.DbNull : value;
+const requiredJson = (value: unknown) => value === null ? Prisma.JsonNull : value;
+
 export async function restoreCommunitySnapshot(prisma: any, communityId: string, data: any, mode: 'dry-run' | 'apply') {
   const plan = {
     mode,
@@ -17,16 +22,16 @@ export async function restoreCommunitySnapshot(prisma: any, communityId: string,
     eventSubscriptions: data.eventSubscriptions?.length ?? 0,
     botScenarios: data.botScenarios?.length ?? 0,
   };
-  if (mode === 'dry-run') return { applied: false, plan };
-
   const community = await prisma.community.findUnique({ where: { id: communityId } });
   if (!community) throw new Error('Community не найдена');
+  if (mode === 'dry-run') return { applied: false, plan };
 
   await prisma.$transaction(async (tx: any) => {
+    await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${"community-restore:" + communityId}, 0))`;
     if (data.community) await tx.community.update({ where: { id: communityId }, data: { title: data.community.title, language: data.community.language } });
 
     for (const item of data.settings ?? []) {
-      await tx.setting.upsert({ where: { communityId_key: { communityId, key: item.key } }, create: { communityId, key: item.key, value: item.value }, update: { value: item.value } });
+      await tx.setting.upsert({ where: { communityId_key: { communityId, key: item.key } }, create: { communityId, key: item.key, value: requiredJson(item.value) }, update: { value: requiredJson(item.value) } });
     }
 
     for (const item of data.roles ?? []) {
@@ -52,11 +57,15 @@ export async function restoreCommunitySnapshot(prisma: any, communityId: string,
     }
 
     for (const item of data.messageTemplates ?? []) {
-      await tx.messageTemplate.upsert({ where: { key_locale: { key: item.key, locale: item.locale } }, create: { key: item.key, locale: item.locale, body: item.body, variables: item.variables, buttons: item.buttons }, update: { body: item.body, variables: item.variables, buttons: item.buttons } });
+      await tx.messageTemplate.upsert({ where: { key_locale: { key: item.key, locale: item.locale } }, create: { key: item.key, locale: item.locale, body: item.body, variables: optionalJson(item.variables), buttons: optionalJson(item.buttons) }, update: { body: item.body, variables: optionalJson(item.variables), buttons: optionalJson(item.buttons) } });
     }
 
     for (const item of data.interactionCommands ?? []) {
-      await tx.interactionCommand.upsert({ where: { communityId_provider_name: { communityId, provider: item.provider ?? null, name: item.name } }, create: { communityId, name: item.name, description: item.description, provider: item.provider ?? null, type: item.type ?? 'command', aliases: item.aliases ?? [], scopes: item.scopes ?? [], handler: item.handler ?? 'template', templateKey: item.templateKey, conversationCode: item.conversationCode, cooldownSeconds: item.cooldownSeconds ?? 0, isEnabled: item.isEnabled ?? true, metadata: item.metadata }, update: { description: item.description, type: item.type ?? 'command', aliases: item.aliases ?? [], scopes: item.scopes ?? [], handler: item.handler ?? 'template', templateKey: item.templateKey, conversationCode: item.conversationCode, cooldownSeconds: item.cooldownSeconds ?? 0, isEnabled: item.isEnabled ?? true, metadata: item.metadata } });
+      const where = { communityId, provider: item.provider ?? null, name: item.name };
+      const existing = await tx.interactionCommand.findFirst({ where, orderBy: { id: 'asc' } });
+      const values = { description: item.description, type: item.type ?? 'command', aliases: item.aliases ?? [], scopes: item.scopes ?? [], handler: item.handler ?? 'template', templateKey: item.templateKey, conversationCode: item.conversationCode, cooldownSeconds: item.cooldownSeconds ?? 0, isEnabled: item.isEnabled ?? true, metadata: optionalJson(item.metadata) };
+      if (existing) await tx.interactionCommand.update({ where: { id: existing.id }, data: values });
+      else await tx.interactionCommand.create({ data: { ...where, ...values } });
     }
 
     for (const item of data.interactionMenus ?? []) {
@@ -64,7 +73,7 @@ export async function restoreCommunitySnapshot(prisma: any, communityId: string,
     }
 
     for (const item of data.callbackActions ?? []) {
-      await tx.interactionCallbackAction.upsert({ where: { communityId_code: { communityId, code: item.code } }, create: { communityId, code: item.code, title: item.title, handler: item.handler ?? 'menu.open', scopes: item.scopes ?? [], payload: item.payload, isActive: item.isActive ?? true }, update: { title: item.title, handler: item.handler ?? 'menu.open', scopes: item.scopes ?? [], payload: item.payload, isActive: item.isActive ?? true } });
+      await tx.interactionCallbackAction.upsert({ where: { communityId_code: { communityId, code: item.code } }, create: { communityId, code: item.code, title: item.title, handler: item.handler ?? 'menu.open', scopes: item.scopes ?? [], payload: optionalJson(item.payload), isActive: item.isActive ?? true }, update: { title: item.title, handler: item.handler ?? 'menu.open', scopes: item.scopes ?? [], payload: optionalJson(item.payload), isActive: item.isActive ?? true } });
     }
 
     for (const item of data.conversationFlows ?? []) {
@@ -76,7 +85,10 @@ export async function restoreCommunitySnapshot(prisma: any, communityId: string,
     }
 
     for (const item of data.buttonLayouts ?? []) {
-      await tx.messageButtonLayout.upsert({ where: { communityId_code_provider_locale: { communityId, code: item.code, provider: item.provider ?? null, locale: item.locale } }, create: { communityId, code: item.code, provider: item.provider ?? null, locale: item.locale, rows: item.rows }, update: { rows: item.rows } });
+      const where = { communityId, code: item.code, provider: item.provider ?? null, locale: item.locale ?? 'ru' };
+      const existing = await tx.messageButtonLayout.findFirst({ where, orderBy: { id: 'asc' } });
+      if (existing) await tx.messageButtonLayout.update({ where: { id: existing.id }, data: { rows: item.rows } });
+      else await tx.messageButtonLayout.create({ data: { ...where, rows: item.rows } });
     }
 
     for (const item of data.messageForms ?? []) {
@@ -84,17 +96,18 @@ export async function restoreCommunitySnapshot(prisma: any, communityId: string,
     }
 
     for (const item of data.eventTopics ?? []) {
-      await tx.eventTopic.upsert({ where: { name: item.name }, create: { name: item.name, description: item.description, schema: item.schema, isActive: item.isActive ?? true, retentionDays: item.retentionDays ?? 30 }, update: { description: item.description, schema: item.schema, isActive: item.isActive ?? true, retentionDays: item.retentionDays ?? 30 } });
+      await tx.eventTopic.upsert({ where: { name: item.name }, create: { name: item.name, description: item.description, schema: optionalJson(item.schema), isActive: item.isActive ?? true, retentionDays: item.retentionDays ?? 30 }, update: { description: item.description, schema: optionalJson(item.schema), isActive: item.isActive ?? true, retentionDays: item.retentionDays ?? 30 } });
     }
 
     for (const item of data.eventSubscriptions ?? []) {
-      await tx.eventSubscription.upsert({ where: { name: item.name }, create: { name: item.name, topicPattern: item.topicPattern, targetType: item.targetType, targetRef: item.targetRef, filters: item.filters, isActive: item.isActive ?? true, maxAttempts: item.maxAttempts ?? 8 }, update: { topicPattern: item.topicPattern, targetType: item.targetType, targetRef: item.targetRef, filters: item.filters, isActive: item.isActive ?? true, maxAttempts: item.maxAttempts ?? 8, disabledAt: item.isActive === false ? new Date() : null } });
+      await tx.eventSubscription.upsert({ where: { name: item.name }, create: { name: item.name, topicPattern: item.topicPattern, targetType: item.targetType, targetRef: item.targetRef, filters: optionalJson(item.filters), isActive: item.isActive ?? true, maxAttempts: item.maxAttempts ?? 8 }, update: { topicPattern: item.topicPattern, targetType: item.targetType, targetRef: item.targetRef, filters: optionalJson(item.filters), isActive: item.isActive ?? true, maxAttempts: item.maxAttempts ?? 8, disabledAt: item.isActive === false ? new Date() : null } });
     }
 
     for (const item of data.botScenarios ?? []) {
-      await tx.botScenario.upsert({ where: { communityId_code: { communityId, code: item.code } }, create: { communityId, code: item.code, title: item.title, provider: item.provider ?? null, accountId: item.accountId, definition: item.definition, isActive: item.isActive ?? true }, update: { title: item.title, provider: item.provider ?? null, accountId: item.accountId, definition: item.definition, isActive: item.isActive ?? true } });
+      const accountId = item.accountId && await tx.botAccount.findFirst({ where: { id: item.accountId, communityId } }) ? item.accountId : null;
+      await tx.botScenario.upsert({ where: { communityId_code: { communityId, code: item.code } }, create: { communityId, code: item.code, title: item.title, provider: item.provider ?? null, accountId, definition: item.definition, isActive: item.isActive ?? true }, update: { title: item.title, provider: item.provider ?? null, accountId, definition: item.definition, isActive: item.isActive ?? true } });
     }
-  });
+  }, { timeout: 120_000 });
 
   return { applied: true, plan };
 }

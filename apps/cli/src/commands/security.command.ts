@@ -25,7 +25,7 @@ export function securityCommand(): Command {
     }));
 
   command.command('audit:run')
-    .option('--version <version>', 'release version', '1.0.0-rc.4')
+    .option('--version <version>', 'release version', '1.0.0-rc.5')
     .option('--channel <channel>', 'release channel', 'beta')
     .option('--trigger <trigger>', 'trigger name', 'cli')
     .option('--no-persist', 'do not persist audit run/findings')

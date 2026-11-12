@@ -19,7 +19,7 @@ export async function startRuntimeStatus(prisma: PrismaService, account: Runtime
       status: 'running',
       pid: process.pid,
       hostname: process.env.HOSTNAME,
-      version: process.env.npm_package_version ?? '1.0.0-rc.4',
+      version: process.env.npm_package_version ?? '1.0.0-rc.5',
       metadata: { username: account.username ?? null, mode: account.mode } as never,
     },
   });

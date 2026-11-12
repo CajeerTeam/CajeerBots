@@ -4,7 +4,7 @@ import { DbExtensionRuntime, missingPermissions, parseManifest, resolveExecutabl
 import { checkEngineCompatibility, type ExtensionManifest } from '@cajeerbots/extension-sdk';
 import { hasScope, permissions, type Principal } from '@cajeerbots/security';
 
-const ENGINE_API_VERSION = '1.0.0-rc.4';
+const ENGINE_API_VERSION = '1.0.0-rc.5';
 
 @Injectable()
 export class ExtensionsService {

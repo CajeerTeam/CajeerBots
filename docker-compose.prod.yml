@@ -1,9 +1,9 @@
 x-app: &app
-  image: cajeerbots:1.0.0-rc.4
+  image: ${CAJEER_IMAGE:-cajeerbots:1.0.0-rc.5}
   build:
     context: .
     dockerfile: docker/api.Dockerfile
-  env_file: .env.production
+  env_file: ${CAJEER_ENV_FILE:-.env.production}
   environment:
     NODE_ENV: production
     APP_HOST: 0.0.0.0
@@ -59,7 +59,7 @@ services:
   api:
     <<: *app
     command: ["node", "apps/api/dist/main.js"]
-    ports: ["127.0.0.1:3000:3000"]
+    ports: ["127.0.0.1:${CAJEER_API_HOST_PORT:-3000}:3000"]
     depends_on:
       migrate: {condition: service_completed_successfully}
     healthcheck:
@@ -71,7 +71,7 @@ services:
   bot-runtime:
     <<: *app
     command: ["node", "apps/bot-runtime/dist/main.js"]
-    ports: ["127.0.0.1:3101:3101"]
+    ports: ["127.0.0.1:${CAJEER_BOT_HOST_PORT:-3101}:3101"]
     depends_on:
       api: {condition: service_healthy}
     healthcheck:

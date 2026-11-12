@@ -16,7 +16,7 @@ await rm(archive, { force: true });
 const include = [
   'apps', 'packages', 'prisma', 'contracts', 'docker', 'systemd', 'wiki',
   'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.nvmrc', '.npmrc', '.dockerignore', 'scripts', 'examples', 'registry', 'eslint.config.mjs', 'vitest.config.ts', 'vitest.e2e.config.ts', 'tsconfig.base.json', 'tsconfig.json',
-  'README.md', 'CHANGELOG.md', 'LICENSE', 'NOTICE', 'SECURITY.md', 'VERSION',
+  'README.md', 'CHANGELOG.md', 'ROADMAP.md', 'RELEASE_VALIDATION_1.0.0-rc.5.md', 'docs', 'LICENSE', 'NOTICE', 'SECURITY.md', 'VERSION',
   'docker-compose.yml', 'docker-compose.prod.yml', '.env.example', '.env.production.example'
 ];
 

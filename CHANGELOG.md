@@ -1,3 +1,11 @@
+## 1.0.0-rc.5 — Production Rehearsal
+
+- Host-side offline instance backup with PostgreSQL custom dump, Redis AOF volume, storage/extensions archives, private env file, SHA-256 manifest and atomic publication.
+- Restore into an empty Compose project, transactionally restore PostgreSQL, verify original image, explicit start and upgrade with pre-update backup and health/version gates.
+- Executable clean install/upgrade/recovery rehearsal, HTTP load metrics and gates, real worker backlog/drain, signed Discord form webhook, corrupted community backup and CLI failure checks.
+- Serialize concurrent duplicate event IDs; repair community restore integrity, JSON nulls and nullable compound key merge; atomic local storage writes and path checks.
+- CI rehearsal evidence and regression tests; see `RELEASE_VALIDATION_1.0.0-rc.5.md` for actual verification limits.
+
 ## 1.0.0-rc.4 — Product Completion
 
 - Stateful commands, menus, callbacks, conversations and forms in provider runtime.

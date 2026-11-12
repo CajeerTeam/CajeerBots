@@ -83,6 +83,8 @@ export class EventApiService {
       headers: input.headers,
     });
     return this.prisma.$transaction(async (tx) => {
+      // Serialize concurrent retries of the same idempotency key across API replicas.
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${eventId}, 0))`;
       const record = await tx.eventRecord.upsert({
         where: { eventId },
         create: {

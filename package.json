@@ -1,6 +1,6 @@
 {
   "name": "cajeerbots",
-  "version": "1.0.0-rc.4",
+  "version": "1.0.0-rc.5",
   "private": true,
   "description": "Русскоязычная TypeScript-first платформа для расширения, автоматизации и управления сообществами через Telegram, VK и Discord.",
   "license": "Apache-2.0",
@@ -36,7 +36,14 @@
     "test:stabilization": "node --test scripts/stabilization.test.mjs",
     "setup:production": "node scripts/setup-production.mjs",
     "test:product-completion": "node --test scripts/product-completion.test.mjs",
-    "extension:package": "node scripts/package-extension.mjs"
+    "extension:package": "node scripts/package-extension.mjs",
+    "instance:backup": "node scripts/instance-ops.mjs backup",
+    "instance:restore": "node scripts/instance-ops.mjs restore",
+    "instance:verify": "node scripts/instance-ops.mjs verify",
+    "instance:start": "node scripts/instance-ops.mjs start",
+    "instance:upgrade": "node scripts/instance-ops.mjs upgrade",
+    "test:rehearsal-unit": "node --test scripts/production-rehearsal.test.mjs",
+    "rehearsal:production": "node scripts/production-rehearsal.mjs"
   },
   "dependencies": {
     "@fastify/helmet": "12.0.1",
