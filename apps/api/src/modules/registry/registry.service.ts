@@ -3,7 +3,7 @@ import { PrismaService } from '@cajeerbots/db';
 import { compareSemver, latestVersion, parseRegistryManifest, fetchExtensionArtifact, type RegistryChannel, type RegistryManifest } from '@cajeerbots/registry';
 import { safeHttpRequest, hasScope, permissions, type Principal } from '@cajeerbots/security';
 
-const ENGINE_API_VERSION = '1.0.0-rc.6';
+const ENGINE_API_VERSION = '1.0.0';
 
 @Injectable()
 export class RegistryService {

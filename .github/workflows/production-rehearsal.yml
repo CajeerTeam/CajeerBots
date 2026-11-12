@@ -1,9 +1,9 @@
-name: Production rehearsal RC5 to RC6
+name: Production rehearsal RC6 to Stable
 on:
   workflow_dispatch:
     inputs:
       baseline_ref:
-        description: 'Exact RC5 commit or tag (not a moving branch)'
+        description: 'Exact RC6 commit or tag (not a moving branch)'
         required: true
       events:
         description: 'Events per load phase (1–10000)'
@@ -25,34 +25,34 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: npm install --global pnpm@9.15.9
-      - name: Check out historical RC5 source
+      - name: Check out historical RC6 source
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.baseline_ref }}
-          path: .tmp/rc5
+          path: .tmp/rc6
       - name: Prepare lockfiles and build both images
         run: |
           set -eu
-          test "$(cat .tmp/rc5/VERSION)" = 1.0.0-rc.5
-          test "$(cat VERSION)" = 1.0.0-rc.6
+          test "$(cat .tmp/rc6/VERSION)" = 1.0.0-rc.6
+          test "$(cat VERSION)" = 1.0.0
           # Rehearsal can bootstrap a missing lock; release CI still requires a committed one.
           if [ ! -f pnpm-lock.yaml ]; then pnpm deps:lock; fi
-          if [ ! -f .tmp/rc5/pnpm-lock.yaml ]; then (cd .tmp/rc5 && pnpm deps:lock); fi
-          docker build -f .tmp/rc5/docker/api.Dockerfile -t cajeerbots:rehearsal-rc5 .tmp/rc5
-          docker build -f docker/api.Dockerfile -t cajeerbots:rehearsal-rc6 .
+          if [ ! -f .tmp/rc6/pnpm-lock.yaml ]; then (cd .tmp/rc6 && pnpm deps:lock); fi
+          docker build -f .tmp/rc6/docker/api.Dockerfile -t cajeerbots:rehearsal-rc6 .tmp/rc6
+          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:rehearsal-stable .
       - name: Run full rehearsal
         env:
           CAJEER_REHEARSAL_ISOLATED: '1'
           REHEARSAL_EVENTS: ${{ inputs.events }}
           REHEARSAL_CONCURRENCY: ${{ inputs.concurrency }}
-        run: node scripts/production-rehearsal.mjs cajeerbots:rehearsal-rc5 cajeerbots:rehearsal-rc6 rehearsal-report.json "$REHEARSAL_EVENTS" "$REHEARSAL_CONCURRENCY"
+        run: node scripts/production-rehearsal.mjs cajeerbots:rehearsal-rc6 cajeerbots:rehearsal-stable rehearsal-report.json "$REHEARSAL_EVENTS" "$REHEARSAL_CONCURRENCY"
       - name: Upload evidence and resolved lockfiles (no backup secrets)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rc6-rehearsal-evidence
+          name: stable-rehearsal-evidence
           path: |
             rehearsal-report.json
             pnpm-lock.yaml
-            .tmp/rc5/pnpm-lock.yaml
+            .tmp/rc6/pnpm-lock.yaml
           if-no-files-found: warn

@@ -1,6 +1,6 @@
-# CajeerBots — 1.0.0-rc.6
+# CajeerBots — 1.0.0
 
-Русскоязычная self-hosted платформа TypeScript для Telegram, VK и Discord. RC6 — Release Hardening: исправления безопасности, проверяемые подписанные релизные артефакты, SBOM и обязательный production rehearsal. Функции RC4–RC5 сохраняются. См. [ROADMAP](ROADMAP.md) и [отчёт проверки](RELEASE_VALIDATION_1.0.0-rc.6.md).
+Русскоязычная self-hosted платформа TypeScript для Telegram, VK и Discord. Stable / Limited Production: подписанный выпуск, строгий release gate, ограниченный pilot с лимитами PostgreSQL, проверкой состояния и безопасной остановкой. Функции RC сохраняются. Публикация и pilot разрешены после полного CI и rehearsal. См. [ROADMAP](ROADMAP.md) и [отчёт проверки](RELEASE_VALIDATION_1.0.0.md).
 
 ## Сначала: обязательный lockfile
 
@@ -49,7 +49,11 @@ CAJEER_SMOKE_ISOLATED=1 pnpm smoke:runtime
 
 Smoke поднимает отдельные процессы API, bot-runtime и worker на 3300/3301/3302, проверяет CLI и авторизацию, затем завершает сервисы. Не подключайте настоящие bot accounts к тестовой БД.
 
-## Docker Compose — стенд production
+## Ограниченный production pilot
+
+Для production используйте подписанные артефакты и `pnpm pilot:deploy` или `pnpm pilot:upgrade`, а не сборку из произвольной рабочей директории. См. [порядок допуска, мониторинга и восстановления](RELEASE_VALIDATION_1.0.0.md).
+
+## Docker Compose — тестовый стенд production
 
 ```bash
 pnpm setup:production https://bots.example.org
@@ -59,7 +63,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml build
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --wait
 ```
 
-Сервисы используют один образ `cajeerbots:1.0.0-rc.6`. Сначала запускаются PostgreSQL и Redis, затем `migrate` выполняет `prisma migrate deploy` и идемпотентный seed. После успешной миграции запускается API, затем bot-runtime и worker. API и bot-runtime публикуются только на localhost. Worker health доступен внутри сети Compose.
+Сервисы используют один образ `cajeerbots:1.0.0`. Сначала запускаются PostgreSQL и Redis, затем `migrate` выполняет `prisma migrate deploy` и идемпотентный seed. После успешной миграции запускается API, затем bot-runtime и worker. API и bot-runtime публикуются только на localhost. Worker health доступен внутри сети Compose.
 
 ```bash
 curl --fail http://127.0.0.1:3000/api/health
@@ -72,7 +76,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api
 
 ## Ограничения RC4
 
-- Настройте уникальные webhook credentials, HTTPS и проведите полный прогон RC6 перед публикацией. См. [порядок обновления и проверки](RELEASE_VALIDATION_1.0.0-rc.6.md).
+- Настройте уникальные webhook credentials, HTTPS и проведите полный прогон Stable перед публикацией. См. [порядок обновления и проверки](RELEASE_VALIDATION_1.0.0.md).
 - Полный build, Prisma migrate deploy, E2E и Compose ещё требуют прогона с установленными зависимостями; выпуск не подтверждён как production-ready.
 - Для production поддерживается PostgreSQL, Redis и локальное хранилище как базовый профиль проверки. Альтернативные драйверы и масштабирование не подтверждены этим релизом.
 
@@ -80,4 +84,4 @@ docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api
 
 ## Production rehearsal
 
-`pnpm rehearsal:production BASELINE_IMAGE TARGET_IMAGE REPORT [COUNT] [CONCURRENCY]` запускает отдельные Compose-проекты, проверяет фактический upgrade rc.5 → rc.6 и восстановление данных. Требуется `CAJEER_REHEARSAL_ISOLATED=1`. Операции полного backup/restore: `pnpm instance:backup`, `instance:verify`, `instance:restore`, `instance:start`, `instance:upgrade`. См. [руководство](RELEASE_VALIDATION_1.0.0-rc.6.md).
+`pnpm rehearsal:production BASELINE_IMAGE TARGET_IMAGE REPORT [COUNT] [CONCURRENCY]` запускает отдельные Compose-проекты, проверяет фактический upgrade rc.6 → 1.0.0 и восстановление данных. Требуется `CAJEER_REHEARSAL_ISOLATED=1`. Операции полного backup/restore: `pnpm instance:backup`, `instance:verify`, `instance:restore`, `instance:start`, `instance:upgrade`. См. [руководство](RELEASE_VALIDATION_1.0.0.md).

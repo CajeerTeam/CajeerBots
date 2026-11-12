@@ -1,6 +1,6 @@
 {
   "name": "@cajeerbots/devtools",
-  "version": "1.0.0-rc.6",
+  "version": "1.0.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -77,8 +77,8 @@ export function integrationTestsCommand(): Command {
 
   command.command('run:suite')
     .argument('<suiteCode>')
-    .option('--version <version>', 'version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'channel', 'beta')
+    .option('--version <version>', 'version', '1.0.0')
+    .option('--channel <channel>', 'channel', 'stable')
     .option('--base-url <url>')
     .option('--api-token <token>')
     .option('--dry-run', 'dry-run', false)
@@ -94,8 +94,8 @@ export function integrationTestsCommand(): Command {
   command.command('run:case')
     .requiredOption('--suite <code>')
     .argument('<caseCode>')
-    .option('--version <version>', 'version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'channel', 'beta')
+    .option('--version <version>', 'version', '1.0.0')
+    .option('--channel <channel>', 'channel', 'stable')
     .option('--base-url <url>')
     .option('--api-token <token>')
     .option('--dry-run', 'dry-run', false)
@@ -110,8 +110,8 @@ export function integrationTestsCommand(): Command {
   command.command('queue')
     .option('--suite <code>')
     .option('--case <code>')
-    .option('--version <version>', 'version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'channel', 'beta')
+    .option('--version <version>', 'version', '1.0.0')
+    .option('--channel <channel>', 'channel', 'stable')
     .option('--base-url <url>')
     .action(async (options: { suite?: string; case?: string; version: string; channel: string; baseUrl?: string }) => withPrisma(async (prisma) => {
       const suite = options.suite ? await prisma.integrationTestSuite.findUnique({ where: { code: options.suite } }) : null;
@@ -138,8 +138,8 @@ export function integrationTestsCommand(): Command {
     }));
 
   command.command('coverage')
-    .option('--version <version>', 'version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'channel', 'beta')
+    .option('--version <version>', 'version', '1.0.0')
+    .option('--channel <channel>', 'channel', 'stable')
     .action(async (options: { version: string; channel: string }) => withPrisma(async (prisma) => {
       const result = await calculateIntegrationCoverage(prisma, { version: options.version, channel: options.channel, createdBy: 'cli' });
       console.log(JSON.stringify(result, null, 2));

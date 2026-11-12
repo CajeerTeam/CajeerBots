@@ -3,7 +3,7 @@ import { createBackupBundle, decodeBackupBundle, encodeBackupBundle, verifyBacku
 
 describe('backup bundle', () => {
   it('encodes, decodes and verifies payload checksum', () => {
-    const bundle = createBackupBundle({ scope: 'community', resourceId: 'c1', title: 'test', includedResources: ['settings'], payload: { version: '1.0.0-rc.6', settings: [{ key: 'x', value: true }] } });
+    const bundle = createBackupBundle({ scope: 'community', resourceId: 'c1', title: 'test', includedResources: ['settings'], payload: { version: '1.0.0', settings: [{ key: 'x', value: true }] } });
     const decoded = decodeBackupBundle(encodeBackupBundle(bundle));
     expect(decoded.title).toBe('test');
     expect(verifyBackupBundle(decoded).valid).toBe(true);

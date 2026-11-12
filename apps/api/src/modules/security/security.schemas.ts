@@ -16,8 +16,8 @@ export const upsertSecurityPolicySchema = z.object({
 });
 
 export const runSecurityAuditSchema = z.object({
-  version: z.string().min(1).default('1.0.0-rc.6'),
-  channel: z.string().min(1).default('beta'),
+  version: z.string().min(1).default('1.0.0'),
+  channel: z.string().min(1).default('stable'),
   trigger: z.string().min(1).max(80).default('api'),
   persist: z.boolean().default(true),
 });

@@ -1,6 +1,6 @@
 # Roadmap CajeerBots до production
 
-Текущая ветка: `1.0.0-rc.6` — Release Hardening (реализация, допуск после полного CI/rehearsal).
+Текущая ветка: `1.0.0` — Stable / Limited Production (реализация; допуск после CI, полного rehearsal и проверки подписанного пакета).
 
 | Релиз | Работы | Критерий допуска |
 |---|---|---|
@@ -12,4 +12,4 @@
 | 1.0.0 | Stable / limited production | Все блокеры закрыты, ограниченный pilot, мониторинг и rollback |
 | 1.0.x | Production stabilization / GA | Исправления пилота, SLO, проверка восстановления, эксплуатационный допуск |
 
-Проверки и оставшиеся блокеры: [RELEASE_VALIDATION_1.0.0-rc.6.md](../RELEASE_VALIDATION_1.0.0-rc.6.md). Не публиковать stable до прохождения release gates и ограниченного production pilot.
+Проверки и оставшиеся блокеры: [RELEASE_VALIDATION_1.0.0.md](../RELEASE_VALIDATION_1.0.0.md). Не допускать production pilot до прохождения release gates; GA — после завершения пилота.

@@ -19,8 +19,8 @@ export function releaseCandidateCommand(): Command {
   }));
 
   command.command('api-freeze:create')
-    .option('--version <version>', 'release version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
+    .option('--version <version>', 'release version', '1.0.0')
+    .option('--channel <channel>', 'rc|stable|lts|security', 'stable')
     .option('--root <dir>', 'project root', process.cwd())
     .option('--source <path>', 'OpenAPI source path', 'contracts/openapi/cajeerbots.openapi.yaml')
     .option('--notes <notes>')
@@ -31,8 +31,8 @@ export function releaseCandidateCommand(): Command {
     }));
 
   command.command('api-freeze:verify')
-    .option('--version <version>', 'release version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
+    .option('--version <version>', 'release version', '1.0.0')
+    .option('--channel <channel>', 'rc|stable|lts|security', 'stable')
     .option('--freeze <id>')
     .option('--root <dir>', 'project root', process.cwd())
     .option('--source <path>')
@@ -53,8 +53,8 @@ export function releaseCandidateCommand(): Command {
   }));
 
   command.command('compatibility:matrix')
-    .option('--version <version>', 'release version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
+    .option('--version <version>', 'release version', '1.0.0')
+    .option('--channel <channel>', 'rc|stable|lts|security', 'stable')
     .option('--no-persist')
     .action(async (options: { version: string; channel: any; persist?: boolean }) => withPrisma(async (prisma) => {
       const rows = await prisma.releaseCompatibilityTarget.findMany({ orderBy: [{ kind: 'asc' }, { code: 'asc' }] });
@@ -67,8 +67,8 @@ export function releaseCandidateCommand(): Command {
 
   command.command('upgrade-plan:create')
     .option('--from <version>', 'from version', '0.18.0-beta.3')
-    .option('--to <version>', 'to version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
+    .option('--to <version>', 'to version', '1.0.0')
+    .option('--channel <channel>', 'rc|stable|lts|security', 'stable')
     .option('--has-backup', 'confirm fresh backup exists', false)
     .action(async (options: { from: string; to: string; channel: any; hasBackup?: boolean }) => withPrisma(async (prisma) => {
       const openBlockers = await prisma.releaseBlocker.count({ where: { status: 'open' } });
@@ -98,8 +98,8 @@ export function releaseCandidateCommand(): Command {
     }));
 
   command.command('readiness:run')
-    .option('--version <version>', 'release version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
+    .option('--version <version>', 'release version', '1.0.0')
+    .option('--channel <channel>', 'rc|stable|lts|security', 'stable')
     .option('--root <dir>', 'project root', process.cwd())
     .option('--no-persist')
     .action(async (options: { version: string; channel: any; root: string; persist?: boolean }) => withPrisma(async (prisma) => {

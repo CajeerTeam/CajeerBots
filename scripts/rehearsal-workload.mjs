@@ -37,7 +37,7 @@ async function prepare() {
   assert.equal((await request('POST', `/backups/${backup.id}/verify`, {})).valid, true);
   const version = (await request('GET', '/system/report')).version;
   // RC4 is the historical baseline; exercise the hardened merge path on RC5.
-  if (['1.0.0-rc.5', '1.0.0-rc.6'].includes(version)) {
+  if (['1.0.0-rc.5', '1.0.0-rc.6', '1.0.0'].includes(version)) {
   await request('PATCH', `/communities/${community.id}`, { title: 'Changed before restore' });
   assert.equal((await request('POST', `/backups/${backup.id}/restore`, { apply: false })).status, 'completed');
   assert.equal((await request('GET', `/communities/${community.id}`)).title, 'Changed before restore');
@@ -69,7 +69,7 @@ function event(i) { return { id: `${state.id}-${i}`, type: state.topic, communit
 async function publish() {
   const count = Number(countArg ?? 100); const concurrency = Number(concurrencyArg ?? 8);
   const system = await request('GET', '/system/report');
-  if (['1.0.0-rc.5', '1.0.0-rc.6'].includes(system.version)) {
+  if (['1.0.0-rc.5', '1.0.0-rc.6', '1.0.0'].includes(system.version)) {
     const first = await Promise.all(Array.from({ length: 4 }, () => request('POST', '/events/publish', event(0))));
     assert.equal(new Set(first.map(r => r.event.id)).size, 1);
   }

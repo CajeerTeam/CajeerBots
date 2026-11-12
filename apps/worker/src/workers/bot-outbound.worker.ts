@@ -23,7 +23,7 @@ export class BotOutboundWorker {
     await this.prisma.connect();
     this.poller = new SerialPoller(this.options.pollIntervalMs ?? 5000, () => this.tick(), (error) => console.error('[worker] bot-outbound.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
     await this.poller.start();
-    console.log('[worker] bot outbound worker 1.0.0-rc.6 started');
+    console.log('[worker] bot outbound worker 1.0.0 started');
   }
 
   async stop(): Promise<void> {

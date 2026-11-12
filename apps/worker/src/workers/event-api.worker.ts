@@ -25,7 +25,7 @@ export class EventApiDeliveryWorker {
     await this.prisma.connect();
     this.poller = new SerialPoller(this.options.pollIntervalMs ?? Number(process.env.EVENT_API_WORKER_INTERVAL_MS ?? 5000), () => this.tick(), (error) => console.error('[worker] event-api.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
     await this.poller.start();
-    console.log('[worker] event-api delivery worker 1.0.0-rc.6 started');
+    console.log('[worker] event-api delivery worker 1.0.0 started');
   }
 
   async stop(): Promise<void> {

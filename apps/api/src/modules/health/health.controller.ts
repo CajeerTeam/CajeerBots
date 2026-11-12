@@ -15,7 +15,8 @@ export class HealthController {
       storageRoot: process.env.STORAGE_LOCAL_ROOT ?? './storage',
       databaseProbe: async () => { await this.prisma.health(); },
     });
-    if (report.status === 'down') throw new ServiceUnavailableException(report);
-    return report;
+    const publicReport = { status: report.status, checks: Object.fromEntries(Object.entries(report.checks).map(([name, check]) => [name, { status: check.status, latencyMs: check.latencyMs }])) };
+    if (report.status !== 'ok') throw new ServiceUnavailableException(publicReport);
+    return publicReport;
   }
 }

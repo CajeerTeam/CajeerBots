@@ -4,7 +4,7 @@ import { extensionManifestSchema } from '@cajeerbots/extension-sdk';
 import { selectUpdateCandidate, updateSteps, fetchExtensionArtifact } from '@cajeerbots/registry';
 import { hasScope, permissions, type Principal } from '@cajeerbots/security';
 
-const ENGINE_API_VERSION = '1.0.0-rc.6';
+const ENGINE_API_VERSION = '1.0.0';
 
 @Injectable()
 export class UpdatesService {

@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CajeerBots API
-  version: 1.0.0-rc.6
+  version: 1.0.0
   description: Русскоязычная TypeScript-first платформа для управления сообществами
     через Telegram, VK и Discord.
 servers:
@@ -287,7 +287,9 @@ paths:
       security: []
       responses:
         '200':
-          description: OK
+          description: All required dependencies ready; statuses and latencies only
+        '503':
+          description: Required dependency down or degraded; no internal error details
   /auth/token:
     post:
       summary: Выпустить bootstrap JWT по CAJEER_ADMIN_TOKEN

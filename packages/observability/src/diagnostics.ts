@@ -25,12 +25,10 @@ export interface DiagnosticOptions {
 }
 
 export async function createDiagnosticReport(options: DiagnosticOptions = {}): Promise<DiagnosticReport> {
-  const checks = {
-    database: await checkDatabase(options),
-    cache: await checkRedis(options.redisUrl),
-    queue: await checkQueue(options),
-    storage: await checkStorage(options.storageRoot ?? './storage'),
-  };
+  const [database, cache, storage] = await Promise.all([checkDatabase(options), checkRedis(options.redisUrl), checkStorage(options.storageRoot ?? './storage')]);
+  const driver = options.queueDriver ?? 'redis';
+  const queue: DiagnosticCheck = driver === 'redis' ? cache : driver === 'postgres' ? database : { status: 'degraded', message: 'External queue probe unavailable' };
+  const checks = { database, cache, queue, storage };
   const statuses = Object.values(checks).map((check) => check.status);
   const status: HealthStatus = statuses.includes('down') ? 'down' : statuses.includes('degraded') ? 'degraded' : 'ok';
   return { status, checks };
@@ -39,13 +37,6 @@ export async function createDiagnosticReport(options: DiagnosticOptions = {}): P
 async function checkDatabase(options: DiagnosticOptions): Promise<DiagnosticCheck> {
   if (options.databaseProbe) return timed('PostgreSQL доступен', options.databaseProbe);
   return checkTcpUrl(options.databaseUrl, 'PostgreSQL');
-}
-
-async function checkQueue(options: DiagnosticOptions): Promise<DiagnosticCheck> {
-  const driver = options.queueDriver ?? 'redis';
-  if (driver === 'redis') return checkRedis(options.redisUrl);
-  if (driver === 'postgres') return checkDatabase(options);
-  return { status: 'degraded', message: `Драйвер очереди ${driver} требует отдельного runtime-плагина` };
 }
 
 async function checkStorage(root: string): Promise<DiagnosticCheck> {
@@ -75,8 +66,8 @@ async function checkTcpUrl(rawUrl: string | undefined, label: string): Promise<D
     const url = new URL(rawUrl);
     const port = Number(url.port || (url.protocol === 'rediss:' || url.protocol === 'https:' ? 443 : url.protocol === 'postgresql:' ? 5432 : 6379));
     return timed(`${label} доступен: ${url.hostname}:${port}`, () => tcpConnect(url.hostname, port));
-  } catch (error) {
-    return { status: 'down', message: `${label}: ${(error as Error).message}` };
+  } catch {
+    return { status: 'down', message: `${label}: invalid configuration` };
   }
 }
 
@@ -85,8 +76,8 @@ async function timed(message: string, fn: () => Promise<void>): Promise<Diagnost
   try {
     await fn();
     return { status: 'ok', message, latencyMs: Date.now() - started };
-  } catch (error) {
-    return { status: 'down', message: `${message}: ${(error as Error).message}`, latencyMs: Date.now() - started };
+  } catch {
+    return { status: 'down', message: `${message}: probe failed`, latencyMs: Date.now() - started };
   }
 }
 

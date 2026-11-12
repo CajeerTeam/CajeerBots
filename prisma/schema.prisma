@@ -2054,3 +2054,14 @@ model ExtensionRelease {
   @@unique([extensionId, version])
   @@map("extension_releases")
 }
+
+// Singleton row is created only by the limited-production installation command.
+model PilotCapacity {
+  id             Int @id
+  maxCommunities Int
+  maxBotAccounts Int
+  communities    Int
+  botAccounts    Int
+
+  @@map("pilot_capacity")
+}

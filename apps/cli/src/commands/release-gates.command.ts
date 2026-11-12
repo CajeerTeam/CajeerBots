@@ -19,8 +19,8 @@ export function releaseGatesCommand(): Command {
     }));
 
   command.command('freeze')
-    .option('--version <version>', 'release version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'alpha|beta|rc|stable|lts|security', 'rc')
+    .option('--version <version>', 'release version', '1.0.0')
+    .option('--channel <channel>', 'alpha|beta|rc|stable|lts|security', 'stable')
     .option('--status <status>', 'open|locked|released|cancelled', 'locked')
     .option('--reason <reason>', 'freeze reason')
     .action(async (options: { version: string; channel: string; status: string; reason?: string }) => withPrisma(async (prisma) => {
@@ -62,8 +62,8 @@ export function releaseGatesCommand(): Command {
     }));
 
   command.command('run')
-    .option('--version <version>', 'release version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'release channel', 'rc')
+    .option('--version <version>', 'release version', '1.0.0')
+    .option('--channel <channel>', 'release channel', 'stable')
     .option('--root <dir>', 'project root', process.cwd())
     .option('--no-database-gates', 'use built-in gates instead of DB-configured gates')
     .option('--no-persist-blockers', 'do not persist blocker issues')
@@ -109,8 +109,8 @@ export function releaseGatesCommand(): Command {
     }));
 
   command.command('report:create')
-    .option('--version <version>', 'release version', '1.0.0-rc.6')
-    .option('--channel <channel>', 'release channel', 'rc')
+    .option('--version <version>', 'release version', '1.0.0')
+    .option('--channel <channel>', 'release channel', 'stable')
     .option('--run <runId>')
     .option('--root <dir>', 'project root', process.cwd())
     .option('--out <file>', 'write markdown report')

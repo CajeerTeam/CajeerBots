@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { artifactFingerprint, manifestDigest, signManifest, validateManifest, validVersion } from './release-artifacts.mjs';
+import { requireStableManifest, readStableEvidence, verifyImageArchive, stableVersion } from './stable-evidence.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 120_000 });
@@ -20,7 +21,7 @@ const commit = run('git', ['rev-parse', 'HEAD']).trim();
 const signingKeyPath = process.env.RELEASE_SIGNING_KEY_FILE;
 if (!signingKeyPath) throw new Error('RELEASE_SIGNING_KEY_FILE must point to an external Ed25519 private key');
 const privateKey = await readFile(resolve(signingKeyPath));
-const channel = process.env.RELEASE_CHANNEL ?? 'rc';
+const channel = process.env.RELEASE_CHANNEL ?? (version === stableVersion ? 'stable' : 'rc');
 const prefix = `cajeerbots-${version}`;
 const outDir = join(root, 'dist-release');
 await mkdir(outDir, { recursive: true, mode: 0o700 });
@@ -45,19 +46,24 @@ try {
   const names = [archiveName];
   // Optional prebuilt runtime image, CycloneDX SBOM, and actual rehearsal evidence.
   // Each is copied as a regular file and included in the signed manifest.
-  for (const [variable, suffix] of [['RELEASE_IMAGE_FILE','.image.tar.gz'],['RELEASE_SBOM_FILE','.sbom.cdx.json'],['RELEASE_AUDIT_FILE','.audit.json'],['RELEASE_REHEARSAL_FILE','.rehearsal.json']]) {
+  for (const [variable, suffix] of [['RELEASE_IMAGE_FILE','.image.tar.gz'],['RELEASE_SBOM_FILE','.sbom.cdx.json'],['RELEASE_AUDIT_FILE','.audit.json'],['RELEASE_REHEARSAL_FILE','.rehearsal.json'],['RELEASE_CONTAINER_AUDIT_FILE','.container-audit.json']]) {
     const source = process.env[variable]; if (!source) continue;
     const stat = await lstat(source); if (!stat.isFile() || stat.size === 0) throw new Error(`Invalid ${variable}`);
     const name = prefix + suffix; await copyFile(source, join(staging, name)); names.push(name);
   }
-  if (process.env.RELEASE_REQUIRE_EVIDENCE === '1' && names.length !== 5) throw new Error('Image, CycloneDX SBOM, audit and rehearsal evidence required');
-  if (process.env.RELEASE_REHEARSAL_FILE) {
+  if (version !== stableVersion && process.env.RELEASE_REQUIRE_EVIDENCE === '1' && names.length !== 5) throw new Error('Image, CycloneDX SBOM, audit and rehearsal evidence required');
+  if (version === stableVersion) {
+    if (channel !== 'stable' || names.length !== 6) throw new Error('Stable requires all six release artifacts');
+    const imageId = await readStableEvidence(staging, commit);
+    verifyImageArchive(join(staging, prefix + '.image.tar.gz'), imageId, commit);
+  } else if (process.env.RELEASE_REHEARSAL_FILE) {
     const report = JSON.parse(await readFile(join(staging, prefix + '.rehearsal.json'),'utf8'));
     if (report.passed !== true || !report.phases?.length || report.phases.some(p => p.passed !== true) || !report.phases.some(p => p.name === 'upgrade-rc5-to-rc6') || !report.phases.some(p => p.name === 'verify-restored-data')) throw new Error('Full RC5 to RC6 rehearsal must pass');
   }
   const files = await Promise.all(names.sort().map(name => artifactFingerprint(staging, name)));
   const manifest = { schema: 'cajeerbots.release.manifest.v1', product: 'cajeerbots', version, channel, commit, createdAt: run('git', ['show','-s','--format=%cI',commit]).trim(), files };
   manifest.digest = manifestDigest(manifest); validateManifest(manifest);
+  if (version === stableVersion) requireStableManifest(manifest);
   const bytes = Buffer.from(JSON.stringify(manifest, null, 2) + '\n');
   await writeFile(join(staging, `${prefix}.manifest.json`), bytes, { flag: 'wx' });
   await writeFile(join(staging, `${prefix}.manifest.sig`), signManifest(bytes, privateKey), { flag: 'wx' });

@@ -1,3 +1,11 @@
+## 1.0.0 — Stable / Limited Production
+
+- Require full RC6→Stable rehearsal, exact image identity and commit, signed source/runtime bundle, npm and container audits.
+- Deploy or upgrade a limited pilot from a verified bundle; transactionally enforce capacity limits across database writes.
+- Add operational health/backlog/dead-letter/heartbeat probes and non-destructive pause.
+- Redact public health details and return unavailable for degraded dependencies.
+- See `RELEASE_VALIDATION_1.0.0.md` for actual verification status and pilot runbook.
+
 ## 1.0.0-rc.6 — Release Hardening
 
 - Restrict bot token references to provider/community namespaces; quarantine incompatible stored references.

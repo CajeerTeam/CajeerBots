@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const channelSchema = z.enum(['rc', 'stable', 'lts', 'security']).default('rc');
+const channelSchema = z.enum(['rc', 'stable', 'lts', 'security']).default('stable');
 
 export const listQuerySchema = z.object({
   version: z.string().optional(),
@@ -10,7 +10,7 @@ export const listQuerySchema = z.object({
 });
 
 export const createApiFreezeSchema = z.object({
-  version: z.string().min(1).default('1.0.0-rc.6'),
+  version: z.string().min(1).default('1.0.0'),
   channel: channelSchema,
   sourcePath: z.string().min(1).default('contracts/openapi/cajeerbots.openapi.yaml'),
   rootDir: z.string().min(1).default(process.cwd()),
@@ -20,7 +20,7 @@ export const createApiFreezeSchema = z.object({
 
 export const verifyApiFreezeSchema = z.object({
   freezeId: z.string().optional(),
-  version: z.string().min(1).default('1.0.0-rc.6'),
+  version: z.string().min(1).default('1.0.0'),
   channel: channelSchema,
   sourcePath: z.string().min(1).optional(),
   rootDir: z.string().min(1).default(process.cwd()),
@@ -39,14 +39,14 @@ export const upsertCompatibilityTargetSchema = z.object({
 });
 
 export const buildMatrixSchema = z.object({
-  version: z.string().min(1).default('1.0.0-rc.6'),
+  version: z.string().min(1).default('1.0.0'),
   channel: channelSchema,
   persist: z.boolean().default(true),
 });
 
 export const createUpgradePlanSchema = z.object({
   fromVersion: z.string().min(1).default('0.18.0-beta.3'),
-  toVersion: z.string().min(1).default('1.0.0-rc.6'),
+  toVersion: z.string().min(1).default('1.0.0'),
   channel: channelSchema,
   hasBackup: z.boolean().default(false),
   status: z.enum(['draft', 'ready', 'blocked']).optional(),
@@ -59,7 +59,7 @@ export const runUpgradePlanSchema = z.object({
 });
 
 export const runReadinessSchema = z.object({
-  version: z.string().min(1).default('1.0.0-rc.6'),
+  version: z.string().min(1).default('1.0.0'),
   channel: channelSchema,
   rootDir: z.string().min(1).default(process.cwd()),
   persist: z.boolean().default(true),

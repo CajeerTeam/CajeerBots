@@ -7,6 +7,9 @@ import { dirname, isAbsolute, join, resolve, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 
+import { verifyReleaseFiles } from './release-artifacts.mjs';
+import { requireStableManifest, readStableEvidence, verifyImageArchive, stablePrefix, stableVersion, stableSuffixes } from './stable-evidence.mjs';
+import { capacitySql, pilotLimits } from './pilot-policy.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const files = ['database.dump', 'redis.tar', 'storage.tar', 'extensions.tar', 'env.production'];
 const services = ['api', 'bot-runtime', 'worker', 'migrate'];
@@ -152,14 +155,15 @@ async function restore(project, dir) {
   c(['up', '-d', '--wait', '--wait-timeout', '120', 'redis']);
   console.log(JSON.stringify({ restored: true, project, version: manifest.version, applicationStopped: true }));
 }
-function start(c, version) {
+function start(c, version, beforeStart = () => {}) {
   assert(!c(['ps', '-q', '--status', 'running', ...services], { capture: true }), 'Stop application writers before migrations');
   const imageVersion = c(['run', '--rm', '--no-deps', '-T', '--entrypoint', 'node', 'api', '-p', "require('fs').readFileSync('VERSION','utf8').trim()"], { capture: true });
   assert(imageVersion === version, 'Unexpected application image version');
   // Run schema migrations explicitly; do not seed during update/restore.
   c(['up', '-d', '--wait', '--wait-timeout', '120', 'postgres', 'redis']);
   c(['run', '--rm', '--no-deps', '-T', 'migrate', 'pnpm', 'prisma:deploy']);
-  c(['up', '-d', '--no-deps', '--no-build', '--wait', '--wait-timeout', '240', 'api', 'bot-runtime', 'worker']);
+  beforeStart();
+  c(['up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '240', 'api', 'bot-runtime', 'worker']);
   const report = c(['exec', '-T', 'api', 'node', '-e', `fetch('http://127.0.0.1:3000/api/system/report',{headers:{'x-api-key':process.env.CAJEER_ADMIN_TOKEN},signal:AbortSignal.timeout(5000)}).then(async r=>{if(!r.ok)throw Error('report '+r.status);console.log((await r.json()).version)}).catch(()=>process.exit(1))`], { capture: true });
   assert(report === version, `Unexpected running version: ${report}`);
 }
@@ -167,13 +171,71 @@ function safeDestination(path) {
   const rel = relative(root, path);
   assert((rel === '..' || rel.startsWith('../')) && !isAbsolute(rel), 'Backup must be outside the repository/build context');
 }
+async function deployPilot(project, envFile, bundle, publicKeyFile, communities, bots, upgrade) {
+  const limits = pilotLimits(communities,bots);
+  const envStat = lstatSync(envFile);
+  assert(envStat.isFile() && (envStat.mode & 0o077) === 0, 'Pilot env must be a regular private file (0600)');
+  const staging = mkdtempSync(join(tmpdir(), 'cajeer-verified-release-'));
+  try {
+    // Verify a private snapshot, then load those exact bytes, not the mutable source directory.
+    for (const suffix of [...stableSuffixes,'.manifest.json','.manifest.sig']) {
+      const name = stablePrefix + suffix;
+      assert(lstatSync(join(bundle,name)).isFile(), 'Release artifact must be a regular file');
+      copyFileSync(join(bundle,name),join(staging,name));
+    }
+    const manifest = await verifyReleaseFiles(staging,stablePrefix+'.manifest.json',stablePrefix+'.manifest.sig',readFileSync(publicKeyFile),stableVersion);
+    requireStableManifest(manifest);
+    const id = await readStableEvidence(staging,manifest.commit);
+    const archive = join(staging,stablePrefix+'.image.tar.gz'); verifyImageArchive(archive,id,manifest.commit);
+    const image = 'cajeerbots:pilot-'+id.slice(7);
+    const c = compose(project,envFile,image); const cfg = config(c);
+    let old;
+    if (upgrade) {
+      safeDestination(upgrade.destination);
+      old = compose(project,envFile,upgrade.oldImage);
+      assert(currentImage(old,config(old)).version==='1.0.0-rc.6','Pilot upgrade requires a running RC6 instance');
+      const count = old(['exec','-T','postgres','sh','-ec','exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "$1"','pilot',`SELECT (SELECT count(*) FROM communities)::text || ',' || (SELECT count(*) FROM bot_accounts)::text`],{capture:true}).split(',').map(Number);
+      assert(count.length===2 && count.every(Number.isSafeInteger) && count[0]<=limits.maxCommunities && count[1]<=limits.maxBotAccounts,'Current instance exceeds pilot limits');
+    } else assertFresh(c,project);
+    assert(cfg.services.api.ports?.every(p=>p.host_ip==='127.0.0.1') && cfg.services['bot-runtime'].ports?.every(p=>p.host_ip==='127.0.0.1'), 'Pilot ports must be loopback only');
+    run(['load','--input',archive]); assert(imageId(id) === id,'Loaded image ID mismatch'); run(['tag',id,image]);
+    const actualVersion = c(['run','--rm','--no-deps','-T','--entrypoint','node','api','-p',"require('fs').readFileSync('VERSION','utf8').trim()"],{capture:true});
+    assert(actualVersion===stableVersion,'Wrong image version');
+    if (upgrade) await backup(old,project,envFile,upgrade.destination);
+    const setCapacity = () => {
+      assert(imageId(image)===id,'Pilot image tag changed');
+      c(['exec','-T','postgres','sh','-ec','exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "$1"','pilot',capacitySql(communities,bots)]);
+    };
+    try {
+      if (upgrade) start(c,stableVersion,setCapacity);
+      else {
+        c(['up','-d','--wait','--wait-timeout','120','postgres','redis']);
+        c(['run','--rm','--no-deps','-T','migrate','sh','-ec','pnpm prisma:deploy && pnpm prisma:seed']);
+        setCapacity();
+        c(['up','-d','--no-deps','--no-build','--pull','never','--wait','--wait-timeout','240','api','bot-runtime','worker']);
+      }
+      assert(currentImage(c,cfg).imageId===id,'Running pilot image differs');
+      const status = JSON.parse(c(['exec','-T','api','node','scripts/pilot-probe.mjs'],{capture:true}));
+      assert(status.passed===true,'Pilot health/capacity gate failed');
+      console.log(JSON.stringify({deployed:true,project,image,imageId:id,commit:manifest.commit,status,...(upgrade?{backup:upgrade.destination}: {})}));
+    } catch(error) { c(['stop','-t','40',...services]); throw error; }
+  } finally { rmSync(staging,{recursive:true,force:true}); }
+}
 export async function main(argv) {
   const [action, project, envArg, image, arg, targetVersion] = argv;
   if (action === 'verify' && project && argv.length === 2) { console.log(JSON.stringify(await verifyBackup(resolve(project)), null, 2)); return; }
-  assert(['backup', 'restore', 'start', 'upgrade'].includes(action) && project && /^[a-z0-9][a-z0-9_-]*$/.test(project), 'Usage: instance-ops.mjs backup PROJECT ENV IMAGE DEST | restore PROJECT BACKUP | start PROJECT ENV IMAGE VERSION | upgrade PROJECT ENV OLD_IMAGE DEST NEW_IMAGE VERSION | verify BACKUP');
+  assert(['backup', 'restore', 'start', 'upgrade', 'pilot-deploy', 'pilot-upgrade', 'pilot-status', 'pilot-pause'].includes(action) && project && /^[a-z0-9][a-z0-9_-]*$/.test(project), 'Usage: instance-ops.mjs backup PROJECT ENV IMAGE DEST | restore PROJECT BACKUP | start PROJECT ENV IMAGE VERSION | upgrade PROJECT ENV OLD_IMAGE DEST NEW_IMAGE VERSION | verify BACKUP | pilot-deploy PROJECT ENV BUNDLE PUBLIC_KEY MAX_COMMUNITIES MAX_BOTS | pilot-upgrade PROJECT ENV OLD_IMAGE BACKUP BUNDLE PUBLIC_KEY MAX_COMMUNITIES MAX_BOTS | pilot-status/pilot-pause PROJECT ENV IMAGE');
   const lock = join(tmpdir(), `cajeerbots-instance-${process.getuid?.() ?? 'user'}-${project}.lock`);
   mkdirSync(lock, { mode: 0o700 });
   try {
+    if (action === 'pilot-upgrade') { assert(argv.length===9,'pilot-upgrade PROJECT ENV OLD_IMAGE BACKUP BUNDLE PUBLIC_KEY MAX_COMMUNITIES MAX_BOTS'); await deployPilot(project,resolve(envArg),resolve(targetVersion),resolve(argv[6]),argv[7],argv[8],{oldImage:image,destination:resolve(arg)}); return; }
+    if (action === 'pilot-deploy') { assert(argv.length === 7,'pilot-deploy PROJECT ENV BUNDLE PUBLIC_KEY MAX_COMMUNITIES MAX_BOTS'); await deployPilot(project,resolve(envArg),resolve(image),resolve(arg),targetVersion,argv[6]); return; }
+    if (action === 'pilot-status' || action === 'pilot-pause') {
+      assert(argv.length === 4,'pilot-status/pilot-pause PROJECT ENV IMAGE'); const c=compose(project,resolve(envArg),image); const cfg=config(c);
+      if(action==='pilot-pause') { c(['stop','-t','40',...services]); console.log(JSON.stringify({paused:true,project})); return; }
+      assert(currentImage(c,cfg).version===stableVersion,'Pilot running version mismatch');
+      const status=JSON.parse(c(['exec','-T','api','node','scripts/pilot-probe.mjs'],{capture:true})); console.log(JSON.stringify(status)); if(!status.passed) throw Error('Pilot gate failed'); return;
+    }
     if (action === 'restore') { assert(argv.length === 3, 'restore PROJECT BACKUP'); await restore(project, resolve(envArg)); return; }
     assert(envArg && image && arg, 'Missing environment/image/argument');
     const envFile = resolve(envArg); const c = compose(project, envFile, image);
