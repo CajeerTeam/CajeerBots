@@ -1,8 +1,9 @@
-import { decryptSecret } from '@cajeerbots/security';
+import { decryptSecret, assertBotTokenRef } from '@cajeerbots/security';
 import type { PrismaService } from '@cajeerbots/db';
 
-export async function resolveTokenRef(prisma: PrismaService, tokenRef: string | null | undefined): Promise<string | undefined> {
+export async function resolveTokenRef(prisma: PrismaService, tokenRef: string | null | undefined, provider: string, communityId: string): Promise<string | undefined> {
   if (!tokenRef) return undefined;
+  assertBotTokenRef(provider, tokenRef, communityId);
   if (tokenRef.startsWith('env:')) return process.env[tokenRef.slice('env:'.length)];
   if (tokenRef.startsWith('secret:')) {
     const key = tokenRef.slice('secret:'.length);
@@ -12,5 +13,5 @@ export async function resolveTokenRef(prisma: PrismaService, tokenRef: string | 
     if (!encryptionKey) throw new Error('SECRETS_ENCRYPTION_KEY или JWT_SECRET должен быть задан для secret tokenRef');
     return decryptSecret({ algorithm: secret.algorithm as 'aes-256-gcm', ciphertext: secret.ciphertext, iv: secret.iv, authTag: secret.authTag }, encryptionKey);
   }
-  return tokenRef;
+  throw new Error('Invalid bot token reference');
 }

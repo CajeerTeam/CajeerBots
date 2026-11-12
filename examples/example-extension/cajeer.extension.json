@@ -1,11 +1,11 @@
 {
   "name": "@cajeerbots/example-extension",
-  "version": "1.0.0-rc.5",
+  "version": "1.0.0-rc.6",
   "displayName": "Пример расширения",
   "description": "Рабочий пример расширения CajeerBots с runtime hook, storage и outbound event.",
   "engine": {
-    "apiVersion": "1.0.0-rc.5",
-    "range": ">=1.0.0-rc.5 <2.0.0"
+    "apiVersion": "1.0.0-rc.6",
+    "range": ">=1.0.0-rc.6 <2.0.0"
   },
   "permissions": ["settings:read"],
   "hooks": ["extension.enabled", "webhook.received", "interaction.*"],

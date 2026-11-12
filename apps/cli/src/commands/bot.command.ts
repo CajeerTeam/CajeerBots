@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { PrismaService } from '@cajeerbots/db';
-import { encryptSecret, maskSecret, decryptSecret } from '@cajeerbots/security';
+import { encryptSecret, maskSecret, decryptSecret, assertBotTokenRef } from '@cajeerbots/security';
 
 const providers = new Set(['telegram', 'vk', 'discord']);
 
@@ -23,8 +23,10 @@ export function botCommand(): Command {
       await prisma.connect();
       try {
         let tokenRef = options.tokenRef;
+        if (tokenRef) assertBotTokenRef(provider, tokenRef, options.community);
         if (options.token) {
           const key = `bot.${options.community}.${provider}.${options.externalId ?? options.username ?? 'default'}`;
+          assertBotTokenRef(provider, `secret:${key}`, options.community);
           const encrypted = encryptSecret(options.token, encryptionKey());
           await prisma.secret.upsert({
             where: { key },
@@ -42,6 +44,7 @@ export function botCommand(): Command {
             username: options.username,
             tokenRef,
           },
+          omit: { tokenRef: true },
         });
         console.log(JSON.stringify({ ...account, tokenStored: Boolean(options.token), tokenMasked: options.token ? maskSecret(options.token) : undefined }, null, 2));
       } finally {
@@ -53,7 +56,7 @@ export function botCommand(): Command {
     const prisma = new PrismaService();
     await prisma.connect();
     try {
-      const accounts = await prisma.botAccount.findMany({ where: { communityId: options.community }, orderBy: { createdAt: 'desc' } });
+      const accounts = await prisma.botAccount.findMany({ where: { communityId: options.community }, orderBy: { createdAt: 'desc' }, omit: { tokenRef: true } });
       console.log(JSON.stringify(accounts, null, 2));
     } finally {
       await prisma.close();
@@ -66,6 +69,7 @@ export function botCommand(): Command {
       const account = await prisma.botAccount.findUniqueOrThrow({ where: { id } });
       if (!account.isActive || !account.tokenRef) throw new Error('Active bot with tokenRef required');
       if (account.provider === 'vk') throw new Error('VK commands use message text and keyboard callbacks; no remote command registration');
+      assertBotTokenRef(account.provider, account.tokenRef, account.communityId);
       let token: string | undefined;
       if (account.tokenRef.startsWith('env:')) token = process.env[account.tokenRef.slice(4)];
       else if (account.tokenRef.startsWith('secret:')) { const secret = await prisma.secret.findUniqueOrThrow({ where: { key: account.tokenRef.slice(7) } }); if (secret.algorithm !== 'aes-256-gcm') throw new Error('Unsupported token encryption'); token = decryptSecret({ ...secret, algorithm: 'aes-256-gcm' }, encryptionKey()); }

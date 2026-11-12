@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { Command } from 'commander';
 import { PrismaService } from '@cajeerbots/db';
 import { buildReleaseManifest, checkDockerComposeProduction, fileToReleaseInput, generateProductionEnv, parseEnvText, renderDefaultSystemdUnits, renderNginxConfig, validateProductionEnv } from '@cajeerbots/deployment';
@@ -112,7 +112,7 @@ export function deploymentCommand(): Command {
     .option('--out <file>')
     .action(async (options: { version: string; channel: 'alpha' | 'beta' | 'rc' | 'stable' | 'lts' | 'security'; file?: string[]; out?: string }) => {
       const files = [];
-      for (const file of options.file ?? []) files.push(await fileToReleaseInput(file));
+      for (const file of options.file ?? []) files.push(await fileToReleaseInput(file, basename(file)));
       const manifest = buildReleaseManifest({ product: 'cajeerbots', version: options.version, channel: options.channel, files });
       const content = JSON.stringify(manifest, null, 2) + '\n';
       await writeOutput(options.out, content);

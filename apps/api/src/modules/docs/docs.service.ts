@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Injectable, NotFoundException } from '@nestjs/common';
@@ -165,8 +166,10 @@ export class DocsService {
 }
 
 function safeProjectPath(relativePath: string): string {
-  const cleaned = relativePath.replace(/^\/+/, '');
-  const absolute = resolve(process.cwd(), cleaned);
-  if (!absolute.startsWith(process.cwd())) throw new Error(`Недопустимый путь: ${relativePath}`);
+  if (!/^(docs|wiki)(?:\/[A-Za-z0-9_.-]+)*$/.test(relativePath) || relativePath.split('/').includes('..')) throw new Error('Invalid documentation path');
+  const root = realpathSync(process.cwd());
+  const selected = relativePath === 'wiki' && !existsSync(resolve(root, 'wiki')) ? 'docs' : relativePath;
+  const absolute = realpathSync(resolve(root, selected));
+  if (!absolute.startsWith(root + '/docs/') && !absolute.startsWith(root + '/wiki/') && absolute !== root + '/docs' && absolute !== root + '/wiki') throw new Error('Invalid documentation path');
   return absolute;
 }

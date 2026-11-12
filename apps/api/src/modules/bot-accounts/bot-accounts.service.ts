@@ -1,6 +1,6 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@cajeerbots/db';
-import { canAccessCommunity, type Principal } from '@cajeerbots/security';
+import { validBotTokenRef, canAccessCommunity, type Principal } from '@cajeerbots/security';
 import type { BotMode, BotProvider } from '@cajeerbots/core';
 
 @Injectable()
@@ -23,6 +23,7 @@ export class BotAccountsService {
     actor: Principal,
   ) {
     if (!canAccessCommunity(actor)) throw new ForbiddenException('Настройка bot credentials доступна только platform admin');
+    if (data.tokenRef && !validBotTokenRef(data.provider, data.tokenRef, communityId)) throw new BadRequestException('Invalid provider token reference');
     try {
       const account = await this.prisma.botAccount.create({ data: { communityId, ...defined(data) }, omit: { tokenRef: true } });
       await this.audit(actor, 'bot_account.create', account.id, { communityId, provider: data.provider, mode: data.mode });
@@ -40,7 +41,8 @@ export class BotAccountsService {
     actor: Principal,
   ) {
     if (!canAccessCommunity(actor)) throw new ForbiddenException('Изменение bot accounts доступно только platform admin');
-    await this.get(communityId, id);
+    const existing = await this.get(communityId, id);
+    if (data.tokenRef && !validBotTokenRef(existing.provider, data.tokenRef, communityId)) throw new BadRequestException('Invalid provider token reference');
     const account = await this.prisma.botAccount.update({ where: { id }, data: defined(data), omit: { tokenRef: true } });
     await this.audit(actor, 'bot_account.update', id, { communityId, fields: Object.keys(data) });
     return account;

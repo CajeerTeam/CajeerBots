@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@cajeerbots/db';
 import { buildCompatibilityMatrix, createApiFreezeSnapshot, createUpgradePlan, defaultCompatibilityTargets, runRcReadiness, verifyApiFreeze, type CompatibilityTargetDefinition } from '@cajeerbots/release-candidate';
 import type { Principal } from '@cajeerbots/security';
@@ -32,6 +32,7 @@ export class ReleaseCandidateService {
   }
 
   async createApiFreeze(input: CreateApiFreezeInput, principal: Principal) {
+    assertContractPath(input.rootDir, input.sourcePath);
     const payload = await createApiFreezeSnapshot({ version: input.version, channel: input.channel, rootDir: input.rootDir, sourcePath: input.sourcePath });
     const row = await this.prisma.releaseApiFreeze.create({ data: { version: input.version, channel: input.channel, status: input.status, sourcePath: input.sourcePath, sourceSha256: payload.sourceSha256, openApiVersion: payload.openApiVersion, operationCount: payload.operationCount, operations: payload.operations as never, duplicateOperationIds: payload.duplicateOperationIds as never, unsecuredOperations: payload.unsecuredOperations as never, deprecatedOperations: payload.deprecatedOperations as never, payload: payload as never, notes: input.notes, createdBy: principal.id } });
     await this.audit(principal, 'release_candidate.api_freeze.create', 'release_api_freeze', row.id, { version: input.version, operationCount: payload.operationCount });
@@ -45,6 +46,7 @@ export class ReleaseCandidateService {
   async verifyApiFreeze(input: VerifyApiFreezeInput, principal: Principal) {
     const freeze = input.freezeId ? await this.prisma.releaseApiFreeze.findUnique({ where: { id: input.freezeId } }) : await this.prisma.releaseApiFreeze.findFirst({ where: { version: input.version, channel: input.channel, status: 'frozen' }, orderBy: { createdAt: 'desc' } });
     if (!freeze) throw new NotFoundException('API freeze snapshot не найден');
+    assertContractPath(input.rootDir, input.sourcePath ?? freeze.sourcePath);
     const report = await verifyApiFreeze({ freeze: freeze.payload as never, rootDir: input.rootDir, sourcePath: input.sourcePath ?? freeze.sourcePath, allowAdditive: input.allowAdditive });
     const check = await this.prisma.releaseUpgradeCheck.create({ data: { version: freeze.version, channel: freeze.channel, code: 'api_freeze.verify', status: report.status, severity: report.status === 'failed' ? 'blocker' : report.status === 'warning' ? 'warning' : 'info', message: `API freeze verification: ${report.status}`, details: report as never, createdBy: principal.id } });
     await this.audit(principal, 'release_candidate.api_freeze.verify', 'release_upgrade_check', check.id, { status: report.status, issues: report.issues.length });
@@ -99,13 +101,14 @@ export class ReleaseCandidateService {
   async runUpgradePlan(id: string, input: RunUpgradePlanInput, principal: Principal) {
     const plan = await this.prisma.releaseUpgradePlan.findUnique({ where: { id } });
     if (!plan) throw new NotFoundException('Upgrade plan не найден');
+    if (input.mode === 'apply') throw new BadRequestException('Use pnpm instance:upgrade on the deployment host');
     const started = Date.now();
     const steps = Array.isArray(plan.steps) ? plan.steps as Array<Record<string, unknown>> : [];
-    const results = steps.map((step) => ({ code: step.code, phase: step.phase, status: input.mode === 'apply' && step.phase === 'rollback' ? 'skipped' : 'passed', mode: input.mode, command: step.command }));
+    const results = steps.map((step) => ({ code: step.code, phase: step.phase, status: 'not_executed', mode: input.mode, command: step.command }));
     const planRisks = (plan.risks as Array<{ severity?: string }> | null) ?? [];
     const blockers = planRisks.filter((risk) => risk.severity === 'blocker').length;
-    const status = blockers > 0 ? 'failed' : 'passed';
-    const row = await this.prisma.releaseUpgradeRun.create({ data: { planId: plan.id, mode: input.mode, status, rootDir: input.rootDir, results: results as never, logs: [{ message: 'RC upgrade rehearsal completed', mode: input.mode, notes: input.notes ?? null }] as never, startedAt: new Date(started), finishedAt: new Date(), durationMs: Date.now() - started, createdBy: principal.id } });
+    const status = blockers > 0 ? 'failed' : 'not_executed';
+    const row = await this.prisma.releaseUpgradeRun.create({ data: { planId: plan.id, mode: input.mode, status, rootDir: input.rootDir, results: results as never, logs: [{ message: 'Plan preview only; no commands executed', mode: input.mode, notes: input.notes ?? null }] as never, startedAt: new Date(started), finishedAt: new Date(), durationMs: Date.now() - started, createdBy: principal.id } });
     await this.audit(principal, 'release_candidate.upgrade_plan.run', 'release_upgrade_run', row.id, { planId: id, status, mode: input.mode });
     return { run: row, plan, results };
   }
@@ -123,6 +126,7 @@ export class ReleaseCandidateService {
       this.prisma.securityAuditFinding.count({ where: { status: 'open' } }),
       this.prisma.integrationTestCoverage.findFirst({ where: { version: input.version, channel: input.channel }, orderBy: { createdAt: 'desc' } }),
     ]);
+    assertContractPath(input.rootDir, freeze?.sourcePath ?? 'contracts/openapi/cajeerbots.openapi.yaml');
     const report = await runRcReadiness({ version: input.version, channel: input.channel, rootDir: input.rootDir, freeze: freeze?.payload as never, compatibilityTargets: targets.map((row) => ({ code: row.code, kind: row.kind as never, name: row.name, versionRange: row.versionRange, required: row.required, status: row.status as never, notes: row.notes ?? undefined, checks: row.checks as never })), openBlockers, securityOpenFindings: openFindings, latestIntegrationStatus: latestIntegration?.status ?? null });
     const row = input.persist ? await this.prisma.releaseCandidateReadinessRun.create({ data: { version: input.version, channel: input.channel, status: report.status, rootDir: input.rootDir, summary: report.summary as never, sections: report.sections as never, startedAt: new Date(started), finishedAt: new Date(), durationMs: Date.now() - started, createdBy: principal.id } }) : null;
     if (row) await this.audit(principal, 'release_candidate.readiness.run', 'release_candidate_readiness_run', row.id, { version: input.version, status: report.status });
@@ -136,4 +140,8 @@ export class ReleaseCandidateService {
   private audit(principal: Principal, action: string, resource: string, resourceId: string | null, metadata: unknown) {
     return this.prisma.auditLog.create({ data: { actorType: principal.type, actorId: principal.id, action, resource, resourceId, metadata: metadata as never } });
   }
+}
+
+function assertContractPath(root: string, source: string): void {
+  if (root !== process.cwd() || source !== 'contracts/openapi/cajeerbots.openapi.yaml') throw new BadRequestException('Server-side release checks use the bundled OpenAPI contract only');
 }

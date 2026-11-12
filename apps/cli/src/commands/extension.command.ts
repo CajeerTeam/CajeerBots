@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import { checkEngineCompatibility, extensionManifestSchema, type ExtensionManifest } from '@cajeerbots/extension-sdk';
 import { apiClient, print } from '../api-client.js';
 
-const DEFAULT_ENGINE_API = '1.0.0-rc.5';
+const DEFAULT_ENGINE_API = '1.0.0-rc.6';
 
 export function extensionCommand(): Command {
   const command = new Command('extension').description('Установка, permissions, runtime events и storage расширений');

@@ -1,3 +1,12 @@
+## 1.0.0-rc.6 — Release Hardening
+
+- Restrict bot token references to provider/community namespaces; quarantine incompatible stored references.
+- Require full AES-GCM authentication tags, use asynchronous password hashing and reject malformed costs.
+- Restrict integration HTTP targets, prevent fake dry-run success and reject metadata-only upgrades.
+- Generate working Nginx webhook proxy and reject unsafe config input.
+- Signed committed-source release ZIP, exact tested runtime image, CycloneDX inventory, audit and rehearsal evidence; strict verification and gated CI.
+- Rehearse RC5 → RC6. See `RELEASE_VALIDATION_1.0.0-rc.6.md` for verification limits.
+
 ## 1.0.0-rc.5 — Production Rehearsal
 
 - Host-side offline instance backup with PostgreSQL custom dump, Redis AOF volume, storage/extensions archives, private env file, SHA-256 manifest and atomic publication.

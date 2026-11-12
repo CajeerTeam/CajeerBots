@@ -18,6 +18,9 @@ async function bootstrap(): Promise<void> {
   try {
     const prisma = app.get(PrismaService);
     await app.register(helmet);
+    app.getHttpAdapter().getInstance().addHook('onSend', async (_request, reply) => {
+      reply.header('cache-control', 'no-store');
+    });
     const redis = new Redis(config.REDIS_URL, { lazyConnect: true, connectTimeout: 5000, maxRetriesPerRequest: 1, enableOfflineQueue: false });
     redis.on('error', () => console.error('[api] Redis rate limiter unavailable'));
     app.getHttpAdapter().getInstance().addHook('onClose', async () => { redis.disconnect(); });

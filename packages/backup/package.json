@@ -1,6 +1,6 @@
 {
   "name": "@cajeerbots/backup",
-  "version": "1.0.0-rc.5",
+  "version": "1.0.0-rc.6",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cajeerbots/storage": "workspace:*",
-    "@cajeerbots/db": "workspace:*"
+    "@cajeerbots/db": "workspace:*",
+    "@cajeerbots/security": "workspace:*"
   }
 }

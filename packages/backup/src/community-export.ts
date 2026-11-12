@@ -1,3 +1,4 @@
+import { validBotTokenRef } from '@cajeerbots/security';
 export interface CommunityBackupPayload {
   kind: 'cajeerbots.community.export';
   version: string;
@@ -43,13 +44,13 @@ export async function exportCommunitySnapshot(prisma: any, communityId: string):
 
   return {
     kind: 'cajeerbots.community.export',
-    version: '1.0.0-rc.5',
+    version: '1.0.0-rc.6',
     exportedAt: new Date().toISOString(),
     community: { slug: community.slug, title: community.title, language: community.language },
     settings: settings.map(({ key, value }: any) => ({ key, value })),
     roles: roles.map((role: any) => ({ code: role.code, title: role.title, priority: role.priority, permissions: role.permissions.map((entry: any) => entry.permission.scope).sort() })),
     users: users.map((user: any) => ({ externalId: user.externalId, provider: user.provider, username: user.username, displayName: user.displayName, locale: user.locale, roles: user.roles.map((entry: any) => entry.role.code) })),
-    botAccounts: botAccounts.map((account: any) => ({ provider: account.provider, mode: account.mode, externalId: account.externalId, username: account.username, tokenRef: account.tokenRef, isActive: account.isActive })),
+    botAccounts: botAccounts.map((account: any) => ({ provider: account.provider, mode: account.mode, externalId: account.externalId, username: account.username, tokenRef: account.tokenRef && validBotTokenRef(account.provider, account.tokenRef, communityId) ? account.tokenRef : null, isActive: account.isActive })),
     messageTemplates: messageTemplates.map((template: any) => ({ key: template.key, locale: template.locale, body: template.body, variables: template.variables, buttons: template.buttons })),
     interactionCommands: interactionCommands.map((command: any) => ({ name: command.name, description: command.description, provider: command.provider, type: command.type, aliases: command.aliases, scopes: command.scopes, handler: command.handler, templateKey: command.templateKey, conversationCode: command.conversationCode, cooldownSeconds: command.cooldownSeconds, isEnabled: command.isEnabled, metadata: command.metadata })),
     interactionMenus: interactionMenus.map((menu: any) => ({ code: menu.code, title: menu.title, locale: menu.locale, templateKey: menu.templateKey, buttons: menu.buttons, isActive: menu.isActive })),

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validBotTokenRef } from '@cajeerbots/security';
 
 const providerSchema = z.enum(['telegram', 'vk', 'discord']);
 
@@ -11,7 +12,7 @@ export const importCommunitySchema = z.object({
     settings: z.array(z.object({ key: z.string(), value: z.unknown() })).default([]),
     roles: z.array(z.object({ code: z.string(), title: z.string(), priority: z.number().int(), permissions: z.array(z.string()).default([]) })).default([]),
     users: z.array(z.object({ externalId: z.string(), provider: providerSchema, username: z.string().nullable().optional(), displayName: z.string().nullable().optional(), locale: z.string().default('ru'), roles: z.array(z.string()).default([]) })).default([]),
-    botAccounts: z.array(z.object({ provider: providerSchema, mode: z.enum(['polling', 'webhook']), externalId: z.string().nullable().optional(), username: z.string().nullable().optional(), tokenRef: z.string().nullable().optional(), isActive: z.boolean().default(true) })).default([]),
+    botAccounts: z.array(z.object({ provider: providerSchema, mode: z.enum(['polling', 'webhook']), externalId: z.string().nullable().optional(), username: z.string().nullable().optional(), tokenRef: z.string().nullable().optional(), isActive: z.boolean().default(true) }).refine((account) => !account.tokenRef || validBotTokenRef(account.provider, account.tokenRef), 'Invalid provider token reference')).default([]),
     messageTemplates: z.array(z.object({ key: z.string(), locale: z.string(), body: z.string(), variables: z.unknown().optional(), buttons: z.unknown().optional() })).default([]),
     interactionCommands: z.array(z.object({ name: z.string(), description: z.string(), provider: providerSchema.nullable().optional(), type: z.string().default('command'), aliases: z.array(z.string()).default([]), scopes: z.array(z.string()).default([]), handler: z.string().default('template'), templateKey: z.string().nullable().optional(), conversationCode: z.string().nullable().optional(), cooldownSeconds: z.number().int().default(0), isEnabled: z.boolean().default(true), metadata: z.unknown().optional() })).default([]),
     interactionMenus: z.array(z.object({ code: z.string(), title: z.string(), locale: z.string().default('ru'), templateKey: z.string().nullable().optional(), buttons: z.unknown(), isActive: z.boolean().default(true) })).default([]),

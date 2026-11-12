@@ -11,7 +11,7 @@ export async function runIntegrationTestCase(options: IntegrationRunOptions & { 
   const definition = normalizeDefinition(options.testCase.definition);
   const run = options.runId
     ? await options.prisma.integrationTestRun.update({ where: { id: options.runId }, data: { status: 'running', startedAt: new Date(), rootDir: options.rootDir, environment: runtimeEnvironment(options) as never } })
-    : await options.prisma.integrationTestRun.create({ data: { suiteId: options.testCase.suiteId, caseId: options.testCase.id, status: 'running', version: options.version ?? '1.0.0-rc.5', channel: options.channel ?? 'beta', trigger: options.triggeredBy ?? 'manual', startedAt: new Date(), rootDir: options.rootDir, environment: runtimeEnvironment(options) as never, createdBy: options.triggeredBy } });
+    : await options.prisma.integrationTestRun.create({ data: { suiteId: options.testCase.suiteId, caseId: options.testCase.id, status: 'running', version: options.version ?? '1.0.0-rc.6', channel: options.channel ?? 'beta', trigger: options.triggeredBy ?? 'manual', startedAt: new Date(), rootDir: options.rootDir, environment: runtimeEnvironment(options) as never, createdBy: options.triggeredBy } });
   const steps: StepExecutionResult[] = [];
   for (let index = 0; index < definition.steps.length; index += 1) {
     const step = definition.steps[index]!;
@@ -28,7 +28,7 @@ export async function runIntegrationTestCase(options: IntegrationRunOptions & { 
 
 export async function runIntegrationTestSuite(options: IntegrationRunOptions & { suite: any; cases: any[] }) {
   const started = Date.now();
-  const parent = await options.prisma.integrationTestRun.create({ data: { suiteId: options.suite.id, status: 'running', version: options.version ?? '1.0.0-rc.5', channel: options.channel ?? 'beta', trigger: options.triggeredBy ?? 'manual', startedAt: new Date(), rootDir: options.rootDir, environment: runtimeEnvironment(options) as never, createdBy: options.triggeredBy } });
+  const parent = await options.prisma.integrationTestRun.create({ data: { suiteId: options.suite.id, status: 'running', version: options.version ?? '1.0.0-rc.6', channel: options.channel ?? 'beta', trigger: options.triggeredBy ?? 'manual', startedAt: new Date(), rootDir: options.rootDir, environment: runtimeEnvironment(options) as never, createdBy: options.triggeredBy } });
   const caseResults = [];
   for (const testCase of options.cases) caseResults.push(await runIntegrationTestCase({ ...options, testCase }));
   const failed = caseResults.filter((item) => item.summary.status === 'failed').length;
@@ -42,13 +42,18 @@ export async function runIntegrationTestSuite(options: IntegrationRunOptions & {
 async function runStep(options: IntegrationRunOptions, step: IntegrationTestStepDefinition, index: number): Promise<StepExecutionResult> {
   const started = Date.now();
   const code = step.code ?? `${step.kind}.${index}`;
-  const request = step.request ?? {};
+  const request = { kind: step.kind }; // Never persist caller headers, credentials or arbitrary payloads in run evidence.
+  if (options.dryRun) return { code, kind: step.kind, status: 'skipped', request, response: {}, assertion: {}, durationMs: 0 };
   try {
     const response = await executeStep(options, step);
+    if (response.status === 'skipped') return { code, kind: step.kind, status: 'skipped', request, response: {}, assertion: {}, durationMs: Date.now() - started };
     const assertion = assertExpectation(response, step.expect ?? {});
-    return { code, kind: step.kind, status: assertion.passed ? 'passed' : 'failed', request, response, assertion: assertion.details, error: assertion.message, durationMs: Date.now() - started };
+    // Evaluate body assertions in memory, but never persist arbitrary HTTP response bodies.
+    const evidence = { ...response }; delete evidence.body;
+    const details = { failures: assertion.passed ? [] : ['Expectation failed'] };
+    return { code, kind: step.kind, status: assertion.passed ? 'passed' : 'failed', request, response: evidence, assertion: details, error: assertion.passed ? undefined : 'Expectation failed', durationMs: Date.now() - started };
   } catch (error) {
-    return { code, kind: step.kind, status: 'failed', request, response: {}, assertion: { expected: step.expect ?? {} }, error: error instanceof Error ? error.message : String(error), durationMs: Date.now() - started };
+    return { code, kind: step.kind, status: 'failed', request, response: {}, assertion: {}, error: error instanceof Error ? error.name : 'ExecutionError', durationMs: Date.now() - started };
   }
 }
 
@@ -83,8 +88,7 @@ async function executeStep(options: IntegrationRunOptions, step: IntegrationTest
       const communityId = request.communityId ? String(request.communityId) : await firstCommunityId(options.prisma);
       const scenario = await options.prisma.botScenario.findFirst({ where: { communityId, code: scenarioCode, isActive: true } }).catch(() => null);
       if (!scenario) return { status: 'skipped', exists: false, reason: `scenario ${scenarioCode} не найден` };
-      const run = await options.prisma.botScenarioRun.create({ data: { scenarioId: scenario.id, communityId, provider: (request.provider ?? scenario.provider) as never, accountId: (request.accountId ?? scenario.accountId) as never, triggeredBy: options.triggeredBy ?? 'integration-tests', status: 'passed', summary: { dryRun: request.dryRun !== false, integrationTest: true } as never, finishedAt: new Date() } });
-      return { status: 'passed', exists: true, runId: run.id };
+      return { status: 'skipped', exists: true, reason: 'Use the real provider rehearsal; existence is not execution' };
     }
     case 'release_gate_summary': {
       const [openBlockers, lastRun] = await Promise.all([
@@ -98,17 +102,37 @@ async function executeStep(options: IntegrationRunOptions, step: IntegrationTest
   }
 }
 
+export function resolveIntegrationUrl(request: Record<string, unknown>, configuredBase: string, requestedBase?: string, defaultPath = '/api/health'): URL {
+  const base = new URL(configuredBase);
+  if (!['http:', 'https:'].includes(base.protocol) || base.username || base.password) throw new Error('Invalid configured integration origin');
+  const candidate = new URL(String(request.baseUrl ?? requestedBase ?? base.origin));
+  const url = new URL(String(request.url ?? request.path ?? defaultPath), candidate);
+  if (candidate.origin !== base.origin || candidate.username || candidate.password || url.origin !== base.origin || url.username || url.password || url.hash || !url.pathname.startsWith('/api/')) throw new Error('Integration request outside configured API origin');
+  return url;
+}
 async function executeHttp(options: IntegrationRunOptions, request: Record<string, unknown>, defaultPath?: string) {
-  const baseUrl = String(request.baseUrl ?? options.baseUrl ?? process.env.CAJEER_API_URL ?? 'http://127.0.0.1:3000');
-  const path = String(request.path ?? defaultPath ?? '/api/health');
-  const url = String(request.url ?? `${baseUrl.replace(/\/$/, '')}${path.startsWith('/') ? path : `/${path}`}`);
+  const url = resolveIntegrationUrl(request, process.env.INTEGRATION_TESTS_API_URL ?? process.env.CAJEER_API_URL ?? 'http://127.0.0.1:3000', options.baseUrl, defaultPath);
   const method = String(request.method ?? 'GET').toUpperCase();
-  const headers: Record<string, string> = { ...(request.headers as Record<string, string> | undefined) };
-  if (options.apiToken && !headers.authorization && !headers['x-api-key']) headers.authorization = `Bearer ${options.apiToken}`;
+  if (!['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) throw new Error('Invalid integration method');
+  const headers = new Headers();
+  for (const [name, value] of Object.entries((request.headers ?? {}) as Record<string, string>)) {
+    if (['authorization', 'x-api-key', 'accept', 'content-type'].includes(name.toLowerCase())) headers.set(name, value);
+  }
+  if (options.apiToken && !headers.has('authorization') && !headers.has('x-api-key')) headers.set('authorization', `Bearer ${options.apiToken}`);
   const body = request.body === undefined ? undefined : JSON.stringify(request.body);
-  const response = await fetch(url, { method, headers: { ...headers, ...(body ? { 'content-type': 'application/json' } : {}) }, body });
-  const text = await response.text();
-  return { status: response.status, ok: response.ok, body: text.slice(0, 5000), url, method };
+  if (body && Buffer.byteLength(body) > 1_000_000) throw new Error('Integration request too large');
+  if (body) headers.set('content-type', 'application/json');
+  const response = await fetch(url, { method, headers, body, redirect: 'error', signal: AbortSignal.timeout(10_000) });
+  const reader = response.body?.getReader();
+  const chunks: Uint8Array[] = []; let bytes = 0;
+  if (reader) try {
+    for (;;) {
+      const { done, value } = await reader.read(); if (done) break;
+      bytes += value.byteLength; if (bytes > 65_536) throw new Error('Integration response too large');
+      chunks.push(value);
+    }
+  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+  return { status: response.status, ok: response.ok, body: Buffer.concat(chunks).toString('utf8'), method };
 }
 
 function summarizeSteps(steps: StepExecutionResult[], durationMs: number): IntegrationRunSummary {
@@ -119,7 +143,7 @@ function summarizeSteps(steps: StepExecutionResult[], durationMs: number): Integ
 }
 
 function runtimeEnvironment(options: IntegrationRunOptions) {
-  return { baseUrl: options.baseUrl ?? process.env.CAJEER_API_URL ?? null, node: process.version, dryRun: options.dryRun ?? false, runner: 'cajeerbots.integration-tests.v1' };
+  return { baseUrl: process.env.INTEGRATION_TESTS_API_URL ?? process.env.CAJEER_API_URL ?? null, node: process.version, dryRun: options.dryRun ?? false, runner: 'cajeerbots.integration-tests.v1' };
 }
 
 async function firstCommunityId(prisma: any): Promise<string> {

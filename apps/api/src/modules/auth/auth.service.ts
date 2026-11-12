@@ -7,10 +7,11 @@ import {
   createRecoveryCodes,
   createTotpSecret,
   hashApiToken,
-  hashPassword,
+  hashPasswordAsync,
   hashRecoveryCode,
   signJwt,
-  verifyPassword,
+  verifyPasswordAsync,
+  safeCompareSecret,
   verifyTotp,
   type Principal,
 } from '@cajeerbots/security';
@@ -24,7 +25,7 @@ export class AuthService {
 
   async issueToken(input: { adminToken?: string; scopes: string[]; ttlSeconds?: number }) {
     const expected = process.env.CAJEER_ADMIN_TOKEN;
-    if (!expected || input.adminToken !== expected) throw new UnauthorizedException('Некорректный bootstrap admin token');
+    if (!expected || !safeCompareSecret(input.adminToken ?? '', expected)) throw new UnauthorizedException('Некорректный bootstrap admin token');
 
     const ttlSeconds = input.ttlSeconds ?? Number(process.env.JWT_ACCESS_TTL_SECONDS ?? 3600);
     const issued = signJwt({ sub: 'bootstrap-admin', typ: 'system', scopes: normalizeScopes(input.scopes) }, requireJwtSecret(), ttlSeconds);
@@ -34,10 +35,7 @@ export class AuthService {
 
   async bootstrapAdmin(input: { adminToken?: string; email: string; password: string; displayName?: string; scopes: string[] }, context: RequestContext = {}) {
     const expected = process.env.CAJEER_ADMIN_TOKEN;
-    if (!expected || input.adminToken !== expected) throw new UnauthorizedException('Некорректный bootstrap admin token');
-
-    const accounts = await this.prisma.adminAccount.count();
-    if (accounts > 0 && input.adminToken !== expected) throw new ForbiddenException('Bootstrap admin доступен только с CAJEER_ADMIN_TOKEN');
+    if (!expected || !safeCompareSecret(input.adminToken ?? '', expected)) throw new UnauthorizedException('Некорректный bootstrap admin token');
 
     const exists = await this.prisma.adminAccount.findUnique({ where: { email: input.email } });
     if (exists) throw new ConflictException('Admin account с таким email уже существует');
@@ -46,7 +44,7 @@ export class AuthService {
       data: {
         email: input.email,
         displayName: input.displayName,
-        passwordHash: hashPassword(input.password, { pepper: passwordPepper() }),
+        passwordHash: await hashPasswordAsync(input.password, { pepper: passwordPepper() }),
         scopes: normalizeScopes(input.scopes.length ? input.scopes : DEFAULT_ADMIN_SCOPES),
       },
       select: adminAccountSelect(),
@@ -57,7 +55,7 @@ export class AuthService {
 
   async login(input: { email: string; password: string; code?: string; recoveryCode?: string }, context: RequestContext = {}) {
     const account = await this.prisma.adminAccount.findUnique({ where: { email: input.email } });
-    if (!account || !account.isActive || !verifyPassword(input.password, account.passwordHash, { pepper: passwordPepper() })) {
+    if (!account || !account.isActive || !await verifyPasswordAsync(input.password, account.passwordHash, { pepper: passwordPepper() })) {
       await this.audit({ actorType: 'anonymous', action: 'auth.login.failed', resource: 'admin_account', ip: context.ip, userAgent: context.userAgent, metadata: { email: input.email, reason: 'invalid_credentials' } });
       throw new UnauthorizedException('Некорректный email или пароль');
     }
@@ -121,9 +119,9 @@ export class AuthService {
   async revokeApiKey(id: string, actor: Principal) {
     const existing = await this.prisma.apiKey.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('API key не найден');
-    const updated = await this.prisma.apiKey.update({ where: { id }, data: { revokedAt: new Date() } });
+    const updated = await this.prisma.apiKey.update({ where: { id }, data: { revokedAt: new Date() }, select: { id: true, revokedAt: true } });
     await this.audit({ actorType: actor.type, actorId: actor.id, action: 'auth.api_key.revoke', resource: 'api_key', resourceId: id });
-    return updated;
+    return { id: updated.id, revokedAt: updated.revokedAt };
   }
 
   async me(principal: Principal) {
@@ -158,8 +156,8 @@ export class AuthService {
   async changePassword(principal: Principal, input: { currentPassword: string; newPassword: string; revokeOtherSessions: boolean }, context: RequestContext = {}) {
     if (principal.type !== 'user') throw new ForbiddenException('Смена пароля доступна только admin account');
     const account = await this.prisma.adminAccount.findUnique({ where: { id: principal.id } });
-    if (!account || !verifyPassword(input.currentPassword, account.passwordHash, { pepper: passwordPepper() })) throw new UnauthorizedException('Некорректный текущий пароль');
-    await this.prisma.adminAccount.update({ where: { id: account.id }, data: { passwordHash: hashPassword(input.newPassword, { pepper: passwordPepper() }) } });
+    if (!account || !await verifyPasswordAsync(input.currentPassword, account.passwordHash, { pepper: passwordPepper() })) throw new UnauthorizedException('Некорректный текущий пароль');
+    await this.prisma.adminAccount.update({ where: { id: account.id }, data: { passwordHash: await hashPasswordAsync(input.newPassword, { pepper: passwordPepper() }) } });
     if (input.revokeOtherSessions) await this.prisma.adminSession.updateMany({ where: { accountId: account.id, revokedAt: null }, data: { revokedAt: new Date() } });
     await this.audit({ actorType: principal.type, actorId: principal.id, action: 'auth.password.change', resource: 'admin_account', resourceId: account.id, ip: context.ip, userAgent: context.userAgent, metadata: { revokeOtherSessions: input.revokeOtherSessions } });
     return { changed: true, revokedSessions: input.revokeOtherSessions };
@@ -194,7 +192,7 @@ export class AuthService {
   async disableTwoFactor(principal: Principal, input: { password: string; code?: string; recoveryCode?: string }, context: RequestContext = {}) {
     if (principal.type !== 'user') throw new ForbiddenException('2FA доступна только admin account');
     const account = await this.prisma.adminAccount.findUnique({ where: { id: principal.id } });
-    if (!account || !verifyPassword(input.password, account.passwordHash, { pepper: passwordPepper() })) throw new UnauthorizedException('Некорректный пароль');
+    if (!account || !await verifyPasswordAsync(input.password, account.passwordHash, { pepper: passwordPepper() })) throw new UnauthorizedException('Некорректный пароль');
     if (account.twoFactorEnabled) await this.verifySecondFactor(account.id, input.code, input.recoveryCode, context);
     await this.prisma.$transaction([
       this.prisma.twoFactorSecret.updateMany({ where: { accountId: principal.id, isActive: true }, data: { isActive: false, disabledAt: new Date() } }),
@@ -208,7 +206,7 @@ export class AuthService {
   async rotateRecoveryCodes(principal: Principal, input: { password: string; code?: string; recoveryCode?: string }, context: RequestContext = {}) {
     if (principal.type !== 'user') throw new ForbiddenException('2FA доступна только admin account');
     const account = await this.prisma.adminAccount.findUnique({ where: { id: principal.id } });
-    if (!account || !verifyPassword(input.password, account.passwordHash, { pepper: passwordPepper() })) throw new UnauthorizedException('Некорректный пароль');
+    if (!account || !await verifyPasswordAsync(input.password, account.passwordHash, { pepper: passwordPepper() })) throw new UnauthorizedException('Некорректный пароль');
     if (account.twoFactorEnabled) await this.verifySecondFactor(account.id, input.code, input.recoveryCode, context);
     const codes = createRecoveryCodes(10);
     await this.prisma.$transaction([

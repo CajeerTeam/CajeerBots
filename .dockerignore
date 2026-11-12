@@ -21,3 +21,16 @@ prisma/generated
 dist-release
 .tmp
 rehearsal-report*.json
+
+# Never bake local state, archives or operator keys into the image.
+storage
+backups
+extensions
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.dump
+**/*.tar
+**/*.tar.gz
+**/*.zip

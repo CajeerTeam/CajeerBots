@@ -16,12 +16,12 @@ const count = Number(countArg), concurrency = Number(concurrencyArg);
 assert(Number.isInteger(count) && count >= 1 && count <= 10000 && Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 64);
 const reportPath = resolve(reportArg); mkdirSync(dirname(reportPath), { recursive: true });
 const dir = mkdtempSync(join(tmpdir(), 'cajeer-rehearsal-'));
-const source = `cajeer-rc5-${randomUUID().slice(0, 8)}`, restored = `${source}-restore`, clean = `${source}-clean`;
+const source = `cajeer-rc6-${randomUUID().slice(0, 8)}`, restored = `${source}-restore`, clean = `${source}-clean`;
 const envFile = join(dir, 'env.production'), backup = join(dir, 'backup');
 const password = randomBytes(32).toString('base64url');
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
 const publicHex = publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('hex');
-const fixtureConfig = `\nBOT_WEBHOOK_CREDENTIALS={"rehearsal-discord":{"publicKey":"${publicHex}"}}\nCAJEER_REHEARSAL_PRIVATE_KEY=${privateKey.export({ type: 'pkcs8', format: 'der' }).toString('base64')}\nREHEARSAL_DISCORD_TOKEN=fixture-no-provider-network\n`; 
+const fixtureConfig = `\nBOT_WEBHOOK_CREDENTIALS={"rehearsal-discord":{"publicKey":"${publicHex}"}}\nCAJEER_REHEARSAL_PRIVATE_KEY=${privateKey.export({ type: 'pkcs8', format: 'der' }).toString('base64')}\nDISCORD_BOT_TOKEN_REHEARSAL=fixture-no-provider-network\n`; 
 writeFileSync(envFile, readFileSync(join(root, '.env.production.example'), 'utf8')
   .replace('BOT_WEBHOOK_CREDENTIALS={}', '')
   .replaceAll('replace-with-generated-password', password).replaceAll('replace-with-generated-secret', () => randomBytes(48).toString('base64url')) + '\nCAJEER_REHEARSAL_ISOLATED=1\nCAJEER_API_HOST_PORT=0\nCAJEER_BOT_HOST_PORT=0\nAPI_RATE_LIMIT_MAX=50000\nEVENT_API_WORKER_INTERVAL_MS=250\nEVENT_API_WORKER_BATCH_SIZE=100\n' + fixtureConfig, { mode: 0o600 });
@@ -50,36 +50,36 @@ function workload(project, image, action, state, ...args) {
 }
 let state;
 try {
-  phase('clean-install-rc5', () => {
+  phase('clean-install-rc6', () => {
     compose(clean, targetImage, ['up', '-d', '--no-build', '--wait', '--wait-timeout', '240']);
-    assert.equal(compose(clean, targetImage, ['exec', '-T', 'api', 'node', 'apps/cli/dist/main.js', '--version'], true), '1.0.0-rc.5');
+    assert.equal(compose(clean, targetImage, ['exec', '-T', 'api', 'node', 'apps/cli/dist/main.js', '--version'], true), '1.0.0-rc.6');
     compose(clean, targetImage, ['down', '-v', '--remove-orphans']);
   });
-  phase('clean-install-rc4', () => {
+  phase('clean-install-rc5', () => {
     compose(source, baselineImage, ['up', '-d', '--no-build', '--wait', '--wait-timeout', '240']);
-    assert.equal(compose(source, baselineImage, ['exec', '-T', 'api', 'node', 'apps/cli/dist/main.js', '--version'], true), '1.0.0-rc.4');
+    assert.equal(compose(source, baselineImage, ['exec', '-T', 'api', 'node', 'apps/cli/dist/main.js', '--version'], true), '1.0.0-rc.5');
     installWorkload(source, baselineImage);
   });
-  state = phase('rc4-community-backup-and-sentinels', () => workload(source, baselineImage, 'prepare'));
+  state = phase('rc5-community-backup-and-sentinels', () => workload(source, baselineImage, 'prepare'));
   phase('worker-unavailable', () => compose(source, baselineImage, ['stop', '-t', '40', 'worker']));
   // Test backlog persistence during a worker outage.
   state = phase('http-load-durable-backlog', () => workload(source, baselineImage, 'publish', state, count, concurrency, process.env.REHEARSAL_P95_MS ?? 1500, process.env.REHEARSAL_MIN_RPS ?? 0));
   // Restart worker and drain so instance backup has a consistent delivered-state baseline.
   phase('worker-restart', () => compose(source, baselineImage, ['start', 'worker']));
   state = phase('queue-drain', () => workload(source, baselineImage, 'drain', state, process.env.REHEARSAL_DRAIN_MS ?? 180000));
-  phase('upgrade-rc4-to-rc5', () => ops('upgrade', source, envFile, baselineImage, backup, targetImage, '1.0.0-rc.5'));
+  phase('upgrade-rc5-to-rc6', () => ops('upgrade', source, envFile, baselineImage, backup, targetImage, '1.0.0-rc.6'));
   phase('verify-upgraded-data', () => { installWorkload(source, targetImage); return workload(source, targetImage, 'verify', state); });
-  // New RC5 work exercises duplicate IDs under load after migrating the old data.
-  let after = phase('rc5-community-backup-restore', () => workload(source, targetImage, 'prepare'));
-  phase('rc5-stop-worker', () => compose(source, targetImage, ['stop', '-t', '40', 'worker']));
+  // New RC6 work exercises duplicate IDs under load after migrating the old data.
+  let after = phase('rc6-community-backup-restore', () => workload(source, targetImage, 'prepare'));
+  phase('rc6-stop-worker', () => compose(source, targetImage, ['stop', '-t', '40', 'worker']));
   phase('create-discord-fixture', () => workload(source, targetImage, 'botSetup', after));
   phase('reload-bot-runtime', () => compose(source, targetImage, ['restart', 'bot-runtime']));
   phase('signed-discord-form-e2e', () => workload(source, targetImage, 'botTest', after));
-  after = phase('rc5-http-load', () => workload(source, targetImage, 'publish', after, count, concurrency, process.env.REHEARSAL_P95_MS ?? 1500, process.env.REHEARSAL_MIN_RPS ?? 0));
-  phase('rc5-restart-worker', () => compose(source, targetImage, ['start', 'worker']));
-  phase('rc5-queue-drain', () => workload(source, targetImage, 'drain', after, process.env.REHEARSAL_DRAIN_MS ?? 180000));
+  after = phase('rc6-http-load', () => workload(source, targetImage, 'publish', after, count, concurrency, process.env.REHEARSAL_P95_MS ?? 1500, process.env.REHEARSAL_MIN_RPS ?? 0));
+  phase('rc6-restart-worker', () => compose(source, targetImage, ['start', 'worker']));
+  phase('rc6-queue-drain', () => workload(source, targetImage, 'drain', after, process.env.REHEARSAL_DRAIN_MS ?? 180000));
   phase('restore-original-into-fresh-project', () => ops('restore', restored, backup));
-  phase('start-restored-rc4', () => ops('start', restored, join(backup, 'env.production'), baselineImage, '1.0.0-rc.4'));
+  phase('start-restored-rc5', () => ops('start', restored, join(backup, 'env.production'), baselineImage, '1.0.0-rc.5'));
   phase('verify-restored-data', () => { installWorkload(restored, baselineImage); return workload(restored, baselineImage, 'verify', state); });
   report.passed = true;
 } catch (error) { console.error(error.message); process.exitCode = 1; }

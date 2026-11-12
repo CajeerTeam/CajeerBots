@@ -17,7 +17,7 @@ export class IntegrationTestsWorker {
     await this.prisma.connect();
     this.poller = new SerialPoller(this.options.intervalMs ?? Number(process.env.INTEGRATION_TESTS_WORKER_INTERVAL_MS ?? 15000), () => this.tick(), (error) => console.error('[worker] integration-tests.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
     await this.poller.start();
-    console.log('[worker] integration-tests worker 1.0.0-rc.5 started');
+    console.log('[worker] integration-tests worker 1.0.0-rc.6 started');
   }
 
   async stop(): Promise<void> {
@@ -30,7 +30,9 @@ export class IntegrationTestsWorker {
     this.running = true;
     try {
       const runs = await this.prisma.integrationTestRun.findMany({ where: { status: 'queued' }, orderBy: { createdAt: 'asc' }, take: this.options.batchSize ?? Number(process.env.INTEGRATION_TESTS_WORKER_BATCH_SIZE ?? 3), include: { suite: true, testCase: true } });
-      for (const run of runs) await this.executeRun(run.id);
+      for (const run of runs) {
+        try { await this.executeRun(run.id); } catch { await this.prisma.integrationTestRun.updateMany({ where: { id: run.id, status: 'running' }, data: { status: 'failed', finishedAt: new Date(), summary: { error: 'Integration execution failed' } } }); }
+      }
     } catch (error) {
       console.error('[worker] integration-tests failed', error);
     } finally {
@@ -41,6 +43,8 @@ export class IntegrationTestsWorker {
   async executeRun(runId: string): Promise<void> {
     const run = await this.prisma.integrationTestRun.findUnique({ where: { id: runId }, include: { suite: true, testCase: true } });
     if (!run || run.status !== 'queued') return;
+    const claimed = await this.prisma.integrationTestRun.updateMany({ where: { id: run.id, status: 'queued' }, data: { status: 'running', startedAt: new Date() } });
+    if (!claimed.count) return;
     if (run.caseId && run.testCase) {
       await runIntegrationTestCase({ prisma: this.prisma, testCase: run.testCase, suite: run.suite, runId: run.id, version: run.version, channel: run.channel, rootDir: run.rootDir ?? undefined, triggeredBy: 'worker', dryRun: Boolean((run.environment as any)?.dryRun ?? true), baseUrl: (run.environment as any)?.baseUrl });
     } else if (run.suiteId && run.suite) {

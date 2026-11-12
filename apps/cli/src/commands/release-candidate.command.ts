@@ -19,7 +19,7 @@ export function releaseCandidateCommand(): Command {
   }));
 
   command.command('api-freeze:create')
-    .option('--version <version>', 'release version', '1.0.0-rc.5')
+    .option('--version <version>', 'release version', '1.0.0-rc.6')
     .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
     .option('--root <dir>', 'project root', process.cwd())
     .option('--source <path>', 'OpenAPI source path', 'contracts/openapi/cajeerbots.openapi.yaml')
@@ -31,7 +31,7 @@ export function releaseCandidateCommand(): Command {
     }));
 
   command.command('api-freeze:verify')
-    .option('--version <version>', 'release version', '1.0.0-rc.5')
+    .option('--version <version>', 'release version', '1.0.0-rc.6')
     .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
     .option('--freeze <id>')
     .option('--root <dir>', 'project root', process.cwd())
@@ -53,7 +53,7 @@ export function releaseCandidateCommand(): Command {
   }));
 
   command.command('compatibility:matrix')
-    .option('--version <version>', 'release version', '1.0.0-rc.5')
+    .option('--version <version>', 'release version', '1.0.0-rc.6')
     .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
     .option('--no-persist')
     .action(async (options: { version: string; channel: any; persist?: boolean }) => withPrisma(async (prisma) => {
@@ -67,7 +67,7 @@ export function releaseCandidateCommand(): Command {
 
   command.command('upgrade-plan:create')
     .option('--from <version>', 'from version', '0.18.0-beta.3')
-    .option('--to <version>', 'to version', '1.0.0-rc.5')
+    .option('--to <version>', 'to version', '1.0.0-rc.6')
     .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
     .option('--has-backup', 'confirm fresh backup exists', false)
     .action(async (options: { from: string; to: string; channel: any; hasBackup?: boolean }) => withPrisma(async (prisma) => {
@@ -86,18 +86,19 @@ export function releaseCandidateCommand(): Command {
     .action(async (id: string, options: { mode: string; root: string }) => withPrisma(async (prisma) => {
       const plan = await prisma.releaseUpgradePlan.findUnique({ where: { id } });
       if (!plan) throw new Error('Upgrade plan не найден');
+      if (options.mode !== 'dry-run') throw new Error('Use pnpm instance:upgrade on the deployment host');
       const started = Date.now();
       const steps = Array.isArray(plan.steps) ? plan.steps as Array<Record<string, unknown>> : [];
-      const results = steps.map((step) => ({ code: step.code, phase: step.phase, status: options.mode === 'apply' && step.phase === 'rollback' ? 'skipped' : 'passed', mode: options.mode, command: step.command }));
+      const results = steps.map((step) => ({ code: step.code, phase: step.phase, status: 'not_executed', mode: options.mode, command: step.command }));
       const planRisks = (plan.risks as Array<{ severity?: string }> | null) ?? [];
-      const status = planRisks.some((risk) => risk.severity === 'blocker') ? 'failed' : 'passed';
-      const run = await prisma.releaseUpgradeRun.create({ data: { planId: plan.id, mode: options.mode, status, rootDir: options.root, results: results as never, logs: [{ message: 'RC upgrade rehearsal completed', mode: options.mode }] as never, startedAt: new Date(started), finishedAt: new Date(), durationMs: Date.now() - started, createdBy: 'cli' } });
+      const status = planRisks.some((risk) => risk.severity === 'blocker') ? 'failed' : 'not_executed';
+      const run = await prisma.releaseUpgradeRun.create({ data: { planId: plan.id, mode: options.mode, status, rootDir: options.root, results: results as never, logs: [{ message: 'Plan preview only; no commands executed', mode: options.mode }] as never, startedAt: new Date(started), finishedAt: new Date(), durationMs: Date.now() - started, createdBy: 'cli' } });
       print({ run, plan, results });
       if (status === 'failed') process.exitCode = 1;
     }));
 
   command.command('readiness:run')
-    .option('--version <version>', 'release version', '1.0.0-rc.5')
+    .option('--version <version>', 'release version', '1.0.0-rc.6')
     .option('--channel <channel>', 'rc|stable|lts|security', 'rc')
     .option('--root <dir>', 'project root', process.cwd())
     .option('--no-persist')

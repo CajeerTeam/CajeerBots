@@ -54,6 +54,7 @@ jobs:
       - run: pnpm test:stabilization
       - run: pnpm test:product-completion
       - run: pnpm test:rehearsal-unit
+      - run: pnpm test:release-hardening
       - run: node --test scripts/rc3-security.test.mjs
       - run: pnpm test:e2e
       - run: pnpm smoke:runtime

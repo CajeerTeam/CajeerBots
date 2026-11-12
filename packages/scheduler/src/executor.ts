@@ -177,7 +177,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
 
 
     case 'maintenance.release_gates': {
-      const version = String(context.job.payload?.version ?? '1.0.0-rc.5');
+      const version = String(context.job.payload?.version ?? '1.0.0-rc.6');
       const channel = String(context.job.payload?.channel ?? 'beta') as never;
       const rootDir = String(context.job.payload?.rootDir ?? process.cwd());
       const databaseGates = await prisma.releaseQualityGate.findMany({ where: { isEnabled: true }, orderBy: [{ category: 'asc' }, { code: 'asc' }] }).catch(() => []);
@@ -198,7 +198,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
 
     case 'maintenance.integration_smoke': {
       const suiteCode = String(context.job.payload?.suiteCode ?? 'mvp-smoke');
-      const version = String(context.job.payload?.version ?? '1.0.0-rc.5');
+      const version = String(context.job.payload?.version ?? '1.0.0-rc.6');
       const channel = String(context.job.payload?.channel ?? 'beta');
       const suite = await prisma.integrationTestSuite.findUnique({ where: { code: suiteCode } });
       if (!suite) return { status: 'failed', error: `Integration suite не найден: ${suiteCode}` };
@@ -216,7 +216,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
 
     case 'maintenance.rc_readiness': {
       const payload = context.job.payload ?? {};
-      const version = String(payload.version ?? '1.0.0-rc.5');
+      const version = String(payload.version ?? '1.0.0-rc.6');
       const channel = String(payload.channel ?? 'rc') as never;
       const rootDir = String(payload.rootDir ?? process.cwd());
       const [freeze, targets, openBlockers, openFindings, latestIntegration] = await Promise.all([
@@ -237,7 +237,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
     }
 
     case 'maintenance.security_audit': {
-      const version = String(context.job.payload?.version ?? '1.0.0-rc.5');
+      const version = String(context.job.payload?.version ?? '1.0.0-rc.6');
       const channel = String(context.job.payload?.channel ?? 'beta');
       await seedDefaultSecurityAuditPolicies(prisma);
       const result = await runSecurityAudit({ prisma, version, channel, trigger: 'scheduler', createdBy: 'scheduler', persist: context.job.payload?.persist !== false, now: context.now ?? new Date() });

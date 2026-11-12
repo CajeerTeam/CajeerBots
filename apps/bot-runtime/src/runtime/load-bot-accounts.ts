@@ -16,7 +16,7 @@ export async function loadRuntimeBotAccounts(prisma: PrismaService, fallbackMode
   const loaded: RuntimeBotAccount[] = [];
   const identities = new Set<string>();
   for (const account of accounts) {
-    const token = await resolveTokenRef(prisma, account.tokenRef);
+    const token = await resolveTokenRef(prisma, account.tokenRef, account.provider, account.communityId);
     if (!token) {
       console.warn(`[bot-runtime] account=${account.id} provider=${account.provider} пропущен: tokenRef пустой или не резолвится`);
       continue;

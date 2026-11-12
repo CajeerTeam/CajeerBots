@@ -18,3 +18,10 @@ prisma/generated
 
 !.env.production.example
 *.tsbuildinfo
+
+# Operator state and release outputs
+dist-release/
+storage/
+backups/
+*.pem
+*.key

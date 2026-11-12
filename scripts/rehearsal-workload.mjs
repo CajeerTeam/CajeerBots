@@ -37,7 +37,7 @@ async function prepare() {
   assert.equal((await request('POST', `/backups/${backup.id}/verify`, {})).valid, true);
   const version = (await request('GET', '/system/report')).version;
   // RC4 is the historical baseline; exercise the hardened merge path on RC5.
-  if (version === '1.0.0-rc.5') {
+  if (['1.0.0-rc.5', '1.0.0-rc.6'].includes(version)) {
   await request('PATCH', `/communities/${community.id}`, { title: 'Changed before restore' });
   assert.equal((await request('POST', `/backups/${backup.id}/restore`, { apply: false })).status, 'completed');
   assert.equal((await request('GET', `/communities/${community.id}`)).title, 'Changed before restore');
@@ -69,7 +69,7 @@ function event(i) { return { id: `${state.id}-${i}`, type: state.topic, communit
 async function publish() {
   const count = Number(countArg ?? 100); const concurrency = Number(concurrencyArg ?? 8);
   const system = await request('GET', '/system/report');
-  if (system.version === '1.0.0-rc.5') {
+  if (['1.0.0-rc.5', '1.0.0-rc.6'].includes(system.version)) {
     const first = await Promise.all(Array.from({ length: 4 }, () => request('POST', '/events/publish', event(0))));
     assert.equal(new Set(first.map(r => r.event.id)).size, 1);
   }
@@ -115,7 +115,7 @@ async function verify() {
 }
 async function botSetup() {
   const communityId = state.communityId;
-  await db.botAccount.create({ data: { id: 'rehearsal-discord', communityId, provider: 'discord', mode: 'webhook', externalId: 'fixture', tokenRef: 'env:REHEARSAL_DISCORD_TOKEN' } });
+  await db.botAccount.create({ data: { id: 'rehearsal-discord', communityId, provider: 'discord', mode: 'webhook', externalId: 'fixture', tokenRef: 'env:DISCORD_BOT_TOKEN_REHEARSAL' } });
   await request('PUT', `/communities/${communityId}/message-core/forms`, { code: 'rehearsal', title: 'Rehearsal form', fields: [{ name: 'age', label: 'Возраст', type: 'number', required: true, min: 18 }] });
   await request('POST', `/communities/${communityId}/interactions/commands`, { name: 'rehearsal', provider: 'discord', description: 'Rehearsal form', type: 'slash_command', handler: 'form.start', metadata: { code: 'rehearsal' } });
   return { configured: true };

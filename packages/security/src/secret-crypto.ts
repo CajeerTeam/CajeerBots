@@ -26,8 +26,11 @@ export function decryptSecret(payload: EncryptedSecretPayload, keyMaterial: stri
   assertSecretKeyMaterial(keyMaterial);
   if (payload.algorithm !== 'aes-256-gcm') throw new Error(`Неподдерживаемый алгоритм секрета: ${payload.algorithm}`);
   const key = deriveKey(keyMaterial);
-  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(payload.iv, 'base64url'));
-  decipher.setAuthTag(Buffer.from(payload.authTag, 'base64url'));
+  const iv = Buffer.from(payload.iv, 'base64url');
+  const tag = Buffer.from(payload.authTag, 'base64url');
+  if (iv.length !== 12 || tag.length !== 16) throw new Error('Invalid AES-GCM IV or authentication tag');
+  const decipher = createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
+  decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(Buffer.from(payload.ciphertext, 'base64url')), decipher.final()]).toString('utf8');
 }
 

@@ -1,6 +1,6 @@
 # Roadmap CajeerBots до production
 
-Текущая ветка: `1.0.0-rc.5` — Production Rehearsal (реализация, полный Compose-прогон требуется).
+Текущая ветка: `1.0.0-rc.6` — Release Hardening (реализация, допуск после полного CI/rehearsal).
 
 | Релиз | Работы | Критерий допуска |
 |---|---|---|
@@ -12,4 +12,4 @@
 | 1.0.0 | Stable / limited production | Все блокеры закрыты, ограниченный pilot, мониторинг и rollback |
 | 1.0.x | Production stabilization / GA | Исправления пилота, SLO, проверка восстановления, эксплуатационный допуск |
 
-Подробные фактические проверки RC2: [RELEASE_VALIDATION_1.0.0-rc.2.md](RELEASE_VALIDATION_1.0.0-rc.2.md). Выпуск RC5 требует зелёного прогона RC2–RC5; см. RELEASE_VALIDATION_1.0.0-rc.5.md. Не добавлять новые слои метаданных readiness вместо исправления работающего продукта.
+Проверки и оставшиеся блокеры: [RELEASE_VALIDATION_1.0.0-rc.6.md](RELEASE_VALIDATION_1.0.0-rc.6.md). Не публиковать stable до прохождения release gates и ограниченного production pilot.

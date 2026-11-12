@@ -27,7 +27,7 @@ export class IntegrationTestsService {
     let suites = 0;
     let cases = 0;
     for (const suite of defaultIntegrationSuites) {
-      const row = await this.prisma.integrationTestSuite.upsert({ where: { code: suite.code }, create: { code: suite.code, title: suite.title, category: suite.category, description: suite.description, metadata: { seededBy: '1.0.0-rc.5' } as never }, update: { title: suite.title, category: suite.category, description: suite.description, isActive: true } });
+      const row = await this.prisma.integrationTestSuite.upsert({ where: { code: suite.code }, create: { code: suite.code, title: suite.title, category: suite.category, description: suite.description, metadata: { seededBy: '1.0.0-rc.6' } as never }, update: { title: suite.title, category: suite.category, description: suite.description, isActive: true } });
       suites += 1;
       for (const testCase of suite.cases) {
         await this.prisma.integrationTestCase.upsert({ where: { suiteId_code: { suiteId: row.id, code: testCase.code } }, create: { suiteId: row.id, code: testCase.code, title: testCase.title, target: testCase.target, kind: testCase.kind, priority: testCase.priority, definition: testCase.definition as never, expected: testCase.expected as never }, update: { title: testCase.title, target: testCase.target, kind: testCase.kind, priority: testCase.priority, definition: testCase.definition as never, expected: testCase.expected as never, isActive: true } });
@@ -92,8 +92,8 @@ export class IntegrationTestsService {
       suite = suite ?? await this.prisma.integrationTestSuite.findUnique({ where: { id: testCase.suiteId } });
     }
     if (input.suiteCode && !suite) throw new NotFoundException('Integration test suite не найден');
-    const run = await this.prisma.integrationTestRun.create({ data: { suiteId: suite?.id ?? null, caseId: testCase?.id ?? null, version: input.version, channel: input.channel, trigger: input.trigger, status: 'queued', rootDir: input.rootDir, environment: input.environment as never, createdBy: principal.id } });
-    await this.audit(principal, 'integration_tests.run.queue', 'integration_test_run', run.id, input);
+    const run = await this.prisma.integrationTestRun.create({ data: { suiteId: suite?.id ?? null, caseId: testCase?.id ?? null, version: input.version, channel: input.channel, trigger: input.trigger, status: 'queued', rootDir: input.rootDir, environment: { dryRun: input.environment.dryRun !== false } as never, createdBy: principal.id } });
+    await this.audit(principal, 'integration_tests.run.queue', 'integration_test_run', run.id, { suiteCode: input.suiteCode, caseCode: input.caseCode, dryRun: input.environment.dryRun !== false });
     return run;
   }
 

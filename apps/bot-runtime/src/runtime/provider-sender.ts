@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { renderProviderButtons } from '@cajeerbots/message-core';
 import type { PrismaService } from '@cajeerbots/db';
+import { resolveTokenRef } from '../secrets/token-resolver.js';
 import type { RuntimeBotAccount } from './load-bot-accounts.js';
 
 export async function sendProviderText(
@@ -35,7 +36,7 @@ export async function retryOutboundMessage(prisma: PrismaService, messageId: str
     mode: message.account.mode,
     username: message.account.username,
     tokenRef: message.account.tokenRef,
-    token: await resolveAccountToken(prisma, message.account.tokenRef),
+    token: await resolveAccountToken(prisma, message.account.tokenRef, message.account.provider, message.account.communityId),
   };
   if (message.provider === 'discord' || !message.account.isActive || message.communityId !== message.account.communityId || message.provider !== message.account.provider) throw new Error('Inactive or mismatched account');
   await sendProviderText(prisma, account, { outboundMessageId: messageId, targetId: message.targetId, text: message.text, buttons: message.buttons });
@@ -84,24 +85,10 @@ async function sendDiscord(token: string, channelId: string, text: string, butto
   return body.id;
 }
 
-async function resolveAccountToken(prisma: PrismaService, tokenRef?: string | null): Promise<string> {
-  if (!tokenRef) throw new Error('Bot account tokenRef пустой');
-  if (tokenRef.startsWith('env:')) {
-    const envKey = tokenRef.slice('env:'.length);
-    const value = process.env[envKey];
-    if (!value) throw new Error(`Env secret не найден: ${envKey}`);
-    return value;
-  }
-  if (tokenRef.startsWith('secret:')) {
-    const { decryptSecret } = await import('@cajeerbots/security');
-    const key = tokenRef.slice('secret:'.length);
-    const secret = await prisma.secret.findUnique({ where: { key } });
-    if (!secret) throw new Error(`Secret не найден: ${key}`);
-    const encryptionKey = process.env.SECRETS_ENCRYPTION_KEY ?? process.env.JWT_SECRET;
-    if (!encryptionKey) throw new Error('SECRETS_ENCRYPTION_KEY или JWT_SECRET не задан');
-    return decryptSecret({ algorithm: secret.algorithm as 'aes-256-gcm', ciphertext: secret.ciphertext, iv: secret.iv, authTag: secret.authTag }, encryptionKey);
-  }
-  return tokenRef;
+async function resolveAccountToken(prisma: PrismaService, tokenRef: string | null | undefined, provider: string, communityId: string): Promise<string> {
+  const token = await resolveTokenRef(prisma, tokenRef, provider, communityId);
+  if (!token) throw new Error('Bot token unavailable');
+  return token;
 }
 
 function stableRandomId(id: string): number { return createHash('sha256').update(id).digest().readUInt32BE(0) % 2147483647 + 1; }

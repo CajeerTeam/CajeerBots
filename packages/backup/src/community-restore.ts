@@ -1,9 +1,13 @@
 import { Prisma } from '@cajeerbots/db';
+import { validBotTokenRef } from '@cajeerbots/security';
 
 const optionalJson = (value: unknown) => value === null ? Prisma.DbNull : value;
 const requiredJson = (value: unknown) => value === null ? Prisma.JsonNull : value;
 
 export async function restoreCommunitySnapshot(prisma: any, communityId: string, data: any, mode: 'dry-run' | 'apply') {
+  for (const item of data.botAccounts ?? []) {
+    if (item.tokenRef != null && (typeof item.tokenRef !== 'string' || !validBotTokenRef(item.provider, item.tokenRef, communityId))) throw new Error('Backup contains invalid or foreign bot token reference');
+  }
   const plan = {
     mode,
     settings: data.settings?.length ?? 0,

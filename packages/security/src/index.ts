@@ -9,3 +9,4 @@ export * from './passwords.js';
 
 export * from './totp.js';
 export * from './safe-http.js';
+export * from './bot-token-ref.js';

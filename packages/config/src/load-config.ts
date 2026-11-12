@@ -19,10 +19,12 @@ export function loadConfigOrThrow(env: NodeJS.ProcessEnv = process.env): CajeerE
   const config = loadConfig(env);
   if (config.NODE_ENV === 'production') {
     const required = ['JWT_SECRET', 'API_TOKEN_PEPPER', 'SECRETS_ENCRYPTION_KEY', 'PASSWORD_PEPPER', 'REFRESH_TOKEN_PEPPER', 'RECOVERY_CODE_PEPPER', 'CAJEER_ADMIN_TOKEN', 'WEBHOOK_SIGNING_SECRET'] as const;
-    const issues = required.filter((key) => {
+    const issues: string[] = required.filter((key) => {
       const value = config[key];
       return !value || value.length < 32 || /^(change-me|development|secret|example|replace)/i.test(value);
     }).map((key) => `${key}: требуется отдельный сильный секрет (не менее 32 символов)`);
+    const values = required.map((key) => config[key]);
+    if (new Set(values).size !== values.length) issues.push('Production secrets must be distinct');
     if (issues.length) throw new ConfigError(issues);
   }
   return config;

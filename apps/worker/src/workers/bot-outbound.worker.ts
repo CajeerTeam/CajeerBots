@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { renderProviderButtons } from '@cajeerbots/message-core';
 import { SerialPoller } from '@cajeerbots/core';
 import { PrismaService } from '@cajeerbots/db';
-import { decryptSecret } from '@cajeerbots/security';
+import { decryptSecret, assertBotTokenRef } from '@cajeerbots/security';
 
 export interface BotOutboundWorkerOptions {
   pollIntervalMs?: number;
@@ -23,7 +23,7 @@ export class BotOutboundWorker {
     await this.prisma.connect();
     this.poller = new SerialPoller(this.options.pollIntervalMs ?? 5000, () => this.tick(), (error) => console.error('[worker] bot-outbound.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
     await this.poller.start();
-    console.log('[worker] bot outbound worker 1.0.0-rc.5 started');
+    console.log('[worker] bot outbound worker 1.0.0-rc.6 started');
   }
 
   async stop(): Promise<void> {
@@ -59,7 +59,7 @@ export class BotOutboundWorker {
     }
     try {
       if (!row.account.isActive || row.account.communityId !== row.communityId || row.account.provider !== row.provider || row.attempts > maxAttempts) throw new Error('Inactive, mismatched, exhausted or interaction-only account');
-      const token = await this.resolveToken(row.account.tokenRef);
+      const token = await this.resolveToken(row.account.tokenRef, row.account.provider, row.account.communityId);
       const providerMessageId = await sendText(row.provider, token, row.targetId, row.text, row.buttons, row.id);
       await this.prisma.botOutboundMessage.updateMany({
         where,
@@ -79,8 +79,9 @@ export class BotOutboundWorker {
     }
   }
 
-  private async resolveToken(tokenRef?: string | null): Promise<string> {
+  private async resolveToken(tokenRef: string | null | undefined, provider: string, communityId: string): Promise<string> {
     if (!tokenRef) throw new Error('Bot account tokenRef пустой');
+    assertBotTokenRef(provider, tokenRef, communityId);
     if (tokenRef.startsWith('env:')) {
       const value = process.env[tokenRef.slice(4)];
       if (!value) throw new Error(`Env token не найден: ${tokenRef}`);
@@ -94,7 +95,7 @@ export class BotOutboundWorker {
       if (!encryptionKey) throw new Error('SECRETS_ENCRYPTION_KEY или JWT_SECRET не задан');
       return decryptSecret({ algorithm: secret.algorithm as 'aes-256-gcm', ciphertext: secret.ciphertext, iv: secret.iv, authTag: secret.authTag }, encryptionKey);
     }
-    return tokenRef;
+    throw new Error('Invalid bot token reference');
   }
 }
 
