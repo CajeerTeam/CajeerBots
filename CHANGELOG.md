@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.0-rc.3] - 2026-11-12
+
+### Security & Reliability
+- Tenant-scoped API authorization, session revocation, scoped bot commands and signed provider webhooks.
+- Atomic delivery claims, retries with fencing, dead-letter handling, deterministic event fan-out and outbound deduplication.
+- Public-only DNS-pinned HTTP transport, Redis rate limiting, community-scoped webhook delivery and migration.
+- Regression tests and upgrade/validation instructions in `RELEASE_VALIDATION_1.0.0-rc.3.md`. Full deployment remains unverified until dependencies and staging checks pass.
+
 ## [1.0.0-rc.2] - 2026-11-12
 
 ### Исправлено

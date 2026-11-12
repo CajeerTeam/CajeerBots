@@ -1,6 +1,6 @@
 {
   "name": "@cajeerbots/api",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -37,7 +37,8 @@
     "@fastify/helmet": "12.0.1",
     "@fastify/rate-limit": "10.3.0",
     "@nestjs/common": "11.1.9",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "ioredis": "5.0.0"
   },
   "main": "dist/main.js"
 }

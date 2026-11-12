@@ -1,6 +1,6 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@cajeerbots/db';
-import type { Principal } from '@cajeerbots/security';
+import { canAccessCommunity, type Principal } from '@cajeerbots/security';
 import type { BotMode, BotProvider } from '@cajeerbots/core';
 
 @Injectable()
@@ -8,11 +8,11 @@ export class BotAccountsService {
   constructor(private readonly prisma: PrismaService) {}
 
   list(communityId: string) {
-    return this.prisma.botAccount.findMany({ where: { communityId }, orderBy: { createdAt: 'desc' } });
+    return this.prisma.botAccount.findMany({ where: { communityId }, orderBy: { createdAt: 'desc' }, omit: { tokenRef: true } });
   }
 
   async get(communityId: string, id: string) {
-    const account = await this.prisma.botAccount.findFirst({ where: { id, communityId } });
+    const account = await this.prisma.botAccount.findFirst({ where: { id, communityId }, omit: { tokenRef: true } });
     if (!account) throw new NotFoundException('Bot account не найден');
     return account;
   }
@@ -22,8 +22,9 @@ export class BotAccountsService {
     data: { provider: BotProvider; mode: BotMode; externalId?: string; username?: string; tokenRef?: string; isActive: boolean },
     actor: Principal,
   ) {
+    if (!canAccessCommunity(actor)) throw new ForbiddenException('Настройка bot credentials доступна только platform admin');
     try {
-      const account = await this.prisma.botAccount.create({ data: { communityId, ...defined(data) } });
+      const account = await this.prisma.botAccount.create({ data: { communityId, ...defined(data) }, omit: { tokenRef: true } });
       await this.audit(actor, 'bot_account.create', account.id, { communityId, provider: data.provider, mode: data.mode });
       return account;
     } catch (error) {
@@ -38,8 +39,9 @@ export class BotAccountsService {
     data: Partial<{ mode: BotMode; externalId: string; username: string; tokenRef: string; isActive: boolean }>,
     actor: Principal,
   ) {
+    if (!canAccessCommunity(actor)) throw new ForbiddenException('Изменение bot accounts доступно только platform admin');
     await this.get(communityId, id);
-    const account = await this.prisma.botAccount.update({ where: { id }, data: defined(data) });
+    const account = await this.prisma.botAccount.update({ where: { id }, data: defined(data), omit: { tokenRef: true } });
     await this.audit(actor, 'bot_account.update', id, { communityId, fields: Object.keys(data) });
     return account;
   }

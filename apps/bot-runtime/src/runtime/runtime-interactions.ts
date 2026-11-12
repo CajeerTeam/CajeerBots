@@ -1,6 +1,6 @@
 import { renderStructuredMessage } from '@cajeerbots/message-core';
 import { PrismaService } from '@cajeerbots/db';
-import { InteractionRouter, type IncomingInteraction, type InteractionResponse } from '@cajeerbots/interaction-core';
+import { InteractionRouter, commandMatches, type IncomingInteraction, type InteractionResponse } from '@cajeerbots/interaction-core';
 import { DbExtensionRuntime } from '@cajeerbots/extension-runtime';
 import type { RuntimeBotAccount } from './load-bot-accounts.js';
 import { createOutboundMessage, markInboundHandled } from './runtime-records.js';
@@ -19,7 +19,7 @@ export async function configureRouterFromDatabase(prisma: PrismaService, router:
 
   router.register('status', async (interaction) => ({
     templateKey: 'system.status',
-    variables: { status: 'ok', version: process.env.npm_package_version ?? '1.0.0-rc.2', communityId: String(interaction.payload.communityId ?? '') },
+    variables: { status: 'ok', version: process.env.npm_package_version ?? '1.0.0-rc.3', communityId: String(interaction.payload.communityId ?? '') },
   }));
 
   router.register('help', async (interaction) => ({
@@ -55,7 +55,7 @@ export async function dispatchRuntimeInteraction(
   options: { inboundUpdateId?: string; targetId?: string } = {},
 ): Promise<RenderedBotResponse | undefined> {
   const normalized: IncomingInteraction = {
-    provider: interaction.provider ?? account.provider,
+    provider: account.provider,
     type: interaction.type,
     name: interaction.name,
     userId: interaction.userId,
@@ -76,9 +76,32 @@ export async function dispatchRuntimeInteraction(
   });
 
   try {
-    const response = await router.dispatch(normalized);
+    if (!account.id.startsWith('env:')) {
+      const active = await prisma.botAccount.findFirst({ where: { id: account.id, communityId: account.communityId, provider: account.provider, mode: account.mode, isActive: true, tokenRef: account.tokenRef } });
+      if (!active) throw new Error('Bot account disabled');
+    }
+    const commands = await prisma.interactionCommand.findMany({ where: { communityId: account.communityId, OR: [{ provider: account.provider }, { provider: null }] } });
+    const command = commands.find((entry) => commandMatches({ ...entry, isEnabled: true }, normalized.provider, normalized.name ?? ''));
+    const callback = normalized.type === 'callback' && normalized.name ? await prisma.interactionCallbackAction.findUnique({ where: { communityId_code: { communityId: account.communityId, code: normalized.name } } }) : null;
+    if (command?.isEnabled === false || callback?.isActive === false) {
+      await prisma.interactionEvent.update({ where: { id: event.id }, data: { status: 'ignored' } });
+      if (options.inboundUpdateId) await markInboundHandled(prisma, options.inboundUpdateId, 'ignored');
+      return undefined;
+    }
+    const required = [...(command?.scopes ?? []), ...(callback?.scopes ?? [])];
+    if (normalized.name === 'debug' || command?.handler === 'debug') required.push('bot_runtime:read');
+    if (required.length) {
+      const user = await prisma.user.findUnique({ where: { communityId_provider_externalId: { communityId: account.communityId, provider: account.provider, externalId: normalized.userId } }, include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
+      const granted = new Set(user?.roles.filter(({ role }) => role.communityId === account.communityId).flatMap(({ role }) => role.permissions.map(({ permission }) => permission.scope)) ?? []);
+      if (!required.every((scope) => granted.has(scope) || granted.has('*'))) {
+        await prisma.interactionEvent.update({ where: { id: event.id }, data: { status: 'ignored' } });
+        if (options.inboundUpdateId) await markInboundHandled(prisma, options.inboundUpdateId, 'ignored');
+        return undefined;
+      }
+    }
+    const response = await router.dispatch(normalized, command ?? null);
     const rendered = response ? await renderResponse(prisma, account.communityId, response, account.provider) : undefined;
-    if (rendered?.text) {
+    if (rendered?.text && account.provider !== 'discord') {
       const targetId = options.targetId ?? resolveTargetId(normalized.payload);
       if (targetId) {
         const outbound = await createOutboundMessage(prisma, account, { inboundUpdateId: options.inboundUpdateId, targetId, text: rendered.text, buttons: rendered.buttons });
@@ -87,15 +110,15 @@ export async function dispatchRuntimeInteraction(
       }
     }
     const updated = await prisma.interactionEvent.update({ where: { id: event.id }, data: { status: rendered ? 'handled' : 'ignored', response: rendered as never } });
+    await new DbExtensionRuntime(prisma).enqueueHook({ hook: 'interaction.handled', idempotencyKey: options.inboundUpdateId || event.id, payload: { communityId: account.communityId, event: updated, interaction: normalized, response: rendered } });
     if (options.inboundUpdateId) await markInboundHandled(prisma, options.inboundUpdateId, rendered ? 'handled' : 'ignored');
-    await new DbExtensionRuntime(prisma).enqueueHook({ hook: 'interaction.handled', payload: { communityId: account.communityId, event: updated, interaction: normalized, response: rendered } });
     return rendered;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const failed = await prisma.interactionEvent.update({ where: { id: event.id }, data: { status: 'failed', error: message } });
     if (options.inboundUpdateId) await markInboundHandled(prisma, options.inboundUpdateId, 'failed', message);
     await new DbExtensionRuntime(prisma).enqueueHook({ hook: 'interaction.failed', payload: { communityId: account.communityId, event: failed, interaction: normalized, error: message } });
-    return { text: 'Ошибка обработки команды. Подробности записаны в журнал взаимодействий.' };
+    return undefined;
   }
 }
 

@@ -4,6 +4,7 @@ export interface JwtPrincipalPayload {
   sub: string;
   typ: 'user' | 'api_key' | 'system' | 'extension';
   scopes: string[];
+  sid?: string;
   iat: number;
   exp: number;
 }
@@ -42,6 +43,7 @@ export function signJwt(
 }
 
 export function verifyJwt(token: string, secret: string): JwtPrincipalPayload | null {
+  if (!secret || token.split('.').length !== 3) return null;
   const [header, payload, signature] = token.split('.');
   if (!header || !payload || !signature) return null;
   const expected = hmac(`${header}.${payload}`, secret);
@@ -50,7 +52,9 @@ export function verifyJwt(token: string, secret: string): JwtPrincipalPayload | 
   if (parsedHeader?.['alg'] !== 'HS256') return null;
   const parsed = parseJson<JwtPrincipalPayload>(payload);
   if (!parsed || typeof parsed.sub !== 'string' || !Array.isArray(parsed.scopes)) return null;
-  if (parsed.exp < Math.floor(Date.now() / 1000)) return null;
+  if (parsed.sid !== undefined && typeof parsed.sid !== 'string') return null;
+  if (!parsed.scopes.every((scope) => typeof scope === 'string') || !['user', 'api_key', 'system', 'extension'].includes(parsed.typ)) return null;
+  if (!Number.isSafeInteger(parsed.exp) || !Number.isSafeInteger(parsed.iat) || parsed.exp <= Math.floor(Date.now() / 1000) || parsed.iat > Math.floor(Date.now() / 1000) + 30) return null;
   return parsed;
 }
 

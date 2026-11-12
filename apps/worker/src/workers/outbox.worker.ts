@@ -1,6 +1,6 @@
 import { SerialPoller } from '@cajeerbots/core';
 import { PrismaService } from '@cajeerbots/db';
-import { signPayload } from '@cajeerbots/security';
+import { signPayload, safeHttpRequest } from '@cajeerbots/security';
 
 export interface OutboxWorkerOptions {
   pollIntervalMs?: number;
@@ -21,7 +21,7 @@ export class OutboxWorker {
     await this.prisma.connect();
     this.poller = new SerialPoller(this.options.pollIntervalMs ?? 5000, () => this.tick(), (error) => console.error('[worker] outbox.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
     await this.poller.start();
-    console.log('[worker] outbox worker 1.0.0-rc.2 started');
+    console.log('[worker] outbox worker 1.0.0-rc.3 started');
   }
 
   async stop(): Promise<void> {
@@ -34,7 +34,7 @@ export class OutboxWorker {
     this.running = true;
     try {
       const messages = await this.prisma.outboxMessage.findMany({
-        where: { status: { in: ['pending', 'failed'] }, availableAt: { lte: new Date() } },
+        where: { status: { in: ['pending', 'failed', 'processing'] }, availableAt: { lte: new Date() } },
         orderBy: { createdAt: 'asc' },
         take: this.options.batchSize ?? 25,
       });
@@ -46,88 +46,39 @@ export class OutboxWorker {
 
   private async deliver(id: string): Promise<void> {
     const maxAttempts = this.options.maxAttempts ?? 8;
-    const message = await this.prisma.outboxMessage.update({
-      where: { id },
-      data: { status: 'processing', attempts: { increment: 1 } },
-    });
-
-    const endpoints = await this.prisma.webhookEndpoint.findMany({
-      where: { isActive: true, OR: [{ events: { has: message.topic } }, { events: { has: '*' } }] },
-    });
-
-    if (endpoints.length === 0) {
-      await this.prisma.outboxMessage.update({
-        where: { id },
-        data: { status: 'delivered', deliveredAt: new Date(), headers: { ...(asRecord(message.headers)), noEndpoints: true } as never },
-      });
-      return;
+    const lease = new Date(Date.now() + 300_000);
+    const claimed = await this.prisma.outboxMessage.updateMany({ where: { id, status: { in: ['pending', 'failed', 'processing'] }, availableAt: { lte: new Date() } }, data: { status: 'processing', availableAt: lease, attempts: { increment: 1 } } });
+    if (!claimed.count) return;
+    const message = await this.prisma.outboxMessage.findUniqueOrThrow({ where: { id } });
+    // Materialize the delivery set once. A retry never re-sends a successful endpoint.
+    const existing = await this.prisma.webhookDelivery.count({ where: { outboxMessageId: id } });
+    if (!existing) {
+      const endpoints = await this.prisma.webhookEndpoint.findMany({ where: { isActive: true, communityId: message.communityId, OR: [{ events: { has: message.topic } }, { events: { has: '*' } }] } });
+      await this.prisma.webhookDelivery.createMany({ data: endpoints.map((endpoint) => ({ outboxMessageId: id, endpointId: endpoint.id })), skipDuplicates: true });
     }
-
-    const body = JSON.stringify(message.payload);
-    const results = [] as Array<{ ok: boolean; error?: string }>;
-
-    for (const endpoint of endpoints) {
-      const delivery = await this.prisma.webhookDelivery.upsert({
-        where: { outboxMessageId_endpointId: { outboxMessageId: id, endpointId: endpoint.id } },
-        create: { outboxMessageId: id, endpointId: endpoint.id, status: 'processing', attempts: 1 },
-        update: { status: 'processing', attempts: { increment: 1 }, lastError: null, responseStatus: null, responseBody: null },
-      });
-
+    const deliveries = await this.prisma.webhookDelivery.findMany({ where: { outboxMessageId: id, status: { in: ['pending', 'failed', 'processing'] }, availableAt: { lte: new Date() } }, include: { endpoint: true } });
+    for (const delivery of deliveries) {
+      const renewed = await this.prisma.outboxMessage.updateMany({ where: { id, status: 'processing', attempts: message.attempts }, data: { availableAt: new Date(Date.now() + 300_000) } });
+      if (!renewed.count) return;
+      const claim = await this.prisma.webhookDelivery.updateMany({ where: { id: delivery.id, status: { in: ['pending', 'failed', 'processing'] }, availableAt: { lte: new Date() } }, data: { status: 'processing', attempts: { increment: 1 }, availableAt: new Date(Date.now() + 300_000) } });
+      if (!claim.count) continue;
+      const attempts = delivery.attempts + 1;
+      const where = { id: delivery.id, status: 'processing' as const, attempts };
       try {
-        const headers: Record<string, string> = {
-          'content-type': 'application/json',
-          'x-cajeer-event': message.topic,
-          'x-cajeer-outbox-id': id,
-          'x-cajeer-delivery-id': delivery.id,
-        };
-        if (endpoint.secretRef) headers['x-cajeer-signature'] = signPayload(body, endpoint.secretRef);
-        const response = await fetch(endpoint.url, { method: 'POST', headers, body });
-        const responseBody = await safeResponseBody(response);
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${responseBody}`);
-        await this.prisma.webhookDelivery.update({
-          where: { id: delivery.id },
-          data: { status: 'delivered', responseStatus: response.status, responseBody, deliveredAt: new Date(), lastError: null },
-        });
-        results.push({ ok: true });
+        if (!delivery.endpoint.isActive || delivery.endpoint.communityId !== message.communityId || attempts > maxAttempts) throw new Error('Endpoint disabled or attempts exhausted');
+        const body = JSON.stringify(message.payload);
+        const headers: Record<string, string> = { 'content-type': 'application/json', 'x-cajeer-event': message.topic, 'x-cajeer-outbox-id': id, 'x-cajeer-delivery-id': delivery.id };
+        if (delivery.endpoint.secretRef) headers['x-cajeer-signature'] = signPayload(body, delivery.endpoint.secretRef);
+        const response = await safeHttpRequest(delivery.endpoint.url, { method: 'POST', headers, body });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        await this.prisma.webhookDelivery.updateMany({ where, data: { status: 'delivered', responseStatus: response.status, responseBody: await response.text(), deliveredAt: new Date(), lastError: null } });
       } catch (error) {
-        const nextAttempts = delivery.attempts;
-        const dead = nextAttempts >= maxAttempts;
-        const message = (error as Error).message;
-        await this.prisma.webhookDelivery.update({
-          where: { id: delivery.id },
-          data: {
-            status: dead ? 'dead' : 'failed',
-            availableAt: new Date(Date.now() + Math.min(300_000, 2 ** nextAttempts * 1000)),
-            lastError: message,
-          },
-        });
-        results.push({ ok: false, error: message });
+        await this.prisma.webhookDelivery.updateMany({ where, data: { status: attempts >= maxAttempts ? 'dead' : 'failed', lastError: error instanceof Error ? error.message : 'Delivery failed', availableAt: new Date(Date.now() + Math.min(300_000, 2 ** attempts * 1000)) } });
       }
     }
-
-    const failed = results.filter((result) => !result.ok);
-    if (failed.length === 0) {
-      await this.prisma.outboxMessage.update({ where: { id }, data: { status: 'delivered', deliveredAt: new Date() } });
-      return;
-    }
-
-    const dead = message.attempts + 1 >= maxAttempts;
-    await this.prisma.outboxMessage.update({
-      where: { id },
-      data: {
-        status: dead ? 'dead' : 'failed',
-        availableAt: new Date(Date.now() + Math.min(300_000, 2 ** (message.attempts + 1) * 1000)),
-        headers: { ...asRecord(message.headers), lastErrors: failed.map((item) => item.error) } as never,
-      },
-    });
+    const remaining = await this.prisma.webhookDelivery.findMany({ where: { outboxMessageId: id, status: { not: 'delivered' } }, orderBy: { availableAt: 'asc' } });
+    const retry = remaining.find((delivery) => delivery.status !== 'dead');
+    await this.prisma.outboxMessage.updateMany({ where: { id, status: 'processing', attempts: message.attempts }, data: { status: retry ? 'failed' : remaining.length ? 'dead' : 'delivered', availableAt: retry?.availableAt ?? new Date(), deliveredAt: remaining.length ? null : new Date() } });
   }
 }
 
-async function safeResponseBody(response: Response): Promise<string> {
-  const text = await response.text();
-  return text.slice(0, 4000);
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}

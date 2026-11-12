@@ -156,6 +156,7 @@ export class InteractionsService {
   }
 
   async recordEvent(communityId: string, input: RecordInteractionEvent) {
+    if (input.accountId && !await this.prisma.botAccount.findFirst({ where: { id: input.accountId, communityId, provider: input.provider } })) throw new NotFoundException('Bot account не найден');
     const event = await this.prisma.interactionEvent.create({
       data: {
         communityId,

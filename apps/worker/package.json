@@ -1,6 +1,6 @@
 {
   "name": "@cajeerbots/worker",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -21,7 +21,8 @@
     "@cajeerbots/storage": "workspace:*",
     "@cajeerbots/observability": "workspace:*",
     "@cajeerbots/integration-tests": "workspace:*",
-    "@cajeerbots/config": "workspace:*"
+    "@cajeerbots/config": "workspace:*",
+    "@cajeerbots/message-core": "workspace:*"
   },
   "main": "dist/main.js"
 }

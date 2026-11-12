@@ -6,7 +6,7 @@ import { checkEngineCompatibility, type ExtensionManifest } from '@cajeerbots/ex
 import { compareSemver, latestVersion, parseRegistryManifest, type RegistryChannel, type RegistryManifest } from '@cajeerbots/registry';
 import type { Principal } from '@cajeerbots/security';
 
-const ENGINE_API_VERSION = '1.0.0-rc.2';
+const ENGINE_API_VERSION = '1.0.0-rc.3';
 
 @Injectable()
 export class RegistryService {

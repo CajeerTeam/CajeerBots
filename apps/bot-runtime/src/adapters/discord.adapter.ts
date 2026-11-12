@@ -25,6 +25,7 @@ export class DiscordAdapter implements BotAdapter {
 
     this.client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
     this.client.on('interactionCreate', async (interaction) => {
+      try {
       if (interaction.isChatInputCommand()) {
         const inbound = await recordInboundUpdate(prisma, account, {
           providerUpdateId: interaction.id,
@@ -42,11 +43,11 @@ export class DiscordAdapter implements BotAdapter {
         }, { inboundUpdateId: inbound.id, targetId: interaction.channelId ?? undefined });
         if (response?.text) {
           try {
-            await interaction.reply({ content: response.text, components: renderProviderButtons('discord', response.buttons) as never, ephemeral: response.ephemeral ?? true });
+            await interaction.reply({ content: response.text, components: renderProviderButtons('discord', response.buttons) as never, ephemeral: response.ephemeral ?? true, allowedMentions: { parse: [] } });
             if (response.outboundMessageId) await markOutboundSent(prisma, response.outboundMessageId, interaction.id);
           } catch (error) {
             if (response.outboundMessageId) await markOutboundFailed(prisma, response.outboundMessageId, error);
-            throw error;
+            console.error('[discord] reply failed', error instanceof Error ? error.name : 'unknown');
           }
         }
       }
@@ -67,14 +68,15 @@ export class DiscordAdapter implements BotAdapter {
         }, { inboundUpdateId: inbound.id, targetId: interaction.channelId ?? undefined });
         if (response?.text) {
           try {
-            await interaction.reply({ content: response.text, components: renderProviderButtons('discord', response.buttons) as never, ephemeral: response.ephemeral ?? true });
+            await interaction.reply({ content: response.text, components: renderProviderButtons('discord', response.buttons) as never, ephemeral: response.ephemeral ?? true, allowedMentions: { parse: [] } });
             if (response.outboundMessageId) await markOutboundSent(prisma, response.outboundMessageId, interaction.id);
           } catch (error) {
             if (response.outboundMessageId) await markOutboundFailed(prisma, response.outboundMessageId, error);
-            throw error;
+            console.error('[discord] reply failed', error instanceof Error ? error.name : 'unknown');
           }
         }
       }
+      } catch (error) { console.error('[discord] interaction failed', error instanceof Error ? error.name : 'unknown'); }
     });
 
     if (account.mode === 'polling') await this.client.login(account.token);

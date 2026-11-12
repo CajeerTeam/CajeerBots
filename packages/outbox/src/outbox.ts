@@ -14,7 +14,7 @@ export interface OutboxMessageRecord {
 
 interface PrismaLikeOutboxClient {
   outboxMessage: {
-    create(args: { data: { topic: string; payload: unknown; headers?: unknown } }): Promise<{ id: string }>;
+    create(args: { data: { topic: string; communityId?: string; payload: unknown; headers?: unknown } }): Promise<{ id: string }>;
   };
 }
 
@@ -25,6 +25,7 @@ export class PrismaOutboxPublisher implements OutboxPublisher {
     const created = await this.prisma.outboxMessage.create({
       data: {
         topic: options.topic ?? event.type,
+        communityId: typeof event.metadata?.communityId === 'string' ? event.metadata.communityId : undefined,
         payload: event,
         headers: options.headers ?? {},
       },

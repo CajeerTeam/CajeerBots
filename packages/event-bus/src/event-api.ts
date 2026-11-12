@@ -72,8 +72,8 @@ export function subscriptionAllowsEvent(filter: unknown, event: {
   metadata?: unknown;
 }): boolean {
   const parsed = parseFilter(filter);
+  if ((parsed?.communityId ?? null) !== (event.communityId ?? null)) return false;
   if (!parsed) return true;
-  if (parsed.communityId && parsed.communityId !== event.communityId) return false;
   if (parsed.source && parsed.source !== event.source) return false;
   if (parsed.aggregateType && parsed.aggregateType !== event.aggregateType) return false;
   if (parsed.aggregateId && parsed.aggregateId !== event.aggregateId) return false;

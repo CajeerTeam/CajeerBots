@@ -24,7 +24,7 @@ export class ExtensionEventWorker {
     await this.prisma.connect();
     this.poller = new SerialPoller(this.options.pollIntervalMs ?? 5000, () => this.tick(), (error) => console.error('[worker] extensions.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
     await this.poller.start();
-    console.log('[worker] extension runtime worker 1.0.0-rc.2 started');
+    console.log('[worker] extension runtime worker 1.0.0-rc.3 started');
   }
 
   async stop(): Promise<void> {

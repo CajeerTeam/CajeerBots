@@ -6,7 +6,7 @@ import { evaluateSdkCoverage } from './coverage.js';
 const openApi = `openapi: 3.1.1
 info:
   title: CajeerBots API
-  version: 1.0.0-rc.2
+  version: 1.0.0-rc.3
 paths:
   /api/health:
     get:

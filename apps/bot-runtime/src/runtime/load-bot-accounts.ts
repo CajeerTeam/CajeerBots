@@ -8,20 +8,26 @@ export interface RuntimeBotAccount {
   mode: 'polling' | 'webhook';
   username?: string | null;
   token: string;
+  tokenRef?: string | null;
 }
 
 export async function loadRuntimeBotAccounts(prisma: PrismaService, fallbackMode: 'polling' | 'webhook'): Promise<RuntimeBotAccount[]> {
   const accounts = await prisma.botAccount.findMany({ where: { isActive: true }, orderBy: { createdAt: 'asc' } });
   const loaded: RuntimeBotAccount[] = [];
+  const identities = new Set<string>();
   for (const account of accounts) {
     const token = await resolveTokenRef(prisma, account.tokenRef);
     if (!token) {
       console.warn(`[bot-runtime] account=${account.id} provider=${account.provider} пропущен: tokenRef пустой или не резолвится`);
       continue;
     }
-    loaded.push({ id: account.id, communityId: account.communityId, provider: account.provider, mode: account.mode, username: account.username, token });
+    const identity = `${account.provider}:${token}`;
+    if (identities.has(identity)) throw new Error('Duplicate bot credentials across accounts');
+    identities.add(identity);
+    loaded.push({ tokenRef: account.tokenRef, id: account.id, communityId: account.communityId, provider: account.provider, mode: account.mode, username: account.username, token });
   }
 
+  if (process.env.NODE_ENV === 'production') return loaded;
   const fallbackCommunityId = await resolveFallbackCommunityId(prisma);
   if (!fallbackCommunityId) return loaded;
 
@@ -38,7 +44,7 @@ export async function loadRuntimeBotAccounts(prisma: PrismaService, fallbackMode
 }
 
 async function resolveFallbackCommunityId(prisma: PrismaService): Promise<string | undefined> {
-  if (process.env.CAJEER_DEFAULT_COMMUNITY_ID) return process.env.CAJEER_DEFAULT_COMMUNITY_ID;
-  const community = await prisma.community.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true } });
+  if (!process.env.CAJEER_DEFAULT_COMMUNITY_ID) return undefined;
+  const community = await prisma.community.findUnique({ where: { id: process.env.CAJEER_DEFAULT_COMMUNITY_ID }, select: { id: true } });
   return community?.id;
 }

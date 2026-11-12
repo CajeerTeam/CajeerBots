@@ -21,7 +21,7 @@ export class SchedulerWorker {
     await this.prisma.connect();
     this.poller = new SerialPoller(this.options.pollIntervalMs ?? Number(process.env.SCHEDULER_WORKER_INTERVAL_MS ?? 10000), () => this.tick(), (error) => console.error('[worker] scheduler.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
     await this.poller.start();
-    console.log('[worker] scheduler worker 1.0.0-rc.2 started');
+    console.log('[worker] scheduler worker 1.0.0-rc.3 started');
   }
 
   async stop(): Promise<void> {
@@ -48,7 +48,7 @@ export class SchedulerWorker {
   async runJob(jobId: string): Promise<void> {
     const now = new Date();
     const lockUntil = new Date(now.getTime() + (this.options.lockSeconds ?? Number(process.env.SCHEDULER_LOCK_SECONDS ?? 600)) * 1000);
-    const locked = await this.prisma.scheduledJob.updateMany({ where: { id: jobId, OR: [{ lockUntil: null }, { lockUntil: { lt: now } }] }, data: { lockUntil } });
+    const locked = await this.prisma.scheduledJob.updateMany({ where: { id: jobId, isEnabled: true, nextRunAt: { lte: now }, OR: [{ lockUntil: null }, { lockUntil: { lt: now } }] }, data: { lockUntil } });
     if (locked.count === 0) return;
 
     const job = await this.prisma.scheduledJob.findUniqueOrThrow({ where: { id: jobId } });

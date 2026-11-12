@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '@cajeerbots/db';
-import { hashApiToken, hasScope, verifyJwt, type Principal } from '@cajeerbots/security';
+import { hashApiToken, hasScope, verifyJwt, canAccessCommunity, safeCompareSecret, type Principal } from '@cajeerbots/security';
 import { getHeader, type AuthenticatedRequest } from './auth-context.js';
 import { SCOPES_KEY } from './scopes.decorator.js';
 
@@ -18,6 +18,10 @@ export class ScopedAuthGuard implements CanActivate {
     const principal = await this.authenticate(request);
     request.principal = principal;
 
+    const params = request.params ?? {};
+    const communityId = params.communityId ?? (context.getClass().name === 'CommunitiesController' ? params.id : undefined);
+    const platformOnly = ['ImportExportController', 'CommunityBackupsController'].includes(context.getClass().name);
+    if (!canAccessCommunity(principal, platformOnly ? undefined : communityId)) throw new ForbiddenException({ code: 'COMMUNITY_ACCESS_DENIED' });
     if (required.length === 0) return true;
     const denied = required.filter((scope) => !hasScope(principal, scope));
     if (denied.length > 0) throw new ForbiddenException({ code: 'SCOPE_DENIED', required: denied });
@@ -30,13 +34,17 @@ export class ScopedAuthGuard implements CanActivate {
     const xApiKey = getHeader(request.headers, 'x-api-key');
     const adminToken = process.env.CAJEER_ADMIN_TOKEN;
 
-    if (adminToken && (xApiKey === adminToken || bearer === adminToken)) {
+    if (adminToken && (safeCompareSecret(xApiKey ?? "", adminToken) || safeCompareSecret(bearer ?? "", adminToken))) {
       return { id: 'bootstrap-admin', type: 'system', scopes: ['*'] };
     }
 
     if (bearer?.includes('.')) {
       const payload = verifyJwt(bearer, process.env.JWT_SECRET ?? '');
-      if (payload) return { id: payload.sub, type: payload.typ, scopes: payload.scopes };
+      if (payload?.typ === 'user' && payload.sid) {
+        const session = await this.prisma.adminSession.findFirst({ where: { id: payload.sid, accountId: payload.sub, revokedAt: null, expiresAt: { gt: new Date() } }, include: { account: true } });
+        if (session?.account.isActive) return { id: session.account.id, type: 'user', scopes: session.account.scopes };
+      }
+      if (payload?.typ === 'system' && payload.sub === 'bootstrap-admin') return { id: payload.sub, type: payload.typ, scopes: payload.scopes };
     }
 
     const rawApiToken = xApiKey ?? (bearer && !bearer.includes('.') ? bearer : undefined);

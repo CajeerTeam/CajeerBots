@@ -1,6 +1,6 @@
 {
   "name": "@cajeerbots/scheduler",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -19,6 +19,8 @@
     "@cajeerbots/release-gates": "workspace:*",
     "@cajeerbots/integration-tests": "workspace:*",
     "@cajeerbots/security-audit": "workspace:*",
-    "@cajeerbots/release-candidate": "workspace:*"
+    "@cajeerbots/release-candidate": "workspace:*",
+    "@cajeerbots/security": "workspace:*",
+    "@cajeerbots/event-bus": "workspace:*"
   }
 }

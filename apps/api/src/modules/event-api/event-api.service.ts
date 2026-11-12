@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { isDeepStrictEqual } from 'node:util';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@cajeerbots/db';
 import { createDurableEventEnvelope, eventFingerprint, matchesTopicPattern, subscriptionAllowsEvent } from '@cajeerbots/event-bus';
 import type { Principal } from '@cajeerbots/security';
@@ -67,8 +68,10 @@ export class EventApiService {
     });
     if (!topic.isActive) throw new BadRequestException(`Topic ${topicName} отключён`);
 
+    if (input.communityId && !await this.prisma.community.findUnique({ where: { id: input.communityId } })) throw new NotFoundException('Community not found');
+    const eventId = input.id ?? eventFingerprint({ ...input, topic: topicName, source: input.source ?? 'api' });
     const envelope = createDurableEventEnvelope({
-      id: input.id,
+      id: eventId,
       type: input.type,
       topic: topicName,
       source: input.source ?? 'api',
@@ -79,8 +82,6 @@ export class EventApiService {
       metadata: input.metadata,
       headers: input.headers,
     });
-    const eventId = input.id ?? eventFingerprint({ ...input, topic: topicName, source: input.source ?? 'api' });
-
     return this.prisma.$transaction(async (tx) => {
       const record = await tx.eventRecord.upsert({
         where: { eventId },
@@ -100,6 +101,7 @@ export class EventApiService {
         update: {},
       });
 
+      if (record.communityId !== (input.communityId ?? null) || record.topicName !== topicName || record.type !== input.type || record.source !== (input.source ?? 'api') || record.aggregateType !== (input.aggregateType ?? null) || record.aggregateId !== (input.aggregateId ?? null) || !isDeepStrictEqual((record.payload as { payload?: unknown }).payload, input.payload)) throw new ConflictException('Event ID already belongs to another event');
       const subscriptions = await tx.eventSubscription.findMany({ where: { isActive: true } });
       const matched = subscriptions.filter((subscription) => matchesTopicPattern(subscription.topicPattern, topicName) && subscriptionAllowsEvent(subscription.filters, record));
       for (const subscription of matched) {
@@ -112,7 +114,7 @@ export class EventApiService {
 
       let outboxId: string | null = null;
       if (input.fanoutToOutbox) {
-        const outbox = await tx.outboxMessage.create({ data: { topic: topicName, payload: envelope as never, headers: { ...(input.headers ?? {}), source: 'event_api', eventRecordId: record.id } as never } });
+        const outbox = await tx.outboxMessage.upsert({ where: { id: record.outboxMessageId ?? `event-${record.id}` }, update: {}, create: { id: record.outboxMessageId ?? `event-${record.id}`, topic: topicName, communityId: record.communityId, payload: record.payload as never, headers: { ...(input.headers ?? {}), source: 'event_api', eventRecordId: record.id } as never } });
         outboxId = outbox.id;
         await tx.eventRecord.update({ where: { id: record.id }, data: { outboxMessageId: outbox.id } });
       }
@@ -163,7 +165,7 @@ export class EventApiService {
         await tx.eventSubscriptionDelivery.upsert({
           where: { subscriptionId_eventRecordId: { subscriptionId: subscription.id, eventRecordId: event.id } },
           create: { subscriptionId: subscription.id, eventRecordId: event.id, status: 'pending', availableAt: new Date() },
-          update: { status: 'pending', availableAt: new Date(), lastError: null, lockedAt: null },
+          update: {},
         });
       }
       await tx.eventRecord.update({ where: { id }, data: { replayCount: { increment: 1 }, replayedAt: new Date() } });
@@ -233,7 +235,9 @@ export class EventApiService {
   async retryDelivery(id: string, resetAttempts: boolean, actor: Principal) {
     const delivery = await this.prisma.eventSubscriptionDelivery.findUnique({ where: { id } });
     if (!delivery) throw new NotFoundException('Delivery не найден');
-    const updated = await this.prisma.eventSubscriptionDelivery.update({ where: { id }, data: { status: 'pending', availableAt: new Date(), lockedAt: null, lastError: null, ...(resetAttempts ? { attempts: 0 } : {}) } });
+    const changed = await this.prisma.eventSubscriptionDelivery.updateMany({ where: { id, status: { in: ['failed', 'dead'] } }, data: { status: 'pending', availableAt: new Date(), lockedAt: null, lastError: null, ...(resetAttempts ? { attempts: 0 } : {}) } });
+    if (!changed.count) throw new ConflictException('Only failed or dead deliveries can be retried');
+    const updated = await this.prisma.eventSubscriptionDelivery.findUniqueOrThrow({ where: { id } });
     await this.prisma.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action: 'event.delivery.retry', resource: 'event_subscription_delivery', resourceId: id } });
     return updated;
   }

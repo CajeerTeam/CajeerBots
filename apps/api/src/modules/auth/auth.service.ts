@@ -24,8 +24,7 @@ export class AuthService {
 
   async issueToken(input: { adminToken?: string; scopes: string[]; ttlSeconds?: number }) {
     const expected = process.env.CAJEER_ADMIN_TOKEN;
-    if (expected && input.adminToken !== expected) throw new UnauthorizedException('Некорректный bootstrap admin token');
-    if (!expected && process.env.NODE_ENV === 'production') throw new BadRequestException('CAJEER_ADMIN_TOKEN обязателен в production');
+    if (!expected || input.adminToken !== expected) throw new UnauthorizedException('Некорректный bootstrap admin token');
 
     const ttlSeconds = input.ttlSeconds ?? Number(process.env.JWT_ACCESS_TTL_SECONDS ?? 3600);
     const issued = signJwt({ sub: 'bootstrap-admin', typ: 'system', scopes: normalizeScopes(input.scopes) }, requireJwtSecret(), ttlSeconds);
@@ -35,8 +34,7 @@ export class AuthService {
 
   async bootstrapAdmin(input: { adminToken?: string; email: string; password: string; displayName?: string; scopes: string[] }, context: RequestContext = {}) {
     const expected = process.env.CAJEER_ADMIN_TOKEN;
-    if (expected && input.adminToken !== expected) throw new UnauthorizedException('Некорректный bootstrap admin token');
-    if (!expected && process.env.NODE_ENV === 'production') throw new BadRequestException('CAJEER_ADMIN_TOKEN обязателен в production');
+    if (!expected || input.adminToken !== expected) throw new UnauthorizedException('Некорректный bootstrap admin token');
 
     const accounts = await this.prisma.adminAccount.count();
     if (accounts > 0 && input.adminToken !== expected) throw new ForbiddenException('Bootstrap admin доступен только с CAJEER_ADMIN_TOKEN');
@@ -83,12 +81,10 @@ export class AuthService {
     if (!session || !session.account.isActive) throw new UnauthorizedException('Refresh session недействительна');
 
     const rotated = createRefreshToken();
-    const access = signJwt({ sub: session.accountId, typ: 'user', scopes: normalizeScopes(session.account.scopes) }, requireJwtSecret(), accessTtlSeconds());
-    const updated = await this.prisma.adminSession.update({
-      where: { id: session.id },
-      data: { refreshTokenHash: hashApiToken(rotated, refreshPepper), lastUsedAt: now, userAgent: context.userAgent ?? session.userAgent, ip: context.ip ?? session.ip },
-      select: adminSessionSelect(),
-    });
+    const access = signJwt({ sub: session.accountId, typ: 'user', sid: session.id, scopes: normalizeScopes(session.account.scopes) }, requireJwtSecret(), accessTtlSeconds());
+    const changed = await this.prisma.adminSession.updateMany({ where: { id: session.id, refreshTokenHash: refreshHash, revokedAt: null, expiresAt: { gt: now } }, data: { refreshTokenHash: hashApiToken(rotated, refreshPepper), lastUsedAt: now, userAgent: context.userAgent ?? session.userAgent, ip: context.ip ?? session.ip } });
+    if (!changed.count) throw new UnauthorizedException('Refresh session недействительна');
+    const updated = await this.prisma.adminSession.findUniqueOrThrow({ where: { id: session.id }, select: adminSessionSelect() });
     await this.audit({ actorType: 'user', actorId: session.accountId, action: 'auth.session.refresh', resource: 'admin_session', resourceId: session.id, ip: context.ip, userAgent: context.userAgent });
     return { accessToken: access.token, accessTokenExpiresAt: access.expiresAt, refreshToken: rotated, refreshTokenExpiresAt: updated.expiresAt, session: updated };
   }
@@ -112,6 +108,7 @@ export class AuthService {
   async createApiKey(input: { title: string; scopes: string[]; expiresAt?: string }, actor: Principal) {
     const pepper = process.env.API_TOKEN_PEPPER;
     if (!pepper) throw new BadRequestException('API_TOKEN_PEPPER не задан');
+    if (!actor.scopes.includes('*') && input.scopes.some((scope) => !actor.scopes.includes(scope))) throw new ForbiddenException('Нельзя делегировать отсутствующие полномочия');
     const material = createApiToken(pepper);
     const created = await this.prisma.apiKey.create({
       data: { title: input.title, keyHash: material.hash, scopes: normalizeScopes(input.scopes), ...(input.expiresAt ? { expiresAt: new Date(input.expiresAt) } : {}) },
@@ -231,7 +228,8 @@ export class AuthService {
       const codeHash = hashRecoveryCode(recoveryCode, recoveryCodePepper());
       const record = await this.prisma.recoveryCode.findFirst({ where: { accountId, codeHash, usedAt: null } });
       if (record) {
-        await this.prisma.recoveryCode.update({ where: { id: record.id }, data: { usedAt: new Date() } });
+        const claimed = await this.prisma.recoveryCode.updateMany({ where: { id: record.id, usedAt: null }, data: { usedAt: new Date() } });
+        if (!claimed.count) throw new UnauthorizedException('Recovery code already used');
         await this.audit({ actorType: 'user', actorId: accountId, action: 'auth.2fa.recovery_code.used', resource: 'admin_account', resourceId: accountId, ip: context.ip, userAgent: context.userAgent });
         return;
       }
@@ -243,7 +241,6 @@ export class AuthService {
   private async issueAdminSession(accountId: string, scopes: string[], context: RequestContext) {
     const refreshToken = createRefreshToken();
     const refreshTokenExpiresAt = new Date(Date.now() + refreshTtlSeconds() * 1000);
-    const access = signJwt({ sub: accountId, typ: 'user', scopes: normalizeScopes(scopes) }, requireJwtSecret(), accessTtlSeconds());
     const session = await this.prisma.adminSession.create({
       data: {
         accountId,
@@ -254,6 +251,7 @@ export class AuthService {
       },
       select: adminSessionSelect(),
     });
+    const access = signJwt({ sub: accountId, typ: 'user', sid: session.id, scopes: normalizeScopes(scopes) }, requireJwtSecret(), accessTtlSeconds());
     return { accessToken: access.token, accessTokenExpiresAt: access.expiresAt, refreshToken, refreshTokenExpiresAt, session };
   }
 

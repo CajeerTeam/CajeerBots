@@ -9,7 +9,7 @@ export function doctorCommand(): Command {
     .description('Проверить систему: БД, Redis, очереди, storage, настройки')
     .option('--with-db-query', 'проверить SELECT 1 через Prisma')
     .action(async (options: { withDbQuery?: boolean }) => {
-      console.log('CajeerBots Doctor 1.0.0-rc.2');
+      console.log('CajeerBots Doctor 1.0.0-rc.3');
       await print('node', async () => process.version);
       await print('database tcp', async () => checkTcp(process.env.DATABASE_URL, 5432));
       if (options.withDbQuery) await print('database query', checkPrisma);

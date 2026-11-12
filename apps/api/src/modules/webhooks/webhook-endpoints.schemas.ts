@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const createWebhookEndpointSchema = z.object({
+  communityId: z.string().min(1).optional(),
   title: z.string().min(2).max(120),
   url: z.string().url(),
   events: z.array(z.string().min(1)).min(1),

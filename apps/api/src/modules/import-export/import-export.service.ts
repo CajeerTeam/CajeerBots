@@ -52,7 +52,7 @@ export class ImportExportService {
 
     const payload = {
       kind: 'cajeerbots.community.export',
-      version: '1.0.0-rc.2',
+      version: '1.0.0-rc.3',
       exportedAt: new Date().toISOString(),
       community: { slug: community.slug, title: community.title, language: community.language },
       settings: settings.map(({ key, value }) => ({ key, value })),

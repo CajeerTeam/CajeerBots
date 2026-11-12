@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@cajeerbots/db';
 import type { Principal } from '@cajeerbots/security';
 
@@ -22,9 +22,12 @@ export class OutboxService {
   }
 
   async retry(id: string, actor: Principal) {
-    await this.get(id);
-    await this.prisma.webhookDelivery.updateMany({ where: { outboxMessageId: id, status: { in: ['failed', 'dead'] } }, data: { status: 'pending', availableAt: new Date(), lastError: null } });
-    const message = await this.prisma.outboxMessage.update({ where: { id }, data: { status: 'pending', availableAt: new Date() } });
+    const message = await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.outboxMessage.updateMany({ where: { id, status: { in: ['failed', 'dead'] } }, data: { status: 'pending', availableAt: new Date(), attempts: 0 } });
+      if (!changed.count) throw new ConflictException('Only failed or dead messages can be retried');
+      await tx.webhookDelivery.updateMany({ where: { outboxMessageId: id, status: { in: ['failed', 'dead'] } }, data: { status: 'pending', attempts: 0, availableAt: new Date(), lastError: null } });
+      return tx.outboxMessage.findUniqueOrThrow({ where: { id } });
+    });
     await this.prisma.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action: 'outbox.retry', resource: 'outbox_message', resourceId: id } });
     return message;
   }

@@ -51,12 +51,12 @@ export function eventApiCommand(): Command {
       let matched = 0;
       for (const subscription of subscriptions) {
         if (!matchesTopicPattern(subscription.topicPattern, topicName) || !subscriptionAllowsEvent(subscription.filters, record)) continue;
-        await prisma.eventSubscriptionDelivery.upsert({ where: { subscriptionId_eventRecordId: { subscriptionId: subscription.id, eventRecordId: record.id } }, create: { subscriptionId: subscription.id, eventRecordId: record.id }, update: { status: 'pending', availableAt: new Date(), lastError: null } });
+        await prisma.eventSubscriptionDelivery.upsert({ where: { subscriptionId_eventRecordId: { subscriptionId: subscription.id, eventRecordId: record.id } }, create: { subscriptionId: subscription.id, eventRecordId: record.id }, update: {} });
         matched += 1;
       }
       let outboxId: string | undefined;
       if (options.fanoutOutbox) {
-        const outbox = await prisma.outboxMessage.create({ data: { topic: topicName, payload: envelope as never, headers: { source: 'event_api_cli', eventRecordId: record.id } as never } });
+        const outbox = await prisma.outboxMessage.upsert({ where: { id: record.outboxMessageId ?? `event-${record.id}` }, update: {}, create: { id: record.outboxMessageId ?? `event-${record.id}`, topic: topicName, communityId: record.communityId, payload: record.payload as never, headers: { source: 'event_api_cli', eventRecordId: record.id } as never } });
         outboxId = outbox.id;
         await prisma.eventRecord.update({ where: { id: record.id }, data: { outboxMessageId: outbox.id } });
       }
@@ -81,7 +81,7 @@ export function eventApiCommand(): Command {
       let matched = 0;
       for (const subscription of subscriptions) {
         if (!matchesTopicPattern(subscription.topicPattern, record.topicName) || !subscriptionAllowsEvent(subscription.filters, record)) continue;
-        await prisma.eventSubscriptionDelivery.upsert({ where: { subscriptionId_eventRecordId: { subscriptionId: subscription.id, eventRecordId: record.id } }, create: { subscriptionId: subscription.id, eventRecordId: record.id }, update: { status: 'pending', availableAt: new Date(), lockedAt: null, lastError: null } });
+        await prisma.eventSubscriptionDelivery.upsert({ where: { subscriptionId_eventRecordId: { subscriptionId: subscription.id, eventRecordId: record.id } }, create: { subscriptionId: subscription.id, eventRecordId: record.id }, update: {} });
         matched += 1;
       }
       await prisma.eventRecord.update({ where: { id: options.id }, data: { replayCount: { increment: 1 }, replayedAt: new Date() } });
@@ -118,8 +118,9 @@ export function eventApiCommand(): Command {
     .requiredOption('--id <id>', 'delivery id')
     .option('--reset-attempts', 'обнулить счётчик попыток')
     .action(async (options: { id: string; resetAttempts?: boolean }) => withPrisma(async (prisma) => {
-      const row = await prisma.eventSubscriptionDelivery.update({ where: { id: options.id }, data: { status: 'pending', availableAt: new Date(), lockedAt: null, lastError: null, ...(options.resetAttempts ? { attempts: 0 } : {}) } });
-      console.log(JSON.stringify(row, null, 2));
+      const changed = await prisma.eventSubscriptionDelivery.updateMany({ where: { id: options.id, status: { in: ['failed', 'dead'] } }, data: { status: 'pending', availableAt: new Date(), lockedAt: null, lastError: null, ...(options.resetAttempts ? { attempts: 0 } : {}) } });
+      if (!changed.count) throw new Error('Only failed or dead deliveries can be retried');
+      console.log(JSON.stringify(await prisma.eventSubscriptionDelivery.findUniqueOrThrow({ where: { id: options.id } }), null, 2));
     }));
 
   command.command('dead-letter:list')

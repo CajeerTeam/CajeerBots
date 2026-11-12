@@ -16,11 +16,10 @@ export class InteractionRouter {
   findCommand(interaction: IncomingInteraction): PersistedInteractionCommand | undefined {
     const name = interaction.name;
     if (!name) return undefined;
-    return this.commands.find((command) => commandMatches(command, interaction.provider, name));
+    return this.commands.find((command) => command.communityId === interaction.payload.communityId && commandMatches(command, interaction.provider, name));
   }
 
-  async dispatch(interaction: IncomingInteraction): Promise<InteractionResponse | void> {
-    const persisted = this.findCommand(interaction);
+  async dispatch(interaction: IncomingInteraction, persisted: PersistedInteractionCommand | null | undefined = this.findCommand(interaction)): Promise<InteractionResponse | void> {
     const handlerKey = persisted?.handler ?? interaction.name ?? interaction.type;
     const handler = this.handlers.get(handlerKey) ?? this.handlers.get(interaction.name ?? '') ?? this.handlers.get(interaction.type);
     if (handler) return handler({ ...interaction, payload: { ...interaction.payload, command: persisted } });

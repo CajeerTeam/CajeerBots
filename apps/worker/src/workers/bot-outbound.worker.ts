@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { renderProviderButtons } from '@cajeerbots/message-core';
 import { SerialPoller } from '@cajeerbots/core';
 import { PrismaService } from '@cajeerbots/db';
 import { decryptSecret } from '@cajeerbots/security';
@@ -21,7 +23,7 @@ export class BotOutboundWorker {
     await this.prisma.connect();
     this.poller = new SerialPoller(this.options.pollIntervalMs ?? 5000, () => this.tick(), (error) => console.error('[worker] bot-outbound.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
     await this.poller.start();
-    console.log('[worker] bot outbound worker 1.0.0-rc.2 started');
+    console.log('[worker] bot outbound worker 1.0.0-rc.3 started');
   }
 
   async stop(): Promise<void> {
@@ -34,7 +36,7 @@ export class BotOutboundWorker {
     this.running = true;
     try {
       const rows = await this.prisma.botOutboundMessage.findMany({
-        where: { status: { in: ['pending', 'failed'] }, availableAt: { lte: new Date() } },
+        where: { status: { in: ['pending', 'failed', 'sending'] }, availableAt: { lte: new Date() } },
         orderBy: { createdAt: 'asc' },
         take: this.options.batchSize ?? 25,
         include: { account: true },
@@ -47,23 +49,30 @@ export class BotOutboundWorker {
 
   private async deliver(id: string): Promise<void> {
     const maxAttempts = this.options.maxAttempts ?? 8;
-    const row = await this.prisma.botOutboundMessage.update({ where: { id }, data: { status: 'sending' }, include: { account: true } });
+    const claim = await this.prisma.botOutboundMessage.updateMany({ where: { id, status: { in: ['pending', 'failed', 'sending'] }, availableAt: { lte: new Date() } }, data: { status: 'sending', attempts: { increment: 1 }, availableAt: new Date(Date.now() + 300_000) } });
+    if (!claim.count) return;
+    const row = await this.prisma.botOutboundMessage.findUniqueOrThrow({ where: { id }, include: { account: true } });
+    const where = { id, status: 'sending' as const, attempts: row.attempts };
+    if (row.provider === 'discord' || row.account.communityId !== row.communityId || row.account.provider !== row.provider) {
+      await this.prisma.botOutboundMessage.updateMany({ where, data: { status: 'dead', lastError: 'Invalid account binding or interaction-only response' } });
+      return;
+    }
     try {
+      if (!row.account.isActive || row.account.communityId !== row.communityId || row.account.provider !== row.provider || row.attempts > maxAttempts) throw new Error('Inactive, mismatched, exhausted or interaction-only account');
       const token = await this.resolveToken(row.account.tokenRef);
-      const providerMessageId = await sendText(row.provider, token, row.targetId, row.text);
-      await this.prisma.botOutboundMessage.update({
-        where: { id },
-        data: { status: 'sent', attempts: { increment: 1 }, providerMessageId, sentAt: new Date(), lastError: null },
+      const providerMessageId = await sendText(row.provider, token, row.targetId, row.text, row.buttons, row.id);
+      await this.prisma.botOutboundMessage.updateMany({
+        where,
+        data: { status: 'sent', providerMessageId, sentAt: new Date(), lastError: null },
       });
     } catch (error) {
-      const attempts = row.attempts + 1;
+      const attempts = row.attempts;
       const dead = attempts >= maxAttempts;
-      await this.prisma.botOutboundMessage.update({
-        where: { id },
+      await this.prisma.botOutboundMessage.updateMany({
+        where,
         data: {
           status: dead ? 'dead' : 'failed',
-          attempts: { increment: 1 },
-          lastError: error instanceof Error ? error.message : String(error),
+          lastError: error instanceof Error ? error.name : 'DeliveryError',
           availableAt: new Date(Date.now() + Math.min(300_000, 2 ** attempts * 1000)),
         },
       });
@@ -89,38 +98,46 @@ export class BotOutboundWorker {
   }
 }
 
-async function sendText(provider: 'telegram' | 'vk' | 'discord', token: string, targetId: string, text: string): Promise<string | undefined> {
-  if (provider === 'telegram') return sendTelegram(token, targetId, text);
-  if (provider === 'vk') return sendVk(token, targetId, text);
-  return sendDiscord(token, targetId, text);
+async function sendText(provider: 'telegram' | 'vk' | 'discord', token: string, targetId: string, text: string, buttons?: unknown, id?: string): Promise<string | undefined> {
+  if (provider === 'telegram') return sendTelegram(token, targetId, text, buttons);
+  if (provider === 'vk') return sendVk(token, targetId, text, buttons, id);
+  return sendDiscord(token, targetId, text, buttons);
 }
 
-async function sendTelegram(token: string, chatId: string, text: string): Promise<string | undefined> {
+async function sendTelegram(token: string, chatId: string, text: string, buttons?: unknown): Promise<string | undefined> {
+  const replyMarkup = renderProviderButtons('telegram', buttons);
   const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
+    method: 'POST', signal: AbortSignal.timeout(10_000), redirect: 'error',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true, ...(replyMarkup ? { reply_markup: replyMarkup } : {}) }),
   });
   const body = await response.json().catch(() => ({})) as { ok?: boolean; result?: { message_id?: number }; description?: string };
-  if (!response.ok || body.ok === false) throw new Error(body.description ?? `Telegram sendMessage failed: ${response.status}`);
+  if (!response.ok || body.ok !== true || !body.result?.message_id) throw new Error(`Telegram sendMessage failed: ${response.status}`);
   return body.result?.message_id ? String(body.result.message_id) : undefined;
 }
 
-async function sendVk(token: string, peerId: string, text: string): Promise<string | undefined> {
-  const params = new URLSearchParams({ access_token: token, v: '5.199', peer_id: peerId, random_id: String(Date.now()), message: text });
-  const response = await fetch('https://api.vk.com/method/messages.send', { method: 'POST', body: params });
+async function sendVk(token: string, peerId: string, text: string, buttons?: unknown, id?: string): Promise<string | undefined> {
+  const keyboard = renderProviderButtons('vk', buttons);
+  const params = new URLSearchParams({ access_token: token, v: '5.199', peer_id: peerId, random_id: String(id ? stableRandomId(id) : Math.floor(Math.random() * 2147483647) + 1), message: text });
+  if (keyboard) params.set('keyboard', JSON.stringify(keyboard));
+  const response = await fetch('https://api.vk.com/method/messages.send', { method: 'POST', signal: AbortSignal.timeout(10_000), redirect: 'error', body: params });
   const body = await response.json().catch(() => ({})) as { response?: number; error?: { error_msg?: string } };
-  if (!response.ok || body.error) throw new Error(body.error?.error_msg ?? `VK messages.send failed: ${response.status}`);
+  if (!response.ok || body.error || typeof body.response !== 'number') throw new Error(`VK messages.send failed: ${response.status}`);
   return body.response ? String(body.response) : undefined;
 }
 
-async function sendDiscord(token: string, channelId: string, text: string): Promise<string | undefined> {
+async function sendDiscord(token: string, channelId: string, text: string, buttons?: unknown): Promise<string | undefined> {
+  if (!/^\d{1,22}$/.test(channelId)) throw new Error('Invalid Discord channel ID');
+  const components = renderProviderButtons('discord', buttons);
   const response = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-    method: 'POST',
+    method: 'POST', signal: AbortSignal.timeout(10_000), redirect: 'error',
     headers: { authorization: `Bot ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ content: text }),
+    body: JSON.stringify({ content: text, ...(components ? { components } : {}) }),
   });
   const body = await response.json().catch(() => ({})) as { id?: string; message?: string };
-  if (!response.ok) throw new Error(body.message ?? `Discord send message failed: ${response.status}`);
+  if (!response.ok || !body.id) throw new Error(`Discord send message failed: ${response.status}`);
   return body.id;
 }
+
+
+function stableRandomId(id: string): number { return createHash('sha256').update(id).digest().readUInt32BE(0) % 2147483647 + 1; }

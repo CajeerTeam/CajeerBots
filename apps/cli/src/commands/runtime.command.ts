@@ -46,8 +46,9 @@ export function runtimeCommand(): Command {
     .option('--reset-attempts', 'обнулить счётчик попыток')
     .action(async (options: { id: string; resetAttempts?: boolean }) => {
       await withPrisma(async (prisma) => {
-        const updated = await prisma.botOutboundMessage.update({ where: { id: options.id }, data: { status: 'pending', availableAt: new Date(), lastError: null, ...(options.resetAttempts ? { attempts: 0 } : {}) } });
-        console.log(JSON.stringify(updated, null, 2));
+        const changed = await prisma.botOutboundMessage.updateMany({ where: { id: options.id, provider: { not: 'discord' }, status: { in: ['failed', 'dead'] } }, data: { status: 'pending', availableAt: new Date(), lastError: null, ...(options.resetAttempts ? { attempts: 0 } : {}) } });
+        if (!changed.count) throw new Error('Only failed non-interaction messages can be retried');
+        console.log(JSON.stringify(await prisma.botOutboundMessage.findUniqueOrThrow({ where: { id: options.id } }), null, 2));
       });
     });
 

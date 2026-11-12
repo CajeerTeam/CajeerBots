@@ -491,6 +491,7 @@ model IdempotencyKey {
 model OutboxMessage {
   id          String            @id @default(cuid())
   topic       String
+  communityId String?
   payload     Json
   headers     Json?
   status      OutboxStatus      @default(pending)
@@ -508,6 +509,7 @@ model OutboxMessage {
 model WebhookEndpoint {
   id          String            @id @default(cuid())
   title       String
+  communityId String?
   url         String
   events      String[]
   secretRef   String?

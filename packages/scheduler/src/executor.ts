@@ -1,3 +1,5 @@
+import { matchesTopicPattern, subscriptionAllowsEvent } from '@cajeerbots/event-bus';
+import { safeHttpRequest } from '@cajeerbots/security';
 import { collectObservabilitySnapshot, evaluateAlertRules, runDueProbes } from '@cajeerbots/observability';
 import { checkDockerComposeProduction } from '@cajeerbots/deployment';
 import { assertOpenApiSnapshot, buildOpenApiSnapshot, diffSnapshots, evaluateSdkCoverage } from '@cajeerbots/contracts';
@@ -175,7 +177,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
 
 
     case 'maintenance.release_gates': {
-      const version = String(context.job.payload?.version ?? '1.0.0-rc.2');
+      const version = String(context.job.payload?.version ?? '1.0.0-rc.3');
       const channel = String(context.job.payload?.channel ?? 'beta') as never;
       const rootDir = String(context.job.payload?.rootDir ?? process.cwd());
       const databaseGates = await prisma.releaseQualityGate.findMany({ where: { isEnabled: true }, orderBy: [{ category: 'asc' }, { code: 'asc' }] }).catch(() => []);
@@ -196,7 +198,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
 
     case 'maintenance.integration_smoke': {
       const suiteCode = String(context.job.payload?.suiteCode ?? 'mvp-smoke');
-      const version = String(context.job.payload?.version ?? '1.0.0-rc.2');
+      const version = String(context.job.payload?.version ?? '1.0.0-rc.3');
       const channel = String(context.job.payload?.channel ?? 'beta');
       const suite = await prisma.integrationTestSuite.findUnique({ where: { code: suiteCode } });
       if (!suite) return { status: 'failed', error: `Integration suite не найден: ${suiteCode}` };
@@ -214,7 +216,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
 
     case 'maintenance.rc_readiness': {
       const payload = context.job.payload ?? {};
-      const version = String(payload.version ?? '1.0.0-rc.2');
+      const version = String(payload.version ?? '1.0.0-rc.3');
       const channel = String(payload.channel ?? 'rc') as never;
       const rootDir = String(payload.rootDir ?? process.cwd());
       const [freeze, targets, openBlockers, openFindings, latestIntegration] = await Promise.all([
@@ -235,7 +237,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
     }
 
     case 'maintenance.security_audit': {
-      const version = String(context.job.payload?.version ?? '1.0.0-rc.2');
+      const version = String(context.job.payload?.version ?? '1.0.0-rc.3');
       const channel = String(context.job.payload?.channel ?? 'beta');
       await seedDefaultSecurityAuditPolicies(prisma);
       const result = await runSecurityAudit({ prisma, version, channel, trigger: 'scheduler', createdBy: 'scheduler', persist: context.job.payload?.persist !== false, now: context.now ?? new Date() });
@@ -269,9 +271,20 @@ async function publishEvent(context: JobExecutionContext): Promise<JobExecutionR
   const payload = context.job.payload ?? {};
   const topicName = String(payload.topic ?? `scheduler.${context.job.code}`);
   const type = String(payload.type ?? topicName);
-  const eventId = payload.eventId ? String(payload.eventId) : createHash('sha256').update(`${context.job.id}:${context.runId ?? ''}:${Date.now()}`).digest('hex');
-  const topic = await prisma.eventTopic.upsert({ where: { name: topicName }, create: { name: topicName, description: `Topic scheduled job ${context.job.code}` }, update: {} });
-  const record = await prisma.eventRecord.create({ data: { eventId, topicId: topic.id, topicName, type, source: 'scheduler', payload: { type, topic: topicName, payload: payload.payload ?? {}, schedulerJobId: context.job.id, schedulerRunId: context.runId } as never, metadata: { scheduledJobCode: context.job.code } as never } });
+  const eventId = payload.eventId ? String(payload.eventId) : createHash('sha256').update(`${context.job.id}:${context.runId ?? Date.now()}`).digest('hex');
+  const communityId = typeof payload.communityId === 'string' ? payload.communityId : null;
+  const record = await prisma.$transaction(async (tx: SchedulerPrismaLike) => {
+    const topic = await tx.eventTopic.upsert({ where: { name: topicName }, create: { name: topicName, description: `Topic scheduled job ${context.job.code}` }, update: {} });
+    if (!topic.isActive) throw new Error('Event topic disabled');
+    const record = await tx.eventRecord.upsert({ where: { eventId }, update: {}, create: { eventId, topicId: topic.id, topicName, type, communityId, source: 'scheduler', payload: { type, topic: topicName, payload: payload.payload ?? {}, schedulerJobId: context.job.id, schedulerRunId: context.runId } as never, metadata: { scheduledJobCode: context.job.code } as never } });
+    if (record.source !== 'scheduler' || record.communityId !== communityId || record.topicName !== topicName || record.type !== type || record.payload?.schedulerJobId !== context.job.id) throw new Error('Event ID conflict');
+    const subscriptions = await tx.eventSubscription.findMany({ where: { isActive: true } });
+    for (const subscription of subscriptions) {
+      if (!matchesTopicPattern(subscription.topicPattern, topicName) || !subscriptionAllowsEvent(subscription.filters, record)) continue;
+      await tx.eventSubscriptionDelivery.upsert({ where: { subscriptionId_eventRecordId: { subscriptionId: subscription.id, eventRecordId: record.id } }, update: {}, create: { subscriptionId: subscription.id, eventRecordId: record.id } });
+    }
+    return record;
+  });
   return { status: 'succeeded', result: { eventRecordId: record.id, eventId, topic: topicName } };
 }
 
@@ -281,7 +294,7 @@ async function callHttp(context: JobExecutionContext): Promise<JobExecutionResul
   if (!url.startsWith('http://') && !url.startsWith('https://')) return { status: 'failed', error: 'HTTP job требует payload.url с http/https' };
   const method = String(payload.method ?? 'POST').toUpperCase();
   const body = payload.body === undefined ? undefined : JSON.stringify(payload.body);
-  const response = await fetch(url, { method, headers: { 'content-type': 'application/json', ...(payload.headers ?? {}) }, body });
+  const response = await safeHttpRequest(url, { method, headers: { 'content-type': 'application/json', ...(payload.headers ?? {}) }, body });
   const text = await response.text();
   return response.ok
     ? { status: 'succeeded', result: { status: response.status, body: text.slice(0, 2000) } }

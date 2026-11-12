@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Headers, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
 import { permissions } from '@cajeerbots/security';
 import { RequireScopes } from '../shared/scopes.decorator.js';
 import { ScopedAuthGuard } from '../shared/scoped-auth.guard.js';
@@ -14,13 +14,15 @@ export class WebhooksController {
   @HttpCode(202)
   receiveSignedEvent(
     @Body() body: unknown,
+    @Req() request: { rawBody?: Buffer },
     @Headers('x-cajeer-signature') signature?: string,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
+    if (!request.rawBody) throw new BadRequestException('Missing raw webhook body');
     const event = parseBody(incomingEventSchema, body);
     return this.webhooks.receive(
       { ...event, occurredAt: event.occurredAt ?? new Date().toISOString() },
-      JSON.stringify(body),
+      request.rawBody.toString('utf8'),
       signature,
       idempotencyKey,
     );

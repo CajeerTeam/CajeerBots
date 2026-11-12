@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@cajeerbots/db';
 import type { Principal } from '@cajeerbots/security';
 
@@ -59,10 +59,12 @@ export class BotRuntimeService {
   async retryOutbound(communityId: string, id: string, actor: Principal, resetAttempts = false) {
     const message = await this.prisma.botOutboundMessage.findFirst({ where: { id, communityId } });
     if (!message) throw new NotFoundException('Outbound message не найден');
-    const updated = await this.prisma.botOutboundMessage.update({
-      where: { id },
+    const changed = await this.prisma.botOutboundMessage.updateMany({
+      where: { id, communityId, provider: { not: 'discord' }, status: { in: ['failed', 'dead'] } },
       data: { status: 'pending', availableAt: new Date(), lastError: null, ...(resetAttempts ? { attempts: 0 } : {}) },
     });
+    if (!changed.count) throw new ConflictException('Only failed non-interaction messages can be retried');
+    const updated = await this.prisma.botOutboundMessage.findUniqueOrThrow({ where: { id } });
     await this.prisma.auditLog.create({
       data: { actorId: actor.id, actorType: actor.type, action: 'bot_runtime.outbound.retry', resource: 'bot_outbound_message', resourceId: id, metadata: { communityId, resetAttempts } as never },
     });

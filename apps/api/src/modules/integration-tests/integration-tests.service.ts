@@ -27,7 +27,7 @@ export class IntegrationTestsService {
     let suites = 0;
     let cases = 0;
     for (const suite of defaultIntegrationSuites) {
-      const row = await this.prisma.integrationTestSuite.upsert({ where: { code: suite.code }, create: { code: suite.code, title: suite.title, category: suite.category, description: suite.description, metadata: { seededBy: '1.0.0-rc.2' } as never }, update: { title: suite.title, category: suite.category, description: suite.description, isActive: true } });
+      const row = await this.prisma.integrationTestSuite.upsert({ where: { code: suite.code }, create: { code: suite.code, title: suite.title, category: suite.category, description: suite.description, metadata: { seededBy: '1.0.0-rc.3' } as never }, update: { title: suite.title, category: suite.category, description: suite.description, isActive: true } });
       suites += 1;
       for (const testCase of suite.cases) {
         await this.prisma.integrationTestCase.upsert({ where: { suiteId_code: { suiteId: row.id, code: testCase.code } }, create: { suiteId: row.id, code: testCase.code, title: testCase.title, target: testCase.target, kind: testCase.kind, priority: testCase.priority, definition: testCase.definition as never, expected: testCase.expected as never }, update: { title: testCase.title, target: testCase.target, kind: testCase.kind, priority: testCase.priority, definition: testCase.definition as never, expected: testCase.expected as never, isActive: true } });

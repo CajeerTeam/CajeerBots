@@ -4,7 +4,7 @@ import { DbExtensionRuntime, missingPermissions, parseManifest } from '@cajeerbo
 import { checkEngineCompatibility, type ExtensionManifest } from '@cajeerbots/extension-sdk';
 import type { Principal } from '@cajeerbots/security';
 
-const ENGINE_API_VERSION = '1.0.0-rc.2';
+const ENGINE_API_VERSION = '1.0.0-rc.3';
 
 @Injectable()
 export class ExtensionsService {
@@ -134,7 +134,9 @@ export class ExtensionsService {
   async retryEvent(eventId: string) {
     const event = await this.prisma.extensionRuntimeEvent.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException('Runtime event не найден');
-    return this.prisma.extensionRuntimeEvent.update({ where: { id: eventId }, data: { status: 'pending', availableAt: new Date(), error: null } });
+    const changed = await this.prisma.extensionRuntimeEvent.updateMany({ where: { id: eventId, status: { in: ['failed', 'dead'] } }, data: { status: 'pending', attempts: 0, availableAt: new Date(), error: null } });
+    if (!changed.count) throw new ConflictException('Only failed or dead events can be retried');
+    return this.prisma.extensionRuntimeEvent.findUniqueOrThrow({ where: { id: eventId } });
   }
 
   async storage(id: string, namespace = 'default') {

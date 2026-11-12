@@ -1,5 +1,5 @@
 x-app: &app
-  image: cajeerbots:1.0.0-rc.2
+  image: cajeerbots:1.0.0-rc.3
   build: {context: ., dockerfile: docker/api.Dockerfile}
   env_file: .env
   environment:

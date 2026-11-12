@@ -4,6 +4,7 @@ import type { Principal } from '@cajeerbots/security';
 export interface AuthenticatedRequest {
   headers: Record<string, string | string[] | undefined>;
   ip?: string;
+  params?: Record<string, string>;
   principal?: Principal;
 }
 

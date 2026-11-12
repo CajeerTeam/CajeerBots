@@ -24,6 +24,6 @@ export async function calculateIntegrationCoverage(prisma: any, input: { version
   const totalPassing = areas.reduce((sum, area) => sum + area.passing.length, 0);
   const summary = { activeCases: cases.length, totalRequired, totalCovered, totalPassing, coveragePercent: Math.round((totalCovered / Math.max(totalRequired, 1)) * 100), passingPercent: Math.round((totalPassing / Math.max(totalRequired, 1)) * 100), missing: missing.length };
   const status = missing.length > 0 ? 'incomplete' : totalPassing < totalRequired ? 'needs_runs' : 'covered';
-  const row = await prisma.integrationTestCoverage.create({ data: { version: input.version ?? '1.0.0-rc.2', channel: input.channel ?? 'beta', status, source: 'database', summary: summary as never, areas: areas as never, missing: missing as never, createdBy: input.createdBy } });
+  const row = await prisma.integrationTestCoverage.create({ data: { version: input.version ?? '1.0.0-rc.3', channel: input.channel ?? 'beta', status, source: 'database', summary: summary as never, areas: areas as never, missing: missing as never, createdBy: input.createdBy } });
   return { coverage: row, summary, areas, missing };
 }

@@ -36,7 +36,7 @@ async function dispatchTelegram(prisma: PrismaService, router: InteractionRouter
   const userId = from?.id === undefined ? 'unknown' : String(from.id);
   const providerUpdateId = payload.update_id === undefined ? undefined : String(payload.update_id);
   const inbound = await recordInboundUpdate(prisma, account, { providerUpdateId, type, userExternalId: userId, chatExternalId: targetId, payload });
-  if (inbound.isDuplicate) return { statusCode: 200, body: { ok: true, duplicate: true } };
+  if (inbound.isDuplicate) return { statusCode: ['handled', 'ignored'].includes(inbound.status ?? '') ? 200 : 503, body: { ok: true, duplicate: true } };
 
   const response = await dispatchRuntimeInteraction(prisma, router, account, {
     type,
@@ -45,12 +45,13 @@ async function dispatchTelegram(prisma: PrismaService, router: InteractionRouter
     payload: { text, data: callbackData, args: parsed?.args ?? [], chatId: targetId, update: providerUpdateId },
   }, { inboundUpdateId: inbound.id, targetId });
 
+  if (inbound.id && (await prisma.botInboundUpdate.findUnique({ where: { id: inbound.id } }))?.status === 'failed') return { statusCode: 503, body: { ok: false } };
   if (response?.text && targetId) await sendProviderText(prisma, account, { outboundMessageId: response.outboundMessageId, targetId, text: response.text, buttons: response.buttons });
   return { statusCode: 200, body: { ok: true } };
 }
 
 async function dispatchVk(prisma: PrismaService, router: InteractionRouter, account: RuntimeBotAccount, payload: Record<string, unknown>): Promise<WebhookDispatchResult> {
-  if (payload.type === 'confirmation') return { statusCode: 200, body: process.env.VK_CALLBACK_CONFIRMATION ?? 'ok' };
+  if (payload.type !== 'message_new') return { statusCode: 200, body: 'ok' };
   const object = asRecord(payload.object) ?? {};
   const message = asRecord(object.message) ?? object;
   const text = String(message.text ?? '').trim();
@@ -60,7 +61,7 @@ async function dispatchVk(prisma: PrismaService, router: InteractionRouter, acco
   const type = parsed ? 'command' : 'message';
   const providerUpdateId = payload.event_id ? String(payload.event_id) : message.id ? String(message.id) : undefined;
   const inbound = await recordInboundUpdate(prisma, account, { providerUpdateId, type, userExternalId: userId, chatExternalId: targetId, payload });
-  if (inbound.isDuplicate) return { statusCode: 200, body: 'ok' };
+  if (inbound.isDuplicate) return { statusCode: ['handled', 'ignored'].includes(inbound.status ?? '') ? 200 : 503, body: 'ok' };
 
   const response = await dispatchRuntimeInteraction(prisma, router, account, {
     type,
@@ -68,6 +69,7 @@ async function dispatchVk(prisma: PrismaService, router: InteractionRouter, acco
     userId,
     payload: { text, args: parsed?.args ?? [], peerId: targetId },
   }, { inboundUpdateId: inbound.id, targetId });
+  if (inbound.id && (await prisma.botInboundUpdate.findUnique({ where: { id: inbound.id } }))?.status === 'failed') return { statusCode: 503, body: { ok: false } };
   if (response?.text && targetId) await sendProviderText(prisma, account, { outboundMessageId: response.outboundMessageId, targetId, text: response.text, buttons: response.buttons });
   return { statusCode: 200, body: 'ok' };
 }
@@ -75,15 +77,16 @@ async function dispatchVk(prisma: PrismaService, router: InteractionRouter, acco
 async function dispatchDiscord(prisma: PrismaService, router: InteractionRouter, account: RuntimeBotAccount, payload: Record<string, unknown>): Promise<WebhookDispatchResult> {
   if (payload.type === 1) return { statusCode: 200, body: { type: 1 } };
   const data = asRecord(payload.data) ?? {};
+  delete payload.token;
   const member = asRecord(payload.member);
   const user = asRecord(payload.user ?? member?.user);
   const channelId = payload.channel_id === undefined ? undefined : String(payload.channel_id);
-  const commandName = data.name ? String(data.name).replace(/^cajeer-/, '') : 'interaction';
+  const commandName = payload.type === 3 ? String(data.custom_id ?? 'interaction') : data.name ? String(data.name).replace(/^cajeer-/, '') : 'interaction';
   const userId = user?.id === undefined ? 'unknown' : String(user.id);
   const providerUpdateId = payload.id === undefined ? undefined : String(payload.id);
   const type = payload.type === 3 ? 'callback' : 'slash_command';
   const inbound = await recordInboundUpdate(prisma, account, { providerUpdateId, type, userExternalId: userId, chatExternalId: channelId, payload });
-  if (inbound.isDuplicate) return { statusCode: 200, body: { type: 5 } };
+  if (inbound.isDuplicate) return { statusCode: 200, body: { type: 4, data: { content: 'Запрос уже обработан.', flags: 64 } } };
 
   const response = await dispatchRuntimeInteraction(prisma, router, account, {
     type,
@@ -92,9 +95,9 @@ async function dispatchDiscord(prisma: PrismaService, router: InteractionRouter,
     payload: { guildId: payload.guild_id, channelId, options: data.options ?? [] },
   }, { inboundUpdateId: inbound.id, targetId: channelId });
 
-  if (!response?.text) return { statusCode: 200, body: { type: 5 } };
+  if (!response?.text) return { statusCode: 200, body: { type: 4, data: { content: 'Команда недоступна.', flags: 64 } } };
   if (response.outboundMessageId) await prisma.botOutboundMessage.update({ where: { id: response.outboundMessageId }, data: { status: 'sent', attempts: { increment: 1 }, sentAt: new Date(), providerMessageId: providerUpdateId } });
-  return { statusCode: 200, body: { type: 4, data: { content: response.text, components: renderProviderButtons('discord', response.buttons), flags: response.ephemeral === false ? 0 : 64 } } };
+  return { statusCode: 200, body: { type: 4, data: { content: response.text, allowed_mentions: { parse: [] }, components: renderProviderButtons('discord', response.buttons), flags: response.ephemeral === false ? 0 : 64 } } };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

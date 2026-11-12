@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { access } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -12,6 +13,7 @@ export interface DbExtensionRuntimeOptions {
 
 export interface EnqueueExtensionEventOptions {
   extensionId?: string;
+  idempotencyKey?: string;
   hook: string;
   payload: unknown;
 }
@@ -52,14 +54,11 @@ export class DbExtensionRuntime {
         continue;
       }
 
-      await this.prisma.extensionRuntimeEvent.create({
-        data: {
-          extensionId: extension.id,
-          hook,
-          payload: input.payload as never,
-          status: 'pending',
-        },
-      });
+      const data = { extensionId: extension.id, hook, payload: input.payload as never, status: 'pending' };
+      if (input.idempotencyKey) {
+        const id = `hook-${createHash('sha256').update(JSON.stringify([extension.id, hook, input.idempotencyKey])).digest('hex')}`;
+        await this.prisma.extensionRuntimeEvent.upsert({ where: { id }, create: { id, ...data }, update: {} });
+      } else await this.prisma.extensionRuntimeEvent.create({ data });
       queued += 1;
     }
 
@@ -88,10 +87,9 @@ export class DbExtensionRuntime {
 
   async execute(eventId: string): Promise<unknown> {
     const maxAttempts = this.options.maxAttempts ?? 5;
-    const event = await this.prisma.extensionRuntimeEvent.update({
-      where: { id: eventId },
-      data: { status: 'processing', startedAt: new Date(), attempts: { increment: 1 }, error: null },
-    });
+    const claim = await this.prisma.extensionRuntimeEvent.updateMany({ where: { id: eventId, status: { in: ['pending', 'failed'] }, availableAt: { lte: new Date() } }, data: { status: 'processing', startedAt: new Date(), attempts: { increment: 1 }, error: null } });
+    if (!claim.count) return { skipped: true };
+    const event = await this.prisma.extensionRuntimeEvent.findUniqueOrThrow({ where: { id: eventId } });
 
     if (!event.extensionId) throw new Error(`ExtensionRuntimeEvent ${eventId} не привязан к extensionId`);
     const extension = await this.prisma.extension.findUnique({ where: { id: event.extensionId } });
@@ -102,8 +100,9 @@ export class DbExtensionRuntime {
 
     const manifest = parseManifest(extension.manifest);
     try {
+      if (event.attempts > maxAttempts || missingPermissions(manifest.permissions, await this.grantedPermissions(extension.id)).length) throw new Error('Extension permissions revoked or attempts exhausted');
       const module = await this.loadExtension(extension as ExtensionRecord, manifest);
-      const context = this.createContext(extension.id, manifest);
+      const context = this.createContext(extension.id, manifest, eventCommunity(event.payload));
       const envelope: ExtensionEventEnvelope = {
         id: event.id,
         hook: event.hook,
@@ -120,7 +119,7 @@ export class DbExtensionRuntime {
       });
       return result;
     } catch (error) {
-      const attempts = event.attempts + 1;
+      const attempts = event.attempts;
       const dead = attempts >= maxAttempts;
       const message = error instanceof Error ? error.message : String(error);
       await this.prisma.extensionRuntimeEvent.update({
@@ -153,7 +152,7 @@ export class DbExtensionRuntime {
     return candidate;
   }
 
-  private createContext(extensionId: string, manifest: ExtensionManifest): ExtensionContext {
+  private createContext(extensionId: string, manifest: ExtensionManifest, communityId?: string): ExtensionContext {
     const log = (level: string, message: string, metadata?: Record<string, unknown>) => this.prisma.extensionRuntimeLog.create({
       data: { extensionId, level, message, metadata: metadata as never },
     }).then(() => undefined);
@@ -167,10 +166,10 @@ export class DbExtensionRuntime {
       },
       events: {
         publish: async (type, payload) => {
-          await this.prisma.outboxMessage.create({ data: { topic: type, payload: { type, payload, source: `extension:${manifest.name}` } as never, headers: { source: 'extension-runtime', extensionId } as never } });
+          await this.prisma.outboxMessage.create({ data: { topic: type, communityId, payload: { type, payload, source: `extension:${manifest.name}` } as never, headers: { source: 'extension-runtime', extensionId } as never } });
         },
         enqueueHook: async (hook, payload) => {
-          await this.enqueueHook({ hook, payload });
+          await this.enqueueHook({ hook, payload: communityId ? { payload, communityId } : payload });
         },
       },
       storage: {
@@ -202,4 +201,11 @@ export function resolveExtensionEntry(root: string, manifest: ExtensionManifest)
   if (entry.startsWith('file://')) return new URL(entry).pathname;
   if (isAbsolute(entry)) return entry;
   return resolve(root, manifest.name, entry);
+}
+
+function eventCommunity(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const row = value as { communityId?: unknown; metadata?: { communityId?: unknown } };
+  const id = row.communityId ?? row.metadata?.communityId;
+  return typeof id === 'string' && id ? id : undefined;
 }
