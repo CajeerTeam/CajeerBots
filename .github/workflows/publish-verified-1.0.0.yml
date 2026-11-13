@@ -1,0 +1,123 @@
+name: Publish verified CajeerBots 1.0.0
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-verified-1.0.0.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: publish-cajeerbots-v1.0.0
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'CajeerTeam/CajeerBots' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: CajeerTeam/CajeerBots
+      VERIFIED_SHA: 40550b595866099d4390a26a00b5d60650da439f
+      RUN_ID: '43398376975'
+      ARTIFACT_ID: '14025468350'
+      TAG: v1.0.0
+    steps:
+      - name: Checkout exact verified source
+        uses: actions/checkout@v4
+        with:
+          ref: 40550b595866099d4390a26a00b5d60650da439f
+          persist-credentials: false
+      - name: Verify source run and download its signed artifact
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID" > "$RUNNER_TEMP/source-run.json"
+          jq -e --arg sha "$VERIFIED_SHA" --arg repo "$GH_REPO" '.head_sha == $sha and .head_branch == "main" and .status == "completed" and .conclusion == "success" and .event == "workflow_dispatch" and .path == ".github/workflows/release-hardening.yml" and .run_attempt == 3 and .repository.full_name == $repo' "$RUNNER_TEMP/source-run.json"
+          gh api "repos/$GH_REPO/actions/artifacts/$ARTIFACT_ID" > "$RUNNER_TEMP/source-artifact.json"
+          jq -e --argjson run "$RUN_ID" --arg sha "$VERIFIED_SHA" '.name == "cajeerbots-1.0.0-verified" and .expired == false and .workflow_run.id == $run and .workflow_run.head_sha == $sha' "$RUNNER_TEMP/source-artifact.json"
+          mkdir "$RUNNER_TEMP/verified"
+          gh run download "$RUN_ID" --repo "$GH_REPO" --name cajeerbots-1.0.0-verified --dir "$RUNNER_TEMP/verified"
+      - name: Independently verify Ed25519 signature, all files and evidence
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/verified"
+          cat > "$RUNNER_TEMP/release-public.pem" <<'KEY'
+          -----BEGIN PUBLIC KEY-----
+          MCowBQYDK2VwAyEAxpjDoo3A++d9VAT6EgRdPDIF8kPsqGIhdmIZ4IpJCsI=
+          -----END PUBLIC KEY-----
+          KEY
+          node scripts/release-verify.mjs "$dir" 1.0.0 "$RUNNER_TEMP/release-public.pem" > "$RUNNER_TEMP/verification.json"
+          cat "$RUNNER_TEMP/verification.json"
+          jq -e --arg sha "$VERIFIED_SHA" '.verified == true and .version == "1.0.0" and .commit == $sha and .files == 6' "$RUNNER_TEMP/verification.json"
+          node --input-type=module - "$dir" <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync, readdirSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { createHash } from 'node:crypto';
+          const dir=process.argv[2], prefix='cajeerbots-1.0.0';
+          const bytes=readFileSync(join(dir,prefix+'.manifest.json'));
+          const manifest=JSON.parse(bytes);
+          const expected=[...manifest.files.map(f=>f.path),prefix+'.manifest.json',prefix+'.manifest.sig','SHA256SUMS'].sort();
+          assert.deepEqual(readdirSync(dir).sort(),expected);
+          const sums=[...manifest.files.map(f=>f.sha256+'  '+f.path),createHash('sha256').update(bytes).digest('hex')+'  '+prefix+'.manifest.json'].join('\n')+'\n';
+          assert.equal(readFileSync(join(dir,'SHA256SUMS'),'utf8'),sums);
+          NODE
+          cp "$RUNNER_TEMP/release-public.pem" "$dir/release-public.pem"
+      - name: Create draft, verify uploaded bytes and publish exact verified commit
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/verified"
+          # Never overwrite a tag or release, including a draft from a previous attempt.
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[].tag_name' > "$RUNNER_TEMP/release-tags"
+          if grep -Fxq "$TAG" "$RUNNER_TEMP/release-tags"; then echo "Release already exists; refusing to overwrite"; exit 1; fi
+          gh api --paginate "repos/$GH_REPO/tags?per_page=100" --jq '.[].name' > "$RUNNER_TEMP/git-tags"
+          if grep -Fxq "$TAG" "$RUNNER_TEMP/git-tags"; then echo "Tag already exists; refusing to overwrite"; exit 1; fi
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          # CajeerBots 1.0.0 — Stable Release
+
+          First stable production release of CajeerBots.
+
+          ## Highlights
+          - Modular bot management platform with API, Bot Runtime and Worker, PostgreSQL and Redis.
+          - Community-scoped events, durable delivery, signed Discord webhooks and interactive forms.
+          - Production Docker Compose deployment, full-instance backup, restore, RC6 upgrade and rollback.
+          - Minimal hardened Distroless Debian 13 runtime with Node.js 22 LTS, without build tools or package managers.
+
+          ## Verified production and security evidence
+          - All 22 production rehearsal phases passed; 1,000 events per load phase, zero failed requests.
+          - Stable throughput: 279.3 requests/sec; p95 latency: 75.92 ms.
+          - npm and exact application container audits: zero High and Critical findings; container secret scan: zero findings.
+          - All six artifacts verified against the Ed25519-signed manifest, including the exact rehearsed image and CycloneDX SBOM.
+
+          Source commit: `40550b595866099d4390a26a00b5d60650da439f`
+          Validation: [GitHub Actions #43398376975, attempt 3](https://github.com/CajeerTeam/CajeerBots/actions/runs/43398376975/attempts/3)
+
+          ## Installation and verification
+          Use the included source distribution, production deployment documentation and Docker Compose configuration. Verify the signed manifest using the trusted release public key and check artifact hashes before deployment. The public key is included as a separate asset; obtain its trust independently.
+          NOTES
+          files=("$dir"/*)
+          gh release create "$TAG" --repo "$GH_REPO" --draft --target "$VERIFIED_SHA" --title "CajeerBots 1.0.0 — Stable Release" --notes-file "$RUNNER_TEMP/release-notes.md" "${files[@]}"
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[] | select(.tag_name == "v1.0.0")' > "$RUNNER_TEMP/draft.json"
+          jq -e --arg sha "$VERIFIED_SHA" '.draft == true and .prerelease == false and .target_commitish == $sha and (.assets|length) == 10' "$RUNNER_TEMP/draft.json"
+          # Verify each uploaded asset by its API digest, or download it if the API omits the digest.
+          for file in "${files[@]}"; do
+            name=$(basename "$file")
+            asset=$(jq -ce --arg name "$name" '.assets[] | select(.name == $name and .state == "uploaded")' "$RUNNER_TEMP/draft.json")
+            test "$(jq -r .size <<< "$asset")" = "$(stat -c %s "$file")"
+            digest=$(jq -r '.digest // ""' <<< "$asset")
+            if test -n "$digest"; then
+              test "$digest" = "sha256:$(sha256sum "$file" | cut -d ' ' -f 1)"
+            else
+              asset_id=$(jq -r .id <<< "$asset")
+              gh api -H 'Accept: application/octet-stream' "repos/$GH_REPO/releases/assets/$asset_id" > "$RUNNER_TEMP/asset-check"
+              cmp "$file" "$RUNNER_TEMP/asset-check"
+              rm "$RUNNER_TEMP/asset-check"
+            fi
+          done
+          gh release edit "$TAG" --repo "$GH_REPO" --draft=false --latest
+          test "$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.sha)" = "$VERIFIED_SHA"
+          gh api "repos/$GH_REPO/releases/tags/$TAG" --jq '{html_url,tag_name,draft,prerelease,target_commitish,assets: [.assets[].name]}'
