@@ -1,5 +1,13 @@
 name: Stable verified release artifacts
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-hardening.yml'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '**/package.json'
+      - '.npmrc'
   workflow_dispatch:
     inputs:
       baseline_ref:
@@ -12,7 +20,53 @@ on:
 permissions:
   contents: read
 jobs:
+  dependency-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm install --global pnpm@9.15.9
+      - name: Audit locked dependencies (fail closed)
+        run: |
+          set -euo pipefail
+          test -s pnpm-lock.yaml
+          status=0
+          pnpm audit --audit-level high --json > "$RUNNER_TEMP/audit.json" || status=$?
+          node --input-type=module - "$RUNNER_TEMP/audit.json" <<'NODE'
+          import { readFileSync } from 'node:fs';
+          let report;
+          try { report = JSON.parse(readFileSync(process.argv[2], 'utf8')); }
+          catch { console.error('Audit did not produce valid JSON; inspect the audit artifact and registry connectivity.'); process.exit(1); }
+          if (report.error) {
+            console.error('Audit registry error:', JSON.stringify({ code: report.error.code ?? 'unknown', message: report.error.message ?? 'unknown' }));
+            process.exit(1);
+          }
+          const counts = report.metadata?.vulnerabilities;
+          console.log('Audit severity counts:', JSON.stringify(counts ?? null));
+          for (const advisory of Object.values(report.advisories ?? {})) {
+            if (['high', 'critical'].includes(advisory.severity)) console.log(JSON.stringify({ package: advisory.module_name, severity: advisory.severity, title: advisory.title, vulnerable: advisory.vulnerable_versions, patched: advisory.patched_versions, url: advisory.url, paths: advisory.findings?.flatMap(f => f.paths ?? []) }));
+          }
+          for (const [name, vulnerability] of Object.entries(report.vulnerabilities ?? {})) {
+            if (['high', 'critical'].includes(vulnerability.severity)) console.log(JSON.stringify({ package: name, severity: vulnerability.severity, range: vulnerability.range, fixAvailable: vulnerability.fixAvailable, via: vulnerability.via }));
+          }
+          if (!counts || !Number.isInteger(counts.high) || !Number.isInteger(counts.critical) || counts.high !== 0 || counts.critical !== 0) process.exit(1);
+          NODE
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: dependency-audit-report
+          path: ${{ runner.temp }}/audit.json
+          if-no-files-found: error
+          retention-days: 14
   verified-release:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: dependency-audit
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: release
@@ -45,7 +99,11 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: npm install --global pnpm@9.15.9
-      - name: Frozen dependencies, build and security audit
+      - uses: actions/download-artifact@v4
+        with:
+          name: dependency-audit-report
+          path: ${{ runner.temp }}
+      - name: Frozen dependencies, build and tests
         run: |
           set -euo pipefail
           test "$(cat VERSION)" = 1.0.0
@@ -65,7 +123,6 @@ jobs:
           pnpm test:stable
           node --test scripts/rc3-security.test.mjs
           pnpm test:e2e
-          pnpm audit --audit-level high --json > "$RUNNER_TEMP/audit.json"
           pnpm -r list --depth Infinity --json > "$RUNNER_TEMP/dependencies.json"
       - name: Validate baseline SHA
         env:
