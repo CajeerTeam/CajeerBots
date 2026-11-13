@@ -66,3 +66,48 @@ describe('RC3 security and durable delivery', () => {
     }
   });
 });
+
+describe('community-scoped event publication', () => {
+  it('creates one durable delivery for the matching community and none for global or other-community subscriptions', async () => {
+    const prisma = app.get(PrismaService);
+    const token = process.env.CAJEER_ADMIN_TOKEN;
+    if (!token) throw new Error('CAJEER_ADMIN_TOKEN required for event API E2E');
+    const id = randomUUID();
+    const topicName = `rehearsal.${id}`;
+    const a = await prisma.community.create({ data: { slug: `event-a-${id}`, title: 'Event A' } });
+    const b = await prisma.community.create({ data: { slug: `event-b-${id}`, title: 'Event B' } });
+    const topic = await prisma.eventTopic.create({ data: { name: topicName } });
+    try {
+      const create = (name: string, filters?: { communityId: string }) =>
+        request(app.getHttpServer()).post('/api/events/subscriptions').set('x-api-key', token)
+          .send({ name: `${name}-${id}`, topicPattern: topicName, targetType: 'log', targetRef: 'rehearsal', ...(filters ? { filters } : {}) }).expect(201);
+      const scoped = await create('scoped', { communityId: a.id });
+      const global = await create('global');
+      const other = await create('other', { communityId: b.id });
+      expect(scoped.body.filters).toEqual({ communityId: a.id });
+      const event = { id, type: topicName, communityId: a.id, payload: { index: 0 } };
+      const publish = () => request(app.getHttpServer()).post('/api/events/publish').set('x-api-key', token).send(event).expect(201);
+      const first = await publish();
+      const duplicate = await publish();
+      expect(first.body.accepted).toBe(true);
+      expect(first.body.matchedSubscriptions).toBe(1);
+      expect(duplicate.body.event.id).toBe(first.body.event.id);
+      const rows = await prisma.eventSubscriptionDelivery.findMany({ where: { eventRecordId: first.body.event.id } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.subscriptionId).toBe(scoped.body.id);
+      expect(rows[0]?.status).toBe('pending');
+      expect(rows[0]?.attempts).toBe(0);
+      expect(await prisma.eventSubscriptionDelivery.count({ where: { subscriptionId: { in: [global.body.id, other.body.id] } } })).toBe(0);
+      const worker = new EventApiDeliveryWorker(prisma);
+      await worker.deliver(rows[0].id);
+      const delivered = await prisma.eventSubscriptionDelivery.findUniqueOrThrow({ where: { id: rows[0].id } });
+      expect(delivered.status).toBe('delivered');
+      expect(delivered.attempts).toBe(1);
+    } finally {
+      await prisma.eventRecord.deleteMany({ where: { topicId: topic.id } });
+      await prisma.eventSubscription.deleteMany({ where: { topicId: topic.id } });
+      await prisma.eventTopic.delete({ where: { id: topic.id } });
+      await prisma.community.deleteMany({ where: { id: { in: [a.id, b.id] } } });
+    }
+  });
+});

@@ -41,7 +41,9 @@ async function prepare() {
   const community = await request('POST', '/communities', { slug: `rehearsal-${id}`, title });
   const topic = `rehearsal.${id}`;
   await request('PUT', `/events/topics/${topic}`, { description: 'Production rehearsal' });
-  const sub = await request('POST', '/events/subscriptions', { name: `rehearsal-${id}`, topicPattern: topic, targetType: 'log', targetRef: 'rehearsal' });
+  const sub = await request('POST', '/events/subscriptions', { name: `rehearsal-${id}`, topicPattern: topic, targetType: 'log', targetRef: 'rehearsal', filters: { communityId: community.id } });
+  assert.equal(sub.filters?.communityId, community.id, 'Rehearsal subscription must be scoped to its community');
+  assert.equal(sub.isActive, true, 'Rehearsal subscription must be active');
   // Community backup is a real local-storage object; change data, dry-run, then restore.
   const backup = await request('POST', `/communities/${community.id}/backups`, { title });
   assert.equal(backup.status, 'created');
@@ -87,6 +89,7 @@ async function publish() {
   const result = await runLoad({ count, concurrency, maxP95Ms: Number(p95Arg ?? 1500), minRps: Number(rpsArg ?? 0), operation: async i => {
     const published = await request('POST', '/events/publish', event(i));
     assert.equal(published.accepted, true); assert.equal(published.event.eventId, event(i).id);
+    assert(published.matchedSubscriptions >= 1, 'Published event must match its community subscription');
   } });
   console.error(JSON.stringify({ phase: 'publish', ...result }));
   if (!result.passed) return { ...state, count, load: result };
@@ -94,9 +97,9 @@ async function publish() {
   const duplicates = await Promise.all(Array.from({ length: 4 }, () => request('POST', '/events/publish', event(0))));
   assert.equal(new Set(duplicates.map(r => r.event.id)).size, 1);
   await request('POST', '/events/publish', { ...event(0), payload: { index: -1 } }, [409]);
-  assert.equal(await db.eventRecord.count({ where: { topicName: state.topic } }), count);
+  assert.equal(await db.eventRecord.count({ where: { topicName: state.topic, communityId: state.communityId } }), count, 'Durable event records missing');
   const rows = await db.eventSubscriptionDelivery.findMany({ where: { subscriptionId: state.subscriptionId } });
-  assert.equal(rows.length, count); assert(rows.every(row => row.status === 'pending' && row.attempts === 0), 'Worker must be stopped during load');
+  assert.equal(rows.length, count, 'Durable subscription deliveries missing'); assert(rows.every(row => row.status === 'pending' && row.attempts === 0), 'Worker must be stopped during load');
   return { ...state, count, load: result };
 }
 async function drain() {
