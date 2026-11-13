@@ -13,7 +13,7 @@ permissions:
   contents: read
 jobs:
   verified-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: release
     env:
@@ -96,7 +96,7 @@ jobs:
           node_version=$(docker run --rm --entrypoint node cajeerbots:1.0.0 --version)
           node scripts/release-sbom.mjs "$RUNNER_TEMP/dependencies.json" "$RUNNER_TEMP/dpkg.tsv" "$node_version" "$RUNNER_TEMP/sbom.cdx.json"
       - name: Scan exact runtime image (OS and libraries)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: cajeerbots:1.0.0
           format: json
