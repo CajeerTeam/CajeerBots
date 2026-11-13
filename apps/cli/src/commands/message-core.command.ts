@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { Command } from 'commander';
-import { PrismaService } from '@cajeerbots/db';
+import { PrismaService, upsertMessageButtonLayout } from '@cajeerbots/db';
 import { renderStructuredMessage, validateBotForm, type BotFormField, type MessageProvider } from '@cajeerbots/message-core';
 
 export function messageCoreCommand(): Command {
@@ -47,11 +47,10 @@ export function messageCoreCommand(): Command {
     .requiredOption('--file <path>', 'JSON rows')
     .action(async (options: { community: string; code: string; provider?: MessageProvider; locale: string; file: string }) => withPrisma(async (prisma) => {
       const rows = JSON.parse(await readFile(options.file, 'utf8'));
-      const row = await prisma.messageButtonLayout.upsert({
-        where: { communityId_code_provider_locale: { communityId: options.community, code: options.code, provider: options.provider ?? null, locale: options.locale } },
-        create: { communityId: options.community, code: options.code, provider: options.provider ?? null, locale: options.locale, rows },
-        update: { rows },
-      });
+      const row = await prisma.$transaction((tx) => upsertMessageButtonLayout(tx,
+        { communityId: options.community, code: options.code, provider: options.provider ?? null, locale: options.locale, rows },
+        { rows },
+      ));
       console.log(JSON.stringify(row, null, 2));
     }));
 

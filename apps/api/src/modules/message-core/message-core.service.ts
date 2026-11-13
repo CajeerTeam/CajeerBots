@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '@cajeerbots/db';
+import { PrismaService, findMessageButtonLayout, upsertMessageButtonLayout } from '@cajeerbots/db';
 import { renderStructuredMessage, validateBotForm, type BotFormField, type MessageProvider } from '@cajeerbots/message-core';
 import type { Principal } from '@cajeerbots/security';
 
@@ -46,11 +46,10 @@ export class MessageCoreService {
   }
 
   async upsertButtonLayout(communityId: string, input: { code: string; provider?: MessageProvider | null; locale: string; rows: unknown }, actor: Principal) {
-    const row = await this.prisma.messageButtonLayout.upsert({
-      where: { communityId_code_provider_locale: { communityId, code: input.code, provider: input.provider ?? null, locale: input.locale } },
-      create: { communityId, code: input.code, provider: input.provider ?? null, locale: input.locale, rows: input.rows as never },
-      update: { rows: input.rows as never },
-    });
+    const row = await this.prisma.$transaction((tx) => upsertMessageButtonLayout(tx,
+      { communityId, code: input.code, provider: input.provider ?? null, locale: input.locale, rows: input.rows as never },
+      { rows: input.rows as never },
+    ));
     await this.audit(actor, 'message_core.buttons.upsert', 'message_button_layout', row.id, { communityId, code: input.code, provider: input.provider ?? null });
     return row;
   }
@@ -162,8 +161,7 @@ export class MessageCoreService {
   }
 
   private async resolveButtons(communityId: string, code: string, locale: string, provider?: MessageProvider) {
-    const row = await this.prisma.messageButtonLayout.findUnique({ where: { communityId_code_provider_locale: { communityId, code, provider: provider ?? null, locale } } })
-      ?? await this.prisma.messageButtonLayout.findFirst({ where: { communityId, code, OR: [{ locale }, { locale: 'ru' }] }, orderBy: [{ provider: 'asc' }, { locale: 'desc' }] });
+    const row = await findMessageButtonLayout(this.prisma, communityId, code, locale, provider);
     return row?.rows;
   }
 

@@ -79,3 +79,85 @@ test('extension storage reads typed JSON without losing null or falsy values and
   await first.delete('settings','zero');
   assert.equal(await first.get('settings','zero'),undefined);
 });
+
+const { upsertInteractionCommand, upsertMessageButtonLayout, findMessageButtonLayout } = await compile('packages/db/src/provider-records.ts', 'provider-records');
+
+function providerRecordHarness() {
+  const locks = [];
+  function model(compoundKey) {
+    const rows = [];
+    const matches = (row, where) => Object.entries(where).every(([key, value]) => row[key] === value);
+    const api = {
+      rows,
+      findFirst: async ({ where }) => rows.find((row) => matches(row, where)) ?? null,
+      create: async ({ data }) => {
+        const row = { ...data, id: String(rows.length + 1) };
+        rows.push(row);
+        return row;
+      },
+      update: async ({ where, data }) => {
+        const row = rows.find((item) => item.id === where.id);
+        assert.ok(row);
+        Object.assign(row, data);
+        return row;
+      },
+      upsert: async ({ where, create, update }) => {
+        const key = where[compoundKey];
+        assert.notEqual(key.provider, null);
+        assert.notEqual(key.provider, undefined);
+        const existing = rows.find((row) => matches(row, key));
+        return existing ? api.update({ where: { id: existing.id }, data: update }) : api.create({ data: create });
+      },
+    };
+    return api;
+  }
+  return {
+    locks,
+    $queryRaw: async (_sql, key) => { locks.push(key); return [{ '?column?': 1 }]; },
+    interactionCommand: model('communityId_provider_name'),
+    messageButtonLayout: model('communityId_code_provider_locale'),
+  };
+}
+
+test('generic command import and repeated seed update by ID without null compound selector', async () => {
+  const tx = providerRecordHarness();
+  const base = { communityId: 'c1', name: 'help', description: 'original' };
+  const first = await upsertInteractionCommand(tx, base, {});
+  const second = await upsertInteractionCommand(tx, { ...base, provider: null, description: 'changed' }, { description: 'changed' });
+  assert.equal(second.id, first.id);
+  assert.equal(second.description, 'changed');
+  await upsertInteractionCommand(tx, base, {});
+  assert.equal(second.description, 'changed');
+  assert.equal(tx.interactionCommand.rows.length, 1);
+  assert.equal(tx.locks[0], tx.locks[1]);
+  await upsertInteractionCommand(tx, { ...base, provider: 'telegram' }, {});
+  await upsertInteractionCommand(tx, { ...base, communityId: 'c2' }, {});
+  assert.equal(tx.interactionCommand.rows.length, 3);
+});
+
+test('generic button layouts preserve provider, locale and community identity', async () => {
+  const tx = providerRecordHarness();
+  const base = { communityId: 'c1', code: 'home', locale: 'ru', rows: [['first']] };
+  const first = await upsertMessageButtonLayout(tx, base, {});
+  const updated = await upsertMessageButtonLayout(tx, { ...base, provider: null }, { rows: [['updated']] });
+  assert.equal(updated.id, first.id);
+  assert.deepEqual(updated.rows, [['updated']]);
+  assert.equal(updated.provider, null);
+  await upsertMessageButtonLayout(tx, { ...base, provider: 'vk' }, {});
+  await upsertMessageButtonLayout(tx, { ...base, locale: 'en' }, {});
+  await upsertMessageButtonLayout(tx, { ...base, communityId: 'c2' }, {});
+  assert.equal(tx.messageButtonLayout.rows.length, 4);
+  assert.equal(tx.locks[0], tx.locks[1]);
+});
+
+test('button lookup uses exact provider then generic fallback, never another provider or community', async () => {
+  const tx = providerRecordHarness();
+  const base = { communityId: 'c1', code: 'home', locale: 'ru', rows: [] };
+  const vk = await upsertMessageButtonLayout(tx, { ...base, provider: 'vk' }, {});
+  assert.equal(await findMessageButtonLayout(tx, 'c1', 'home', 'ru', 'telegram'), null);
+  const generic = await upsertMessageButtonLayout(tx, base, {});
+  assert.equal((await findMessageButtonLayout(tx, 'c1', 'home', 'en', 'telegram')).id, generic.id);
+  assert.equal((await findMessageButtonLayout(tx, 'c1', 'home', 'ru', 'vk')).id, vk.id);
+  assert.equal((await findMessageButtonLayout(tx, 'c1', 'home', 'ru')).id, generic.id);
+  assert.equal(await findMessageButtonLayout(tx, 'c2', 'home', 'ru', 'vk'), null);
+});

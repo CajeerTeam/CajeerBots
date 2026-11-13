@@ -1,4 +1,5 @@
 import { PrismaClient, type Prisma } from './generated/client/index.js';
+import { upsertInteractionCommand, upsertMessageButtonLayout } from '../packages/db/src/provider-records.js';
 
 const db = new PrismaClient();
 
@@ -181,19 +182,15 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
     update: {},
   });
 
-  await prisma.messageButtonLayout.upsert({
-    where: { communityId_code_provider_locale: { communityId: community.id, code: 'system.main', provider: null, locale: 'ru' } },
-    create: {
-      communityId: community.id,
-      code: 'system.main',
-      locale: 'ru',
-      rows: [[
-        { id: 'status', label: 'Статус', action: 'status' },
-        { id: 'help', label: 'Помощь', action: 'help' },
-      ]],
-    },
-    update: {},
-  });
+  await upsertMessageButtonLayout(prisma, {
+    communityId: community.id,
+    code: 'system.main',
+    locale: 'ru',
+    rows: [[
+      { id: 'status', label: 'Статус', action: 'status' },
+      { id: 'help', label: 'Помощь', action: 'help' },
+    ]],
+  }, {});
 
   await prisma.messageFormDefinition.upsert({
     where: { communityId_code_locale: { communityId: community.id, code: 'support.request', locale: 'ru' } },
@@ -211,31 +208,15 @@ async function main(prisma: Prisma.TransactionClient): Promise<void> {
     update: {},
   });
 
-  await prisma.interactionCommand.upsert({
-    where: { communityId_provider_name: { communityId: community.id, provider: null, name: 'start' } },
-    create: { communityId: community.id, name: 'start', description: 'Стартовое сообщение CajeerBots', aliases: ['cajeer'], handler: 'template', templateKey: 'system.help' },
-    update: {},
-  });
+  await upsertInteractionCommand(prisma, { communityId: community.id, name: 'start', description: 'Стартовое сообщение CajeerBots', aliases: ['cajeer'], handler: 'template', templateKey: 'system.help' }, {});
 
-  await prisma.interactionCommand.upsert({
-    where: { communityId_provider_name: { communityId: community.id, provider: null, name: 'status' } },
-    create: { communityId: community.id, name: 'status', description: 'Проверка состояния bot-runtime', aliases: ['cajeer_status'], handler: 'status', templateKey: 'system.status' },
-    update: {},
-  });
+  await upsertInteractionCommand(prisma, { communityId: community.id, name: 'status', description: 'Проверка состояния bot-runtime', aliases: ['cajeer_status'], handler: 'status', templateKey: 'system.status' }, {});
 
-  await prisma.interactionCommand.upsert({
-    where: { communityId_provider_name: { communityId: community.id, provider: null, name: 'help' } },
-    create: { communityId: community.id, name: 'help', description: 'Список доступных команд', aliases: ['cajeer_help'], handler: 'template', templateKey: 'system.help' },
-    update: {},
-  });
+  await upsertInteractionCommand(prisma, { communityId: community.id, name: 'help', description: 'Список доступных команд', aliases: ['cajeer_help'], handler: 'template', templateKey: 'system.help' }, {});
 
 
 
-  await prisma.interactionCommand.upsert({
-    where: { communityId_provider_name: { communityId: community.id, provider: null, name: 'debug' } },
-    create: { communityId: community.id, name: 'debug', description: 'DevTools debug toolbar без внешней веб-панели', aliases: ['cajeer_debug'], handler: 'debug', templateKey: null, scopes: ['devtools:read'] },
-    update: {},
-  });
+  await upsertInteractionCommand(prisma, { communityId: community.id, name: 'debug', description: 'DevTools debug toolbar без внешней веб-панели', aliases: ['cajeer_debug'], handler: 'debug', templateKey: null, scopes: ['devtools:read'] }, {});
 
   await prisma.interactionMenu.upsert({
     where: { communityId_code_locale: { communityId: community.id, code: 'main', locale: 'ru' } },
