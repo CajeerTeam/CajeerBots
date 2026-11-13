@@ -171,6 +171,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+      - name: Validate release signing key pair
+        env:
+          RELEASE_PRIVATE_KEY: ${{ secrets.RELEASE_ED25519_PRIVATE_KEY }}
+          RELEASE_PUBLIC_KEY: ${{ vars.RELEASE_ED25519_PUBLIC_KEY }}
+        run: node scripts/release-key-preflight.mjs
       - run: npm install --global pnpm@9.15.9
       - uses: actions/download-artifact@v4
         with:
@@ -279,7 +284,9 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          test -n "$RELEASE_PRIVATE_KEY" && test -n "$RELEASE_PUBLIC_KEY"
+          node scripts/release-key-preflight.mjs
+          test -n "$RELEASE_PRIVATE_KEY"
+          test -n "$RELEASE_PUBLIC_KEY"
           key=$(mktemp)
           pub=$(mktemp)
           trap 'rm -f "$key" "$pub"' EXIT

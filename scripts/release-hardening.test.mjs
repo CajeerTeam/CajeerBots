@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
+import { validateSigningKeys } from './release-key-preflight.mjs';
 import { mkdtemp, writeFile, symlink, rm, mkdir, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,4 +57,18 @@ test('generated Nginx config forwards signed webhook path and rejects directive 
   const config=renderNginxConfig({serverName:'bots.example.org',enableTls:true});
   assert.match(config,/location \/runtime\/webhooks\/ \{\s+client_max_body_size 1m;\s+proxy_pass http:\/\/127\.0\.0\.1:3101;/);
   for(const options of [{serverName:'x; include /etc/passwd;'},{apiUpstream:'http://localhost; return 200'},{publicRoot:'/tmp/../etc'},{clientMaxBodySize:'1m; return 200'}])assert.throws(()=>renderNginxConfig({serverName:'bots.example.org',...options}));
+});
+
+test('release signing preflight accepts only a matching Ed25519 PEM pair', () => {
+  assert.doesNotThrow(() => validateSigningKeys(pem, pub));
+  assert.doesNotThrow(() => validateSigningKeys(pem.replaceAll('\n', '\r\n'), pub));
+  assert.throws(() => validateSigningKeys('', pub), /Missing RELEASE_ED25519_PRIVATE_KEY/);
+  assert.throws(() => validateSigningKeys(pem, ''), /Missing RELEASE_ED25519_PUBLIC_KEY/);
+  assert.throws(() => validateSigningKeys('invalid-key', pub), /PKCS#8 PEM/);
+  assert.throws(() => validateSigningKeys(pem, 'invalid-key'), /SPKI PEM/);
+  const other = generateKeyPairSync('ed25519').publicKey.export({ format: 'pem', type: 'spki' });
+  assert.throws(() => validateSigningKeys(pem, other), /do not match/);
+  const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  assert.throws(() => validateSigningKeys(rsa.privateKey.export({ format: 'pem', type: 'pkcs8' }), rsa.publicKey.export({ format: 'pem', type: 'spki' })), /both be Ed25519/);
+  assert.throws(() => validateSigningKeys(pem.replaceAll('\n', '\\n'), pub), /PKCS#8 PEM/);
 });
