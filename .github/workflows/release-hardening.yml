@@ -107,7 +107,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   container-audit:
-    if: ${{ github.event_name != 'workflow_dispatch' && !(github.event_name == 'push' && github.event.head_commit.message == 'release: CajeerBots 1.0.1') }}
+    if: >-
+      ${{ github.event_name != 'workflow_dispatch' && !(github.event_name == 'push' && github.event.head_commit.message == 'release: CajeerBots 1.0.1') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -141,7 +142,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
   verified-release:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'release: CajeerBots 1.0.1') }}
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'release: CajeerBots 1.0.1') }}
     needs: dependency-audit
     runs-on: ubuntu-24.04
     timeout-minutes: 60
