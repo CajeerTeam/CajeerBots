@@ -29,7 +29,7 @@ const destination = join(outDir, prefix);
 const staging = await mkdtemp(join(outDir, '.release-'));
 try {
   const roots = new Set(['apps','packages','prisma','contracts','docker','systemd','wiki','scripts','examples','registry','docs','.github']);
-  const top = new Set(['package.json','pnpm-lock.yaml','pnpm-workspace.yaml','.nvmrc','.npmrc','.dockerignore','.gitignore','eslint.config.mjs','prettier.config.cjs','vitest.config.ts','vitest.e2e.config.ts','tsconfig.base.json','tsconfig.json','README.md','CHANGELOG.md','ROADMAP.md','LICENSE','NOTICE','SECURITY.md','THIRD_PARTY_NOTICES.md','TRADEMARKS.md','CONTRIBUTING.md','CODE_OF_CONDUCT.md','VERSION','docker-compose.yml','docker-compose.prod.yml','.env.example','.env.production.example']);
+  const top = new Set(['package.json','pnpm-lock.yaml','pnpm-workspace.yaml','.nvmrc','.npmrc','.dockerignore','.gitignore','eslint.config.mjs','prettier.config.cjs','vitest.config.ts','vitest.e2e.config.ts','tsconfig.base.json','tsconfig.json','tsconfig.seed.json','README.md','CHANGELOG.md','ROADMAP.md','LICENSE','NOTICE','SECURITY.md','THIRD_PARTY_NOTICES.md','TRADEMARKS.md','CONTRIBUTING.md','CODE_OF_CONDUCT.md','VERSION','docker-compose.yml','docker-compose.prod.yml','.env.example','.env.production.example']);
   const tree = run('git', ['ls-tree', '-rz', 'HEAD']).split('\0').filter(Boolean);
   const paths = [];
   for (const entry of tree) {
