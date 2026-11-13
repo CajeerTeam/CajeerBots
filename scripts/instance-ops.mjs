@@ -161,7 +161,7 @@ function start(c, version, beforeStart = () => {}) {
   assert(imageVersion === version, 'Unexpected application image version');
   // Run schema migrations explicitly; do not seed during update/restore.
   c(['up', '-d', '--wait', '--wait-timeout', '120', 'postgres', 'redis']);
-  c(['run', '--rm', '--no-deps', '-T', 'migrate', 'pnpm', 'prisma:deploy']);
+  c(['run', '--rm', '--no-deps', '-T', 'migrate', 'sh', '-ec', 'if [ -f prisma/seed.js ]; then node node_modules/prisma/build/index.js migrate deploy; else pnpm prisma:deploy; fi']);
   beforeStart();
   c(['up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '240', 'api', 'bot-runtime', 'worker']);
   const report = c(['exec', '-T', 'api', 'node', '-e', `fetch('http://127.0.0.1:3000/api/system/report',{headers:{'x-api-key':process.env.CAJEER_ADMIN_TOKEN},signal:AbortSignal.timeout(5000)}).then(async r=>{if(!r.ok)throw Error('report '+r.status);console.log((await r.json()).version)}).catch(()=>process.exit(1))`], { capture: true });
@@ -210,7 +210,7 @@ async function deployPilot(project, envFile, bundle, publicKeyFile, communities,
       if (upgrade) start(c,stableVersion,setCapacity);
       else {
         c(['up','-d','--wait','--wait-timeout','120','postgres','redis']);
-        c(['run','--rm','--no-deps','-T','migrate','sh','-ec','pnpm prisma:deploy && pnpm prisma:seed']);
+        c(['run','--rm','--no-deps','-T','migrate','sh','-ec','if [ -f prisma/seed.js ]; then node node_modules/prisma/build/index.js migrate deploy && node prisma/seed.js; else pnpm prisma:deploy && pnpm prisma:seed; fi']);
         setCapacity();
         c(['up','-d','--no-deps','--no-build','--pull','never','--wait','--wait-timeout','240','api','bot-runtime','worker']);
       }

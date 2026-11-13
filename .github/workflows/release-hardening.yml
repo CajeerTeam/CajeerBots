@@ -10,6 +10,8 @@ on:
       - '.npmrc'
       - '.nvmrc'
       - 'docker/*.Dockerfile'
+      - 'tsconfig.seed.json'
+      - 'prisma/seed.ts'
       - 'scripts/container-audit-diagnostics.mjs'
   pull_request:
     branches: [main]
@@ -21,6 +23,8 @@ on:
       - '.npmrc'
       - '.nvmrc'
       - 'docker/*.Dockerfile'
+      - 'tsconfig.seed.json'
+      - 'prisma/seed.ts'
       - 'scripts/container-audit-diagnostics.mjs'
   workflow_dispatch:
     inputs:
@@ -182,7 +186,7 @@ jobs:
           pnpm test:stable
           node --test scripts/rc3-security.test.mjs
           pnpm test:e2e
-          pnpm -r list --depth Infinity --json > "$RUNNER_TEMP/dependencies.json"
+          pnpm -r list --prod --depth Infinity --json > "$RUNNER_TEMP/dependencies.json"
       - name: Validate baseline SHA
         env:
           BASELINE: ${{ inputs.baseline_ref }}

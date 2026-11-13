@@ -44,7 +44,7 @@ services:
       retries: 20
   migrate:
     <<: *app
-    command: ["sh", "-ec", "pnpm prisma:deploy && pnpm prisma:seed"]
+    command: ["sh", "-ec", "if [ -f prisma/seed.js ]; then node node_modules/prisma/build/index.js migrate deploy && node prisma/seed.js; else pnpm prisma:deploy && pnpm prisma:seed; fi"]
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
