@@ -13,6 +13,8 @@ on:
       - 'tsconfig.seed.json'
       - 'prisma/seed.ts'
       - 'scripts/container-audit-diagnostics.mjs'
+      - 'scripts/runtime-os-inventory.mjs'
+      - 'scripts/runtime-image-preflight.mjs'
   pull_request:
     branches: [main]
     paths:
@@ -26,6 +28,8 @@ on:
       - 'tsconfig.seed.json'
       - 'prisma/seed.ts'
       - 'scripts/container-audit-diagnostics.mjs'
+      - 'scripts/runtime-os-inventory.mjs'
+      - 'scripts/runtime-image-preflight.mjs'
   workflow_dispatch:
     inputs:
       baseline_ref:
@@ -105,6 +109,20 @@ jobs:
           persist-credentials: false
       - name: Build candidate runtime image
         run: docker build --pull --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:1.0.0 .
+      - name: Verify runtime inventory and GNU tar compatibility
+        run: |
+          set -euo pipefail
+          dir=$(mktemp -d)
+          trap 'sudo rm -rf "$dir"' EXIT
+          mkdir "$dir/source" "$dir/restored"
+          printf 'gnu fixture' > "$dir/source/fixture.txt"
+          chmod 0640 "$dir/source/fixture.txt"
+          tar --owner=10001 --group=10001 --numeric-owner -cpf "$dir/gnu.tar" -C "$dir/source" .
+          docker run --rm --network none --user 0 --entrypoint node --mount "type=bind,src=$dir,dst=/fixture" cajeerbots:1.0.0 scripts/runtime-image-preflight.mjs /fixture
+          sudo tar --numeric-owner -xpf "$dir/runtime.tar" -C "$dir/restored"
+          file="$dir/restored/$(printf '%0110d' 0 | tr 0 a)/fixture.txt"
+          test "$(sudo cat "$file")" = 'backup fixture'
+          test "$(sudo stat -c '%u:%g:%a' "$file")" = '10001:10001:640'
       - name: Scan candidate image
         id: candidate-scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -203,6 +221,20 @@ jobs:
           test -f .tmp/rc6/pnpm-lock.yaml
           docker build -f .tmp/rc6/docker/api.Dockerfile -t cajeerbots:rehearsal-rc6 .tmp/rc6
           docker build --pull --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:1.0.0 .
+      - name: Verify runtime inventory and GNU tar compatibility
+        run: |
+          set -euo pipefail
+          dir=$(mktemp -d)
+          trap 'sudo rm -rf "$dir"' EXIT
+          mkdir "$dir/source" "$dir/restored"
+          printf 'gnu fixture' > "$dir/source/fixture.txt"
+          chmod 0640 "$dir/source/fixture.txt"
+          tar --owner=10001 --group=10001 --numeric-owner -cpf "$dir/gnu.tar" -C "$dir/source" .
+          docker run --rm --network none --user 0 --entrypoint node --mount "type=bind,src=$dir,dst=/fixture" cajeerbots:1.0.0 scripts/runtime-image-preflight.mjs /fixture
+          sudo tar --numeric-owner -xpf "$dir/runtime.tar" -C "$dir/restored"
+          file="$dir/restored/$(printf '%0110d' 0 | tr 0 a)/fixture.txt"
+          test "$(sudo cat "$file")" = 'backup fixture'
+          test "$(sudo stat -c '%u:%g:%a' "$file")" = '10001:10001:640'
       - name: Preflight rehearsal workload in both immutable images
         run: |
           set -euo pipefail
@@ -230,7 +262,7 @@ jobs:
       - name: Generate CycloneDX inventory from installed dependencies and tested image
         run: |
           set -euo pipefail
-          docker run --rm --entrypoint dpkg-query cajeerbots:1.0.0 -W '-f=${binary:Package}\t${Version}\t${Architecture}\n' > "$RUNNER_TEMP/dpkg.tsv"
+          docker run --rm --entrypoint node cajeerbots:1.0.0 scripts/runtime-os-inventory.mjs > "$RUNNER_TEMP/dpkg.tsv"
           node_version=$(docker run --rm --entrypoint node cajeerbots:1.0.0 --version)
           node scripts/release-sbom.mjs "$RUNNER_TEMP/dependencies.json" "$RUNNER_TEMP/dpkg.tsv" "$node_version" "$RUNNER_TEMP/sbom.cdx.json"
       - name: Scan exact runtime image (OS and libraries)
