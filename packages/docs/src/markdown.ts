@@ -84,7 +84,7 @@ export function normalizeSlug(value: string): string {
     .replace(/\.md$/i, '')
     .replace(/\/index$/i, '')
     .replace(/\s+/g, '-')
-    .replace(/[^\p{Letter}\p{Number}\/_-]+/gu, '')
+    .replace(/[^\p{Letter}\p{Number}/_-]+/gu, '')
     .replace(/\/+/g, '/')
     .toLowerCase();
 }
