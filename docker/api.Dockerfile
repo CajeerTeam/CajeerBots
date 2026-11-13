@@ -1,6 +1,6 @@
-FROM node:22.16.0-bookworm-slim AS base
+FROM node:22.23.5-bookworm-slim AS base
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssl && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends ca-certificates openssl && rm -rf /var/lib/apt/lists/* \
     && npm install --global pnpm@9.15.9
 
 FROM base AS build

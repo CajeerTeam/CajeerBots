@@ -8,6 +8,9 @@ on:
       - 'pnpm-workspace.yaml'
       - '**/package.json'
       - '.npmrc'
+      - '.nvmrc'
+      - 'docker/*.Dockerfile'
+      - 'scripts/container-audit-diagnostics.mjs'
   pull_request:
     branches: [main]
     paths:
@@ -16,6 +19,9 @@ on:
       - 'pnpm-workspace.yaml'
       - '**/package.json'
       - '.npmrc'
+      - '.nvmrc'
+      - 'docker/*.Dockerfile'
+      - 'scripts/container-audit-diagnostics.mjs'
   workflow_dispatch:
     inputs:
       baseline_ref:
@@ -84,6 +90,38 @@ jobs:
           name: dependency-audit-report
           path: ${{ runner.temp }}/audit.json
           if-no-files-found: error
+          retention-days: 14
+  container-audit:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build candidate runtime image
+        run: docker build --pull --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:1.0.0 .
+      - name: Scan candidate image
+        id: candidate-scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: cajeerbots:1.0.0
+          format: json
+          output: ${{ runner.temp }}/container-audit.json
+          severity: HIGH,CRITICAL
+          vuln-type: os,library
+          ignore-unfixed: false
+          exit-code: '1'
+      - name: Print container audit findings
+        if: ${{ always() && (steps.candidate-scan.outcome == 'success' || steps.candidate-scan.outcome == 'failure') }}
+        run: node scripts/container-audit-diagnostics.mjs "$RUNNER_TEMP/container-audit.json" "$RUNNER_TEMP/container-audit-diagnostics.json"
+      - name: Save container audit diagnostics
+        if: ${{ always() && (steps.candidate-scan.outcome == 'success' || steps.candidate-scan.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-container-audit-report
+          path: ${{ runner.temp }}/container-audit-diagnostics.json
+          if-no-files-found: warn
           retention-days: 14
   verified-release:
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -160,7 +198,7 @@ jobs:
           test "$(cat .tmp/rc6/VERSION)" = 1.0.0-rc.6
           test -f .tmp/rc6/pnpm-lock.yaml
           docker build -f .tmp/rc6/docker/api.Dockerfile -t cajeerbots:rehearsal-rc6 .tmp/rc6
-          docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:1.0.0 .
+          docker build --pull --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:1.0.0 .
       - name: Preflight rehearsal workload in both immutable images
         run: |
           set -euo pipefail
@@ -192,6 +230,7 @@ jobs:
           node_version=$(docker run --rm --entrypoint node cajeerbots:1.0.0 --version)
           node scripts/release-sbom.mjs "$RUNNER_TEMP/dependencies.json" "$RUNNER_TEMP/dpkg.tsv" "$node_version" "$RUNNER_TEMP/sbom.cdx.json"
       - name: Scan exact runtime image (OS and libraries)
+        id: release-scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: cajeerbots:1.0.0
@@ -201,6 +240,17 @@ jobs:
           vuln-type: os,library
           ignore-unfixed: false
           exit-code: '1'
+      - name: Print container audit findings
+        if: ${{ always() && (steps.release-scan.outcome == 'success' || steps.release-scan.outcome == 'failure') }}
+        run: node scripts/container-audit-diagnostics.mjs "$RUNNER_TEMP/container-audit.json" "$RUNNER_TEMP/container-audit-diagnostics.json"
+      - name: Save container audit diagnostics
+        if: ${{ always() && (steps.release-scan.outcome == 'success' || steps.release-scan.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-container-audit-report
+          path: ${{ runner.temp }}/container-audit-diagnostics.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Export exact tested runtime image
         run: |
           set -euo pipefail
