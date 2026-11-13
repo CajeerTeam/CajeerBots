@@ -21,7 +21,7 @@ export class SchedulerWorker {
     await this.prisma.connect();
     this.poller = new SerialPoller(this.options.pollIntervalMs ?? Number(process.env.SCHEDULER_WORKER_INTERVAL_MS ?? 10000), () => this.tick(), (error) => console.error('[worker] scheduler.worker tick failed:', error instanceof Error ? error.name : 'unknown'));
     await this.poller.start();
-    console.log('[worker] scheduler worker 1.0.0 started');
+    console.log('[worker] scheduler worker 1.0.1 started');
   }
 
   async stop(): Promise<void> {

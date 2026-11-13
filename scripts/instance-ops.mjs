@@ -215,7 +215,7 @@ async function deployPilot(project, envFile, bundle, publicKeyFile, communities,
     if (upgrade) {
       safeDestination(upgrade.destination);
       old = compose(project,envFile,upgrade.oldImage);
-      assert(currentImage(old,config(old)).version==='1.0.0-rc.6','Pilot upgrade requires a running RC6 instance');
+      assert(['1.0.0-rc.6','1.0.0'].includes(currentImage(old,config(old)).version),'Pilot upgrade requires a running RC6 or 1.0.0 instance');
       const count = old(['exec','-T','postgres','sh','-ec','exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "$1"','pilot',`SELECT (SELECT count(*) FROM communities)::text || ',' || (SELECT count(*) FROM bot_accounts)::text`],{capture:true}).split(',').map(Number);
       assert(count.length===2 && count.every(Number.isSafeInteger) && count[0]<=limits.maxCommunities && count[1]<=limits.maxBotAccounts,'Current instance exceeds pilot limits');
     } else assertFresh(c,project);

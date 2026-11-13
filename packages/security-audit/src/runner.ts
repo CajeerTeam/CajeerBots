@@ -16,7 +16,7 @@ export async function seedDefaultSecurityAuditPolicies(prisma: any): Promise<{ c
 
 export async function runSecurityAudit(options: RunSecurityAuditOptions): Promise<{ run?: any; report: SecurityAuditReport }> {
   const prisma = options.prisma;
-  const version = options.version ?? '1.0.0';
+  const version = options.version ?? '1.0.1';
   const channel = options.channel ?? 'stable';
   const now = options.now ?? new Date();
   const policies = options.policies?.length ? options.policies : await policiesFromDatabaseOrDefaults(prisma);

@@ -3,18 +3,21 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-export const stableVersion = '1.0.0';
+export const stableVersion = '1.0.1';
+export const isStableVersion = value => typeof value === 'string' && /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(value);
 export const stablePrefix = `cajeerbots-${stableVersion}`;
 export const stableSuffixes = ['.zip', '.image.tar.gz', '.sbom.cdx.json', '.audit.json', '.rehearsal.json', '.container-audit.json'];
 const requiredPhases = ['clean-install-stable','pilot-capacity-enforcement','clean-install-rc6','rc6-community-backup-and-sentinels','worker-unavailable','http-load-durable-backlog','worker-restart','queue-drain','upgrade-rc6-to-stable','verify-upgraded-data','stable-community-backup-restore','stable-stop-worker','create-discord-fixture','reload-bot-runtime','signed-discord-form-e2e','stable-http-load','stable-restart-worker','stable-queue-drain','restore-original-into-fresh-project','start-restored-rc6','verify-restored-data','stable-instance-backup-restore'];
 const imageId = value => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value);
 const check = (condition, message) => { if (!condition) throw Error(message); };
-export function validateStableEvidence({ report, audit, sbom, containerAudit, commit }) {
+export function validateStableEvidence({ report, audit, sbom, containerAudit, commit }, version = stableVersion) {
+  check(isStableVersion(version), 'Invalid stable version');
+  const phases = version === '1.0.0' ? requiredPhases : [...requiredPhases,'stable-patch-upgrade-restore'];
   check(/^[a-f0-9]{40}$/.test(commit), 'Invalid commit');
-  check(report?.format === 'cajeerbots.rehearsal.v1' && report.passed === true && report.commit === commit && report.baselineVersion === '1.0.0-rc.6' && report.targetVersion === stableVersion, 'Wrong or failed rehearsal');
+  check(report?.format === 'cajeerbots.rehearsal.v1' && report.passed === true && report.commit === commit && report.baselineVersion === '1.0.0-rc.6' && report.targetVersion === version, 'Wrong or failed rehearsal');
   check(imageId(report.targetImageId) && imageId(report.baselineImageId) && report.targetImageId !== report.baselineImageId, 'Missing immutable rehearsal image IDs');
   check(Number.isInteger(report.count) && report.count >= 1000 && report.count <= 10000 && Number.isInteger(report.concurrency) && report.concurrency >= 8 && report.concurrency <= 64, 'Insufficient rehearsal workload');
-  check(Array.isArray(report.phases) && report.phases.length === requiredPhases.length && requiredPhases.every((name,i) => report.phases[i]?.name === name && report.phases[i].passed === true && Number.isFinite(report.phases[i].durationMs)), 'Missing, failed or unordered rehearsal phase');
+  check(Array.isArray(report.phases) && report.phases.length === phases.length && phases.every((name,i) => report.phases[i]?.name === name && report.phases[i].passed === true && Number.isFinite(report.phases[i].durationMs)), 'Missing, failed or unordered rehearsal phase');
   check(report.phases.find(p=>p.name==='pilot-capacity-enforcement').result?.passed===true, 'Pilot capacity probe failed');
   for (const name of ['http-load-durable-backlog','stable-http-load']) {
     const load = report.phases.find(p => p.name === name).result?.load;
@@ -32,23 +35,27 @@ export function validateStableEvidence({ report, audit, sbom, containerAudit, co
   const stable = report.phases.find(p=>p.name==='stable-queue-drain').result;
   const stableRestore = report.phases.find(p=>p.name==='stable-instance-backup-restore').result;
   check(typeof stable.id==='string' && stable.id.length>0 && stableRestore?.id===stable.id && stableRestore.count===report.count && stableRestore.communityId===stable.communityId, 'Stable instance restore data mismatch');
+  if (version !== '1.0.0') {
+    const patch = report.phases.find(p=>p.name==='stable-patch-upgrade-restore').result;
+    check(patch?.baselineVersion==='1.0.0' && patch.baselineImageId==='sha256:442e91aa9fe026983fce4e024f0152300c828bc0e22cfbf30599efe0dcd91618' && patch.targetVersion===version && patch.count===report.count && patch.upgraded===true && patch.restored===true && typeof patch.id==='string' && patch.id.length>0 && patch.load?.passed===true && patch.load.failed===0 && Array.isArray(patch.load.errors) && patch.load.errors.length===0 && patch.load.succeeded===report.count && patch.load.rps>=10 && patch.load.p95Ms<=1500 && Number.isFinite(patch.drainMs) && patch.drainMs>=0 && patch.drainMs<=180000, 'Stable patch upgrade/restore evidence missing or failed');
+  }
   const vulnerabilities = audit?.metadata?.vulnerabilities;
   check(vulnerabilities && Number.isInteger(vulnerabilities.high) && Number.isInteger(vulnerabilities.critical) && vulnerabilities.high === 0 && vulnerabilities.critical === 0 && !audit.error, 'npm audit missing or high/critical findings');
-  check(sbom?.bomFormat === 'CycloneDX' && sbom.specVersion === '1.5' && sbom.metadata?.component?.version === stableVersion && sbom.components?.some(c => c.name === 'nodejs') && sbom.components?.some(c => c.purl?.startsWith('pkg:deb/')), 'Incomplete stable SBOM');
+  check(sbom?.bomFormat === 'CycloneDX' && sbom.specVersion === '1.5' && sbom.metadata?.component?.version === version && sbom.components?.some(c => c.name === 'nodejs') && sbom.components?.some(c => c.purl?.startsWith('pkg:deb/')), 'Incomplete stable SBOM');
   check(containerAudit?.ArtifactType === 'container_image' && containerAudit.Metadata?.ImageID === report.targetImageId && Array.isArray(containerAudit.Results) && containerAudit.Results.some(r => r.Class === 'os-pkgs'), 'Missing container scan of tested image');
   check(containerAudit.Results.every(r => (r.Vulnerabilities ?? []).every(v => !['HIGH','CRITICAL'].includes(v.Severity))), 'Container audit has high/critical findings');
   return report.targetImageId;
 }
-export async function readStableEvidence(dir, commit) {
-  const json = async suffix => JSON.parse(await readFile(join(dir,stablePrefix+suffix),'utf8'));
-  return validateStableEvidence({ report: await json('.rehearsal.json'), audit: await json('.audit.json'), sbom: await json('.sbom.cdx.json'), containerAudit: await json('.container-audit.json'), commit });
+export async function readStableEvidence(dir, commit, version = stableVersion) {
+  const json = async suffix => JSON.parse(await readFile(join(dir,`cajeerbots-${version}`+suffix),'utf8'));
+  return validateStableEvidence({ report: await json('.rehearsal.json'), audit: await json('.audit.json'), sbom: await json('.sbom.cdx.json'), containerAudit: await json('.container-audit.json'), commit }, version);
 }
-export function requireStableManifest(manifest) {
-  check(manifest.version === stableVersion && manifest.channel === 'stable', 'Stable channel/version required');
-  check(manifest.files.length === stableSuffixes.length && stableSuffixes.every(s => manifest.files.some(f => f.path === stablePrefix+s)), 'Incomplete stable artifact set');
+export function requireStableManifest(manifest, version = stableVersion) {
+  check(isStableVersion(version) && manifest.version === version && manifest.channel === 'stable', 'Stable channel/version required');
+  check(manifest.files.length === stableSuffixes.length && stableSuffixes.every(s => manifest.files.some(f => f.path === `cajeerbots-${version}`+s)), 'Incomplete stable artifact set');
 }
 // Docker save config filename is content-addressed. Verify the archive before it is signed or loaded.
-export function verifyImageArchive(path, expectedId, expectedCommit) {
+export function verifyImageArchive(path, expectedId, expectedCommit, version = stableVersion) {
   check(imageId(expectedId), 'Invalid image ID');
   const tar = (args, maxBuffer=16*1024*1024) => {
     const result = spawnSync('tar', args, {encoding:null,maxBuffer,timeout:120000});
@@ -56,7 +63,7 @@ export function verifyImageArchive(path, expectedId, expectedCommit) {
   };
   const manifest = JSON.parse(tar(['-xOzf',path,'manifest.json']).toString('utf8'));
   check(Array.isArray(manifest) && manifest.length === 1, 'Expected exactly one saved image');
-  check(Array.isArray(manifest[0].RepoTags) && manifest[0].RepoTags.length === 1 && manifest[0].RepoTags[0] === 'cajeerbots:1.0.0', 'Unexpected runtime image tag');
+  check(Array.isArray(manifest[0].RepoTags) && manifest[0].RepoTags.length === 1 && manifest[0].RepoTags[0] === `cajeerbots:${version}`, 'Unexpected runtime image tag');
   const config = manifest[0].Config;
   check(typeof config === 'string' && /^(?:blobs\/sha256\/)?[a-f0-9]{64}(?:\.json)?$/.test(config), 'Invalid image config path');
   const bytes = tar(['-xOzf',path,config]);

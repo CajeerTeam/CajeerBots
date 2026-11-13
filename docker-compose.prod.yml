@@ -1,5 +1,5 @@
 x-app: &app
-  image: ${CAJEER_IMAGE:-cajeerbots:1.0.0}
+  image: ${CAJEER_IMAGE:-cajeerbots:1.0.1}
   build:
     context: .
     dockerfile: docker/api.Dockerfile

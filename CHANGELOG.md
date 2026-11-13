@@ -1,3 +1,9 @@
+## 1.0.1 — Stable patch
+
+- Align application, workspace, deployment and release metadata to 1.0.1; retain extension API and backup schema compatibility.
+- Require signed evidence for stable versions, including actual upgrade and restore from the previously verified 1.0.0 image.
+- Publish only after frozen build, full rehearsal, exact-image audits and Ed25519 verification succeed. The new tag does not reuse the unavailable immutable v1.0.0 tag.
+
 ## 1.0.0 — Stable / Limited Production
 
 - Require full RC6→Stable rehearsal, exact image identity and commit, signed source/runtime bundle, npm and container audits.

@@ -8,7 +8,7 @@ export const listFreezesQuerySchema = z.object({
 });
 
 export const upsertFreezeSchema = z.object({
-  version: z.string().min(1).default('1.0.0'),
+  version: z.string().min(1).default('1.0.1'),
   channel: z.enum(['alpha', 'beta', 'rc', 'stable', 'lts', 'security']).default('stable'),
   status: z.enum(['open', 'locked', 'released', 'cancelled']).default('locked'),
   reason: z.string().max(2000).optional().nullable(),
@@ -31,7 +31,7 @@ export const upsertQualityGateSchema = z.object({
 });
 
 export const runGatesSchema = z.object({
-  version: z.string().min(1).default('1.0.0'),
+  version: z.string().min(1).default('1.0.1'),
   channel: z.enum(['alpha', 'beta', 'rc', 'stable', 'lts', 'security']).default('stable'),
   rootDir: z.string().min(1).default(process.cwd()),
   trigger: z.string().min(1).max(80).default('api'),
@@ -59,7 +59,7 @@ export const resolveBlockerSchema = z.object({
 });
 
 export const createReportSchema = z.object({
-  version: z.string().min(1).default('1.0.0'),
+  version: z.string().min(1).default('1.0.1'),
   channel: z.enum(['alpha', 'beta', 'rc', 'stable', 'lts', 'security']).default('stable'),
   gateRunId: z.string().optional(),
   rootDir: z.string().min(1).default(process.cwd()),

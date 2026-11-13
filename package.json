@@ -1,6 +1,6 @@
 {
   "name": "cajeerbots",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Русскоязычная TypeScript-first платформа для расширения, автоматизации и управления сообществами через Telegram, VK и Discord.",
   "license": "Apache-2.0",

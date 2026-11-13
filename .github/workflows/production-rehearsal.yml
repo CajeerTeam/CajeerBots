@@ -15,6 +15,7 @@ on:
         default: '8'
 permissions:
   contents: read
+  actions: read
 jobs:
   rehearsal:
     runs-on: ubuntu-latest
@@ -34,18 +35,36 @@ jobs:
         run: |
           set -eu
           test "$(cat .tmp/rc6/VERSION)" = 1.0.0-rc.6
-          test "$(cat VERSION)" = 1.0.0
+          test "$(cat VERSION)" = 1.0.1
           # Rehearsal can bootstrap a missing lock; release CI still requires a committed one.
           if [ ! -f pnpm-lock.yaml ]; then pnpm deps:lock; fi
           if [ ! -f .tmp/rc6/pnpm-lock.yaml ]; then (cd .tmp/rc6 && pnpm deps:lock); fi
           docker build -f .tmp/rc6/docker/api.Dockerfile -t cajeerbots:rehearsal-rc6 .tmp/rc6
           docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:rehearsal-stable .
+      - name: Load independently verified 1.0.0 patch baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/previous-stable"
+          gh api repos/CajeerTeam/CajeerBots/actions/artifacts/14025468350 > "$RUNNER_TEMP/previous-artifact.json"
+          jq -e '.name == "cajeerbots-1.0.0-verified" and .expired == false and .workflow_run.id == 43398376975 and .workflow_run.head_sha == "40550b595866099d4390a26a00b5d60650da439f"' "$RUNNER_TEMP/previous-artifact.json"
+          gh run download 43398376975 --name cajeerbots-1.0.0-verified --dir "$RUNNER_TEMP/previous-stable"
+          cat > "$RUNNER_TEMP/previous-public.pem" <<'KEY'
+          -----BEGIN PUBLIC KEY-----
+          MCowBQYDK2VwAyEAxpjDoo3A++d9VAT6EgRdPDIF8kPsqGIhdmIZ4IpJCsI=
+          -----END PUBLIC KEY-----
+          KEY
+          node scripts/release-verify.mjs "$RUNNER_TEMP/previous-stable" 1.0.0 "$RUNNER_TEMP/previous-public.pem"
+          jq -e '.commit == "40550b595866099d4390a26a00b5d60650da439f"' "$RUNNER_TEMP/previous-stable/cajeerbots-1.0.0.manifest.json"
+          docker load --input "$RUNNER_TEMP/previous-stable/cajeerbots-1.0.0.image.tar.gz"
+          test "$(docker image inspect --format '{{.Id}}' cajeerbots:1.0.0)" = sha256:442e91aa9fe026983fce4e024f0152300c828bc0e22cfbf30599efe0dcd91618
       - name: Run full rehearsal
         env:
           CAJEER_REHEARSAL_ISOLATED: '1'
           REHEARSAL_EVENTS: ${{ inputs.events }}
           REHEARSAL_CONCURRENCY: ${{ inputs.concurrency }}
-        run: node scripts/production-rehearsal.mjs cajeerbots:rehearsal-rc6 cajeerbots:rehearsal-stable rehearsal-report.json "$REHEARSAL_EVENTS" "$REHEARSAL_CONCURRENCY"
+        run: node scripts/production-rehearsal.mjs cajeerbots:rehearsal-rc6 cajeerbots:rehearsal-stable rehearsal-report.json "$REHEARSAL_EVENTS" "$REHEARSAL_CONCURRENCY" cajeerbots:1.0.0
       - name: Upload evidence and resolved lockfiles (no backup secrets)
         if: always()
         uses: actions/upload-artifact@v4

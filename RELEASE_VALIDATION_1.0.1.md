@@ -1,0 +1,3 @@
+# CajeerBots 1.0.1 — Release validation
+
+This patch retains the stable/limited-production policy. Release gates must run on the exact release commit. The signed release includes all six artifacts, including the full RC6-to-Stable rehearsal and an additional verified 1.0.0-to-1.0.1 upgrade/restore phase. The previous 1.0.0 image is obtained from the signed artifact of run 43398376975 and verified independently before use. Do not deploy until CI, security audits and manifest verification pass. The 1.0.0 draft is not an authoritative public release. Use the new signed bundle for pilot deployment; monitor health, capacity, backlog, dead letters and heartbeats before expanding production usage.

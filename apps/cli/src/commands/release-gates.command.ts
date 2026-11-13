@@ -19,7 +19,7 @@ export function releaseGatesCommand(): Command {
     }));
 
   command.command('freeze')
-    .option('--version <version>', 'release version', '1.0.0')
+    .option('--version <version>', 'release version', '1.0.1')
     .option('--channel <channel>', 'alpha|beta|rc|stable|lts|security', 'stable')
     .option('--status <status>', 'open|locked|released|cancelled', 'locked')
     .option('--reason <reason>', 'freeze reason')
@@ -62,7 +62,7 @@ export function releaseGatesCommand(): Command {
     }));
 
   command.command('run')
-    .option('--version <version>', 'release version', '1.0.0')
+    .option('--version <version>', 'release version', '1.0.1')
     .option('--channel <channel>', 'release channel', 'stable')
     .option('--root <dir>', 'project root', process.cwd())
     .option('--no-database-gates', 'use built-in gates instead of DB-configured gates')
@@ -109,7 +109,7 @@ export function releaseGatesCommand(): Command {
     }));
 
   command.command('report:create')
-    .option('--version <version>', 'release version', '1.0.0')
+    .option('--version <version>', 'release version', '1.0.1')
     .option('--channel <channel>', 'release channel', 'stable')
     .option('--run <runId>')
     .option('--root <dir>', 'project root', process.cwd())

@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/release-hardening.yml'
+      - 'VERSION'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - '**/package.json'
@@ -21,6 +22,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/release-hardening.yml'
+      - 'VERSION'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - '**/package.json'
@@ -45,6 +47,7 @@ on:
         required: true
 permissions:
   contents: read
+  actions: read
 jobs:
   dependency-audit:
     runs-on: ubuntu-24.04
@@ -104,7 +107,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   container-audit:
-    if: ${{ github.event_name != 'workflow_dispatch' }}
+    if: ${{ github.event_name != 'workflow_dispatch' && !(github.event_name == 'push' && github.event.head_commit.message == 'release: CajeerBots 1.0.1') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -112,14 +115,14 @@ jobs:
         with:
           persist-credentials: false
       - name: Build candidate runtime image
-        run: docker build --pull --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:1.0.0 .
+        run: docker build --pull --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:1.0.1 .
       - name: Verify shell-free runtime inventory
-        run: docker run --rm --network none --entrypoint node cajeerbots:1.0.0 scripts/runtime-image-preflight.mjs
+        run: docker run --rm --network none --entrypoint node cajeerbots:1.0.1 scripts/runtime-image-preflight.mjs
       - name: Scan candidate image
         id: candidate-scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: cajeerbots:1.0.0
+          image-ref: cajeerbots:1.0.1
           format: json
           output: ${{ runner.temp }}/container-audit.json
           severity: HIGH,CRITICAL
@@ -138,7 +141,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
   verified-release:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'release: CajeerBots 1.0.1') }}
     needs: dependency-audit
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -184,7 +187,7 @@ jobs:
       - name: Frozen dependencies, build and tests
         run: |
           set -euo pipefail
-          test "$(cat VERSION)" = 1.0.0
+          test "$(cat VERSION)" = 1.0.1
           test -f pnpm-lock.yaml
           pnpm install --frozen-lockfile
           pnpm prisma:validate
@@ -204,11 +207,11 @@ jobs:
           pnpm -r list --prod --depth Infinity --json > "$RUNNER_TEMP/dependencies.json"
       - name: Validate baseline SHA
         env:
-          BASELINE: ${{ inputs.baseline_ref }}
+          BASELINE: ${{ inputs.baseline_ref || 'd3838069c9361bd722af43a9dfe7805b96e9f030' }}
         run: '[[ "$BASELINE" =~ ^[0-9a-f]{40}$ ]]'
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.baseline_ref }}
+          ref: ${{ inputs.baseline_ref || 'd3838069c9361bd722af43a9dfe7805b96e9f030' }}
           path: .tmp/rc6
           persist-credentials: false
       - name: Build immutable rehearsal inputs
@@ -217,25 +220,43 @@ jobs:
           test "$(cat .tmp/rc6/VERSION)" = 1.0.0-rc.6
           test -f .tmp/rc6/pnpm-lock.yaml
           docker build -f .tmp/rc6/docker/api.Dockerfile -t cajeerbots:rehearsal-rc6 .tmp/rc6
-          docker build --pull --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:1.0.0 .
+          docker build --pull --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:1.0.1 .
       - name: Verify shell-free runtime inventory
-        run: docker run --rm --network none --entrypoint node cajeerbots:1.0.0 scripts/runtime-image-preflight.mjs
+        run: docker run --rm --network none --entrypoint node cajeerbots:1.0.1 scripts/runtime-image-preflight.mjs
       - name: Preflight rehearsal workload in both immutable images
         run: |
           set -euo pipefail
-          for image in cajeerbots:rehearsal-rc6 cajeerbots:1.0.0; do
+          for image in cajeerbots:rehearsal-rc6 cajeerbots:1.0.1; do
             docker run --rm --network none --entrypoint node \
               --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/rehearsal-workload.mjs,dst=/app/scripts/rehearsal-workload.mjs,readonly" \
               --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/rehearsal-load.mjs,dst=/app/scripts/rehearsal-load.mjs,readonly" \
               "$image" scripts/rehearsal-workload.mjs --check-imports
           done
+      - name: Load independently verified 1.0.0 patch baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/previous-stable"
+          gh api repos/CajeerTeam/CajeerBots/actions/artifacts/14025468350 > "$RUNNER_TEMP/previous-artifact.json"
+          jq -e '.name == "cajeerbots-1.0.0-verified" and .expired == false and .workflow_run.id == 43398376975 and .workflow_run.head_sha == "40550b595866099d4390a26a00b5d60650da439f"' "$RUNNER_TEMP/previous-artifact.json"
+          gh run download 43398376975 --name cajeerbots-1.0.0-verified --dir "$RUNNER_TEMP/previous-stable"
+          cat > "$RUNNER_TEMP/previous-public.pem" <<'KEY'
+          -----BEGIN PUBLIC KEY-----
+          MCowBQYDK2VwAyEAxpjDoo3A++d9VAT6EgRdPDIF8kPsqGIhdmIZ4IpJCsI=
+          -----END PUBLIC KEY-----
+          KEY
+          node scripts/release-verify.mjs "$RUNNER_TEMP/previous-stable" 1.0.0 "$RUNNER_TEMP/previous-public.pem"
+          jq -e '.commit == "40550b595866099d4390a26a00b5d60650da439f"' "$RUNNER_TEMP/previous-stable/cajeerbots-1.0.0.manifest.json"
+          docker load --input "$RUNNER_TEMP/previous-stable/cajeerbots-1.0.0.image.tar.gz"
+          test "$(docker image inspect --format '{{.Id}}' cajeerbots:1.0.0)" = sha256:442e91aa9fe026983fce4e024f0152300c828bc0e22cfbf30599efe0dcd91618
       - name: Full production rehearsal
         id: rehearsal
         env:
           CAJEER_REHEARSAL_ISOLATED: '1'
-          REHEARSAL_EVENTS: ${{ inputs.events }}
+          REHEARSAL_EVENTS: ${{ inputs.events || '1000' }}
           REHEARSAL_MIN_RPS: '10'
-        run: node scripts/production-rehearsal.mjs cajeerbots:rehearsal-rc6 cajeerbots:1.0.0 "$RUNNER_TEMP/rehearsal.json" "$REHEARSAL_EVENTS" 16
+        run: node scripts/production-rehearsal.mjs cajeerbots:rehearsal-rc6 cajeerbots:1.0.1 "$RUNNER_TEMP/rehearsal.json" "$REHEARSAL_EVENTS" 16 cajeerbots:1.0.0
       - name: Save production rehearsal report
         if: ${{ always() && (steps.rehearsal.outcome == 'success' || steps.rehearsal.outcome == 'failure') }}
         uses: actions/upload-artifact@v4
@@ -247,14 +268,14 @@ jobs:
       - name: Generate CycloneDX inventory from installed dependencies and tested image
         run: |
           set -euo pipefail
-          docker run --rm --entrypoint node cajeerbots:1.0.0 scripts/runtime-os-inventory.mjs > "$RUNNER_TEMP/dpkg.tsv"
-          node_version=$(docker run --rm --entrypoint node cajeerbots:1.0.0 --version)
+          docker run --rm --entrypoint node cajeerbots:1.0.1 scripts/runtime-os-inventory.mjs > "$RUNNER_TEMP/dpkg.tsv"
+          node_version=$(docker run --rm --entrypoint node cajeerbots:1.0.1 --version)
           node scripts/release-sbom.mjs "$RUNNER_TEMP/dependencies.json" "$RUNNER_TEMP/dpkg.tsv" "$node_version" "$RUNNER_TEMP/sbom.cdx.json"
       - name: Scan exact runtime image (OS and libraries)
         id: release-scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: cajeerbots:1.0.0
+          image-ref: cajeerbots:1.0.1
           format: json
           output: ${{ runner.temp }}/container-audit.json
           severity: HIGH,CRITICAL
@@ -275,7 +296,7 @@ jobs:
       - name: Export exact tested runtime image
         run: |
           set -euo pipefail
-          docker save cajeerbots:1.0.0 | gzip -n > "$RUNNER_TEMP/image.tar.gz"
+          docker save cajeerbots:1.0.1 | gzip -n > "$RUNNER_TEMP/image.tar.gz"
       - name: Sign and verify release artifacts
         env:
           RELEASE_PRIVATE_KEY: ${{ secrets.RELEASE_ED25519_PRIVATE_KEY }}
@@ -294,9 +315,69 @@ jobs:
           printf '%s\n' "$RELEASE_PUBLIC_KEY" > "$pub"
           unset RELEASE_PRIVATE_KEY RELEASE_PUBLIC_KEY
           RELEASE_SIGNING_KEY_FILE="$key" RELEASE_IMAGE_FILE="$RUNNER_TEMP/image.tar.gz" RELEASE_SBOM_FILE="$RUNNER_TEMP/sbom.cdx.json" RELEASE_AUDIT_FILE="$RUNNER_TEMP/audit.json" RELEASE_REHEARSAL_FILE="$RUNNER_TEMP/rehearsal.json" RELEASE_CONTAINER_AUDIT_FILE="$RUNNER_TEMP/container-audit.json" pnpm release:dist
-          pnpm release:verify dist-release/cajeerbots-1.0.0 1.0.0 "$pub"
+          pnpm release:verify dist-release/cajeerbots-1.0.1 1.0.1 "$pub"
+          openssl pkey -pubin -in "$pub" -pubout > dist-release/cajeerbots-1.0.1/release-public.pem
       - uses: actions/upload-artifact@v4
         with:
-          name: cajeerbots-1.0.0-verified
-          path: dist-release/cajeerbots-1.0.0/
+          name: cajeerbots-1.0.1-verified
+          path: dist-release/cajeerbots-1.0.1/
           if-no-files-found: error
+
+  publish:
+    if: ${{ github.repository == 'CajeerTeam/CajeerBots' && github.ref == 'refs/heads/main' }}
+    needs: verified-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: CajeerTeam/CajeerBots
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: cajeerbots-1.0.1-verified
+          path: ${{ runner.temp }}/verified
+      - name: Verify exact signed release and publish v1.0.1
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/verified"
+          tag=v1.0.1
+          cat > "$RUNNER_TEMP/trusted-release-public.pem" <<'KEY'
+          -----BEGIN PUBLIC KEY-----
+          MCowBQYDK2VwAyEAxpjDoo3A++d9VAT6EgRdPDIF8kPsqGIhdmIZ4IpJCsI=
+          -----END PUBLIC KEY-----
+          KEY
+          cmp "$dir/release-public.pem" "$RUNNER_TEMP/trusted-release-public.pem"
+          node scripts/release-verify.mjs "$dir" 1.0.1 "$RUNNER_TEMP/trusted-release-public.pem"
+          jq -e --arg sha "$GITHUB_SHA" '.commit == $sha' "$dir/cajeerbots-1.0.1.manifest.json"
+          (cd "$dir" && sha256sum -c SHA256SUMS)
+          files=("$dir"/*)
+          test "${#files[@]}" = 10
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[].tag_name' > "$RUNNER_TEMP/release-tags"
+          if grep -Fxq "$tag" "$RUNNER_TEMP/release-tags"; then echo "Release already exists"; exit 1; fi
+          gh api --paginate "repos/$GH_REPO/tags?per_page=100" --jq '.[].name' > "$RUNNER_TEMP/git-tags"
+          if grep -Fxq "$tag" "$RUNNER_TEMP/git-tags"; then echo "Tag already exists"; exit 1; fi
+          gh release create "$tag" --draft --target "$GITHUB_SHA" --title "CajeerBots 1.0.1 — Stable Release" --notes "Stable patch: consistent version metadata, verified RC6 and 1.0.0 upgrade/restore, signed production image and evidence. All mandatory gates passed. Source: $GITHUB_SHA. Validation: https://github.com/$GH_REPO/actions/runs/$GITHUB_RUN_ID" "${files[@]}"
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[] | select(.tag_name == "v1.0.1")' > "$RUNNER_TEMP/draft.json"
+          jq -e --arg sha "$GITHUB_SHA" '.draft == true and .prerelease == false and .target_commitish == $sha and (.assets|length) == 10' "$RUNNER_TEMP/draft.json"
+          for file in "${files[@]}"; do
+            name=$(basename "$file")
+            asset=$(jq -ce --arg name "$name" '.assets[] | select(.name == $name and .state == "uploaded")' "$RUNNER_TEMP/draft.json")
+            test "$(jq -r .size <<< "$asset")" = "$(stat -c %s "$file")"
+            digest=$(jq -r '.digest // ""' <<< "$asset")
+            if test -n "$digest"; then
+              test "$digest" = "sha256:$(sha256sum "$file" | cut -d ' ' -f 1)"
+            else
+              gh api -H 'Accept: application/octet-stream' "repos/$GH_REPO/releases/assets/$(jq -r .id <<< "$asset")" > "$RUNNER_TEMP/asset-check"
+              cmp "$file" "$RUNNER_TEMP/asset-check"
+              rm "$RUNNER_TEMP/asset-check"
+            fi
+          done
+          gh release edit "$tag" --draft=false --latest
+          test "$(gh api "repos/$GH_REPO/git/ref/tags/$tag" --jq .object.sha)" = "$GITHUB_SHA"
+          gh api "repos/$GH_REPO/releases/tags/$tag" --jq '{html_url,tag_name,draft,prerelease,assets: [.assets[].name]}'

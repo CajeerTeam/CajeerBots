@@ -2,11 +2,11 @@
 
 ## Поддерживаемые версии
 
-Целевая версия: `1.0.0` (Stable / Limited Production). Публикация подписанного релиза и запуск production требуют прохождения обязательных release gates.
+Целевая версия: `1.0.1` (Stable / Limited Production). Публикация подписанного релиза и запуск production требуют прохождения обязательных release gates.
 
 | Версия | Статус поддержки |
 | --- | --- |
-| `1.0.0` | Security fixes; limited production after verification |
+| `1.0.1` | Security fixes; limited production after verification |
 | `1.0.0-rc.6` | Historical release candidate |
 | LTS-ветки | Будут объявлены отдельно после стабилизации API |
 | Устаревшие pre-release сборки | Не поддерживаются после выхода более новой pre-release версии, если не указано иное |

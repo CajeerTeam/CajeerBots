@@ -1,28 +1,11 @@
-# CajeerBots — 1.0.0
+# CajeerBots — 1.0.1
 
-Русскоязычная self-hosted платформа TypeScript для Telegram, VK и Discord. Stable / Limited Production: подписанный выпуск, строгий release gate, ограниченный pilot с лимитами PostgreSQL, проверкой состояния и безопасной остановкой. Функции RC сохраняются. Публикация и pilot разрешены после полного CI и rehearsal. См. [ROADMAP](ROADMAP.md) и [отчёт проверки](RELEASE_VALIDATION_1.0.0.md).
+Русскоязычная self-hosted платформа TypeScript для Telegram, VK и Discord. Stable / Limited Production: подписанный выпуск, строгий release gate, ограниченный pilot с лимитами PostgreSQL, проверкой состояния и безопасной остановкой. Функции RC сохраняются. Публикация и pilot разрешены после полного CI и rehearsal. См. [ROADMAP](ROADMAP.md) и [отчёт проверки](RELEASE_VALIDATION_1.0.1.md).
 
-## Сначала: обязательный lockfile
+## Обязательный lockfile
 
-Требуются Node.js **22.16.0**, pnpm **9.15.9**, PostgreSQL 17 и Redis 7. Исходный архив не содержал `pnpm-lock.yaml`. В текущем патче прямые версии зафиксированы, однако настоящий lockfile нельзя было получить без доступа к npm registry. Не подменяйте его пустым файлом. На машине с доступом к registry один раз выполните:
+Требуются Node.js **22.23.5**, pnpm **9.15.9**, PostgreSQL 17 и Redis 7. В репозитории зафиксирован `pnpm-lock.yaml`. Устанавливайте зависимости только с `pnpm install --frozen-lockfile`; не перегенерируйте lockfile при сборке релиза.
 
-```bash
-npm install --global pnpm@9.15.9
-pnpm deps:lock
-pnpm install --frozen-lockfile
-```
-
-Зафиксируйте сгенерированный `pnpm-lock.yaml` в Git. Для выпуска без изменения зависимостей повторно `deps:lock` не запускайте.
-
-Если локально нет доступа к npm registry, обычный workflow **Build and runtime** при отсутствии lockfile автоматически выполняет `pnpm deps:lock` на GitHub runner, сохраняет настоящий файл в артефакте **generated-pnpm-lockfile**, затем устанавливает зависимости через `pnpm install --frozen-lockfile` и запускает все проверки. Скачайте артефакт из соответствующего запуска GitHub Actions, извлеките `pnpm-lock.yaml` в корень проекта, проверьте его и добавьте в Git:
-
-```bash
-git add pnpm-lock.yaml
-git commit -m "chore: commit resolved dependency lockfile"
-git push origin main
-```
-
-При наличии зафиксированного lockfile CI не пересоздаёт его. Docker и **Stable verified release artifacts** по-прежнему требуют существующий lockfile; релизный workflow требует его также в точном baseline rc.6. Успешный bootstrap CI не является разрешением на публикацию Stable.
 
 ## Локальная установка и проверка
 
@@ -61,7 +44,7 @@ Smoke поднимает отдельные процессы API, bot-runtime и
 
 ## Ограниченный production pilot
 
-Для production используйте подписанные артефакты и `pnpm pilot:deploy` или `pnpm pilot:upgrade`, а не сборку из произвольной рабочей директории. См. [порядок допуска, мониторинга и восстановления](RELEASE_VALIDATION_1.0.0.md).
+Для production используйте подписанные артефакты и `pnpm pilot:deploy` или `pnpm pilot:upgrade`, а не сборку из произвольной рабочей директории. См. [порядок допуска, мониторинга и восстановления](RELEASE_VALIDATION_1.0.1.md).
 
 ## Docker Compose — тестовый стенд production
 
@@ -73,7 +56,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml build
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --wait
 ```
 
-Сервисы используют один образ `cajeerbots:1.0.0`. Сначала запускаются PostgreSQL и Redis, затем `migrate` выполняет `prisma migrate deploy` и идемпотентный seed. После успешной миграции запускается API, затем bot-runtime и worker. API и bot-runtime публикуются только на localhost. Worker health доступен внутри сети Compose.
+Сервисы используют один образ `cajeerbots:1.0.1`. Сначала запускаются PostgreSQL и Redis, затем `migrate` выполняет `prisma migrate deploy` и идемпотентный seed. После успешной миграции запускается API, затем bot-runtime и worker. API и bot-runtime публикуются только на localhost. Worker health доступен внутри сети Compose.
 
 ```bash
 curl --fail http://127.0.0.1:3000/api/health
@@ -86,7 +69,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api
 
 ## Ограничения RC4
 
-- Настройте уникальные webhook credentials, HTTPS и проведите полный прогон Stable перед публикацией. См. [порядок обновления и проверки](RELEASE_VALIDATION_1.0.0.md).
+- Настройте уникальные webhook credentials, HTTPS и проведите полный прогон Stable перед публикацией. См. [порядок обновления и проверки](RELEASE_VALIDATION_1.0.1.md).
 - Полный build, Prisma migrate deploy, E2E и Compose ещё требуют прогона с установленными зависимостями; выпуск не подтверждён как production-ready.
 - Для production поддерживается PostgreSQL, Redis и локальное хранилище как базовый профиль проверки. Альтернативные драйверы и масштабирование не подтверждены этим релизом.
 
@@ -94,4 +77,4 @@ docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api
 
 ## Production rehearsal
 
-`pnpm rehearsal:production BASELINE_IMAGE TARGET_IMAGE REPORT [COUNT] [CONCURRENCY]` запускает отдельные Compose-проекты, проверяет фактический upgrade rc.6 → 1.0.0 и восстановление данных. Требуется `CAJEER_REHEARSAL_ISOLATED=1`. Операции полного backup/restore: `pnpm instance:backup`, `instance:verify`, `instance:restore`, `instance:start`, `instance:upgrade`. См. [руководство](RELEASE_VALIDATION_1.0.0.md).
+`pnpm rehearsal:production BASELINE_IMAGE TARGET_IMAGE REPORT [COUNT] [CONCURRENCY] PATCH_BASELINE_IMAGE` запускает отдельные Compose-проекты, проверяет фактический upgrade rc.6 → 1.0.1 и восстановление данных. Требуется `CAJEER_REHEARSAL_ISOLATED=1`. Операции полного backup/restore: `pnpm instance:backup`, `instance:verify`, `instance:restore`, `instance:start`, `instance:upgrade`. См. [руководство](RELEASE_VALIDATION_1.0.1.md).

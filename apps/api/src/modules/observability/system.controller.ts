@@ -12,7 +12,7 @@ export class SystemController {
   getSystemReport() {
     return {
       app: process.env.APP_NAME ?? 'CajeerBots',
-      version: '1.0.0',
+      version: '1.0.1',
       runtime: process.version,
       language: process.env.APP_LANGUAGE ?? 'ru',
       database: 'PostgreSQL 17+ primary, PostgreSQL 18+ recommended',

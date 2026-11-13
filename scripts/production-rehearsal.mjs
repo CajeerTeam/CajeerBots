@@ -8,15 +8,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const [baselineImage, targetImage, reportArg, countArg = '100', concurrencyArg = '8'] = process.argv.slice(2);
-assert(baselineImage && targetImage && reportArg, 'Usage: production-rehearsal.mjs BASELINE_IMAGE TARGET_IMAGE REPORT [COUNT] [CONCURRENCY]');
+const [baselineImage, targetImage, reportArg, countArg = '100', concurrencyArg = '8', patchBaselineImage] = process.argv.slice(2);
+assert(baselineImage && targetImage && reportArg, 'Usage: production-rehearsal.mjs BASELINE_IMAGE TARGET_IMAGE REPORT [COUNT] [CONCURRENCY] PATCH_BASELINE_IMAGE');
 assert.notEqual(baselineImage, targetImage);
 assert.equal(process.env.CAJEER_REHEARSAL_ISOLATED, '1', 'Explicit disposable instance confirmation required');
 const count = Number(countArg), concurrency = Number(concurrencyArg);
 assert(Number.isInteger(count) && count >= 1 && count <= 10000 && Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 64);
 const reportPath = resolve(reportArg); mkdirSync(dirname(reportPath), { recursive: true });
 const dir = mkdtempSync(join(tmpdir(), 'cajeer-rehearsal-'));
-const source = `cajeer-stable-${randomUUID().slice(0, 8)}`, restored = `${source}-restore`, clean = `${source}-clean`, stableRestored = `${source}-stable-restore`;
+const source = `cajeer-stable-${randomUUID().slice(0, 8)}`, restored = `${source}-restore`, clean = `${source}-clean`, stableRestored = `${source}-stable-restore`, patch = `${source}-patch`, patchRestored = `${source}-patch-restore`;
 const envFile = join(dir, 'env.production'), backup = join(dir, 'backup');
 const password = randomBytes(32).toString('base64url');
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -25,7 +25,7 @@ const fixtureConfig = `\nBOT_WEBHOOK_CREDENTIALS={"rehearsal-discord":{"publicKe
 writeFileSync(envFile, readFileSync(join(root, '.env.production.example'), 'utf8')
   .replace('BOT_WEBHOOK_CREDENTIALS={}', '')
   .replaceAll('replace-with-generated-password', password).replaceAll('replace-with-generated-secret', () => randomBytes(48).toString('base64url')) + '\nCAJEER_REHEARSAL_ISOLATED=1\nCAJEER_API_HOST_PORT=0\nCAJEER_BOT_HOST_PORT=0\nAPI_RATE_LIMIT_MAX=50000\nEVENT_API_WORKER_INTERVAL_MS=250\nEVENT_API_WORKER_BATCH_SIZE=100\n' + fixtureConfig, { mode: 0o600 });
-const report = { format: 'cajeerbots.rehearsal.v1', startedAt: new Date().toISOString(), baselineImage, targetImage, baselineVersion: '1.0.0-rc.6', targetVersion: '1.0.0', count, concurrency, phases: [], passed: false };
+const report = { format: 'cajeerbots.rehearsal.v1', startedAt: new Date().toISOString(), baselineImage, targetImage, baselineVersion: '1.0.0-rc.6', targetVersion: '1.0.1', count, concurrency, phases: [], passed: false };
 const save = () => writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
 function run(cmd, args, options = {}) {
   const result = spawnSync(cmd, args, { cwd: root, env: options.env ?? process.env, timeout: 30 * 60 * 1000, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', options.capture ? 'pipe' : 'inherit', 'inherit'] });
@@ -56,7 +56,7 @@ try {
   assert.equal(run('docker',['image','inspect','--format','{{index .Config.Labels "org.opencontainers.image.revision"}}',targetImage],{capture:true}), report.commit, 'Target image must be built from current commit');
   phase('clean-install-stable', () => {
     compose(clean, targetImage, ['up', '-d', '--no-build', '--wait', '--wait-timeout', '240']);
-    assert.equal(compose(clean, targetImage, ['exec', '-T', 'api', 'node', 'apps/cli/dist/main.js', '--version'], true), '1.0.0');
+    assert.equal(compose(clean, targetImage, ['exec', '-T', 'api', 'node', 'apps/cli/dist/main.js', '--version'], true), '1.0.1');
   });
   phase('pilot-capacity-enforcement', () => {
     compose(clean,targetImage,['exec','-T','api','node','scripts/pilot-capacity-e2e.mjs']);
@@ -77,7 +77,7 @@ try {
   // Restart worker and drain so instance backup has a consistent delivered-state baseline.
   phase('worker-restart', () => compose(source, baselineImage, ['start', 'worker']));
   state = phase('queue-drain', () => workload(source, baselineImage, 'drain', state, process.env.REHEARSAL_DRAIN_MS ?? 180000));
-  phase('upgrade-rc6-to-stable', () => ops('upgrade', source, envFile, baselineImage, backup, targetImage, '1.0.0'));
+  phase('upgrade-rc6-to-stable', () => ops('upgrade', source, envFile, baselineImage, backup, targetImage, '1.0.1'));
   phase('verify-upgraded-data', () => { installWorkload(source, targetImage); return workload(source, targetImage, 'verify', state); });
   // New RC6 work exercises duplicate IDs under load after migrating the old data.
   let after = phase('stable-community-backup-restore', () => workload(source, targetImage, 'prepare'));
@@ -95,13 +95,36 @@ try {
     const stableBackup = join(dir, 'stable-backup');
     ops('backup', source, envFile, targetImage, stableBackup);
     ops('restore', stableRestored, stableBackup);
-    ops('start', stableRestored, join(stableBackup, 'env.production'), targetImage, '1.0.0');
+    ops('start', stableRestored, join(stableBackup, 'env.production'), targetImage, '1.0.1');
     return workload(stableRestored, targetImage, 'verify', after);
+  });
+  phase('stable-patch-upgrade-restore', () => {
+    assert(patchBaselineImage, 'Verified 1.0.0 baseline image required');
+    const oldId = run('docker',['image','inspect','--format','{{.Id}}',patchBaselineImage],{capture:true});
+    assert.equal(oldId,'sha256:442e91aa9fe026983fce4e024f0152300c828bc0e22cfbf30599efe0dcd91618');
+    const patchBackup = join(dir,'patch-backup');
+    compose(patch,patchBaselineImage,['up','-d','--no-build','--wait','--wait-timeout','240']);
+    assert.equal(compose(patch,patchBaselineImage,['exec','-T','api','node','apps/cli/dist/main.js','--version'],true),'1.0.0');
+    installWorkload(patch,patchBaselineImage);
+    let data=workload(patch,patchBaselineImage,'prepare');
+    compose(patch,patchBaselineImage,['stop','-t','40','worker']);
+    data=workload(patch,patchBaselineImage,'publish',data,count,concurrency,process.env.REHEARSAL_P95_MS??1500,process.env.REHEARSAL_MIN_RPS??0);
+    assert.equal(data.load.passed,true);
+    compose(patch,patchBaselineImage,['start','worker']);
+    data=workload(patch,patchBaselineImage,'drain',data,process.env.REHEARSAL_DRAIN_MS??180000);
+    ops('upgrade',patch,envFile,patchBaselineImage,patchBackup,targetImage,'1.0.1');
+    const upgraded=workload(patch,targetImage,'verify',data);
+    assert.equal(upgraded.id,data.id);
+    ops('restore',patchRestored,patchBackup);
+    ops('start',patchRestored,join(patchBackup,'env.production'),patchBaselineImage,'1.0.0');
+    const restoredData=workload(patchRestored,patchBaselineImage,'verify',data);
+    assert.equal(restoredData.id,data.id);
+    return {...data,baselineVersion:'1.0.0',baselineImageId:oldId,targetVersion:'1.0.1',upgraded:true,restored:true};
   });
   report.passed = true;
 } catch (error) { console.error(error.message); process.exitCode = 1; }
 finally {
-  for (const [project, image] of [[source, targetImage], [restored, baselineImage], [clean, targetImage], [stableRestored, targetImage]]) {
+  for (const [project, image] of [[source, targetImage], [restored, baselineImage], [clean, targetImage], [stableRestored, targetImage], [patch, targetImage], [patchRestored, patchBaselineImage]].filter(([,image])=>image)) {
     try { compose(project, image, ['down', '-v', '--remove-orphans']); }
     catch (error) { report.passed = false; report.phases.push({ name: `cleanup-${project}`, passed: false, error: error.message }); process.exitCode = 1; }
   }

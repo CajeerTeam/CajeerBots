@@ -10,7 +10,7 @@ export function capacitySql(communities, bots) {
 export function evaluatePilot(snapshot, { maxBacklogAgeMs = 300000, maxBacklog = 1000, maxDead = 0 } = {}) {
   if (![maxBacklogAgeMs,maxBacklog,maxDead].every(v=>Number.isSafeInteger(v)&&v>=0)) throw Error('Invalid pilot thresholds');
   const failures = [];
-  if (snapshot.version !== '1.0.0' || !snapshot.health || Object.values(snapshot.health).some(v=>v!==true) || !['api','runtime','worker'].every(k=>snapshot.health[k]===true)) failures.push('health');
+  if (snapshot.version !== '1.0.1' || !snapshot.health || Object.values(snapshot.health).some(v=>v!==true) || !['api','runtime','worker'].every(k=>snapshot.health[k]===true)) failures.push('health');
   const c = snapshot.capacity;
   if (!c || c.communities !== snapshot.communities || c.botAccounts !== snapshot.botAccounts || ![c.communities,c.botAccounts,c.maxCommunities,c.maxBotAccounts].every(Number.isSafeInteger) || c.maxCommunities < 1 || c.maxCommunities > 5 || c.maxBotAccounts < 1 || c.maxBotAccounts > 10 || c.communities < 0 || c.botAccounts < 0 || c.communities > c.maxCommunities || c.botAccounts > c.maxBotAccounts) failures.push('capacity');
   if (!Number.isSafeInteger(snapshot.backlog) || snapshot.backlog > maxBacklog) failures.push('backlog');
