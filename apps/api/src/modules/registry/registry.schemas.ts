@@ -9,7 +9,10 @@ export const createRegistrySourceSchema = z.object({
   isActive: z.boolean().default(true),
 });
 
-export const updateRegistrySourceSchema = createRegistrySourceSchema.partial();
+export const updateRegistrySourceSchema = createRegistrySourceSchema.partial().extend({
+  type: createRegistrySourceSchema.shape.type.unwrap().optional(),
+  isActive: createRegistrySourceSchema.shape.isActive.unwrap().optional(),
+});
 
 export const listRegistryPackagesQuerySchema = z.object({
   sourceId: z.string().optional(),

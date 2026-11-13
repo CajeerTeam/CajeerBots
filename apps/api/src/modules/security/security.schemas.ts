@@ -12,7 +12,7 @@ export const upsertSecurityPolicySchema = z.object({
   category: z.string().min(1).max(80),
   severity: z.enum(['info', 'warning', 'error', 'critical']).default('error'),
   isEnabled: z.boolean().default(true),
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const runSecurityAuditSchema = z.object({

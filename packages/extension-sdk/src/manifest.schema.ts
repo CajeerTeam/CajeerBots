@@ -20,7 +20,7 @@ export const extensionManifestSchema = z.object({
   hooks: z.array(z.string()).default([]),
   entry: z.string().default('./dist/index.js'),
   commands: z.array(extensionCommandSchema).default([]),
-  configSchema: z.record(z.unknown()).optional(),
+  configSchema: z.record(z.string(), z.unknown()).optional(),
   capabilities: z.array(z.string()).default([]),
   signature: z.string().optional(),
 });

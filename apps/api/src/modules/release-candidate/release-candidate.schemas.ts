@@ -35,7 +35,7 @@ export const upsertCompatibilityTargetSchema = z.object({
   required: z.boolean().default(true),
   status: z.enum(['supported', 'experimental', 'deprecated', 'blocked']).default('supported'),
   notes: z.string().max(4000).optional().nullable(),
-  checks: z.array(z.record(z.unknown())).default([]),
+  checks: z.array(z.record(z.string(), z.unknown())).default([]),
 });
 
 export const buildMatrixSchema = z.object({

@@ -6,4 +6,6 @@ export const createCommunitySchema = z.object({
   language: z.string().min(2).max(12).default('ru'),
 });
 
-export const updateCommunitySchema = createCommunitySchema.partial().refine((value) => Object.keys(value).length > 0, 'Нужно передать хотя бы одно поле');
+export const updateCommunitySchema = createCommunitySchema.partial().extend({
+  language: createCommunitySchema.shape.language.unwrap().optional(),
+}).refine((value) => Object.keys(value).length > 0, 'Нужно передать хотя бы одно поле');

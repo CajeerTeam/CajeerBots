@@ -6,7 +6,7 @@ const providerSchema = z.enum(['telegram', 'vk', 'discord']);
 export const createDebugSessionSchema = z.object({
   communityId: z.string().optional(),
   title: z.string().min(1).max(160),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const listDebugSessionsQuerySchema = z.object({
@@ -21,7 +21,7 @@ export const recordDebugEventSchema = z.object({
   level: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   category: z.string().min(1).max(120),
   message: z.string().min(1).max(2000),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const listDebugEventsQuerySchema = z.object({
@@ -69,5 +69,5 @@ export const simulateProviderUpdateSchema = z.object({
   callbackCode: z.string().optional(),
   userExternalId: z.string().default('dev-user'),
   chatExternalId: z.string().optional(),
-  payload: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
 });

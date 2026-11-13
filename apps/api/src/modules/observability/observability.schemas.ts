@@ -23,7 +23,7 @@ export const upsertProbeSchema = z.object({
   intervalSeconds: z.number().int().min(10).max(86400).default(60),
   timeoutMs: z.number().int().min(100).max(30000).default(2000),
   isEnabled: z.boolean().default(true),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const listProbesQuerySchema = z.object({
@@ -41,7 +41,7 @@ export const upsertAlertRuleSchema = z.object({
   severity: z.enum(['info', 'warning', 'critical']).default('warning'),
   durationSeconds: z.number().int().min(0).max(86400).default(0),
   cooldownSeconds: z.number().int().min(0).max(86400).default(300),
-  labels: z.record(z.unknown()).optional(),
+  labels: z.record(z.string(), z.unknown()).optional(),
   isEnabled: z.boolean().default(true),
 });
 

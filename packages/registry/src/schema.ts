@@ -22,7 +22,7 @@ export const registryVersionSchema = z.object({
   releaseNotes: z.string().optional(),
   artifact: registryArtifactSchema,
   manifest: extensionManifestSchema.optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const registryPackageSchema = z.object({
@@ -36,7 +36,7 @@ export const registryPackageSchema = z.object({
   license: z.string().max(80).optional(),
   official: z.boolean().default(false),
   versions: z.array(registryVersionSchema).min(1),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const registryManifestSchema = z.object({

@@ -14,7 +14,7 @@ export const upsertDocCollectionSchema = z.object({
   sourceType: z.enum(['local_wiki', 'gitflic_wiki', 'manual']).default('local_wiki'),
   sourcePath: z.string().min(1).default('wiki'),
   sourceUrl: z.string().url().optional().nullable(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const syncDocsSchema = z.object({
