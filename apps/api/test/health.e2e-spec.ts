@@ -98,9 +98,11 @@ describe('community-scoped event publication', () => {
       expect(rows[0]?.status).toBe('pending');
       expect(rows[0]?.attempts).toBe(0);
       expect(await prisma.eventSubscriptionDelivery.count({ where: { subscriptionId: { in: [global.body.id, other.body.id] } } })).toBe(0);
+      const delivery = rows[0];
+      if (!delivery) throw new Error('Expected one durable delivery');
       const worker = new EventApiDeliveryWorker(prisma);
-      await worker.deliver(rows[0].id);
-      const delivered = await prisma.eventSubscriptionDelivery.findUniqueOrThrow({ where: { id: rows[0].id } });
+      await worker.deliver(delivery.id);
+      const delivered = await prisma.eventSubscriptionDelivery.findUniqueOrThrow({ where: { id: delivery.id } });
       expect(delivered.status).toBe('delivered');
       expect(delivered.attempts).toBe(1);
     } finally {
