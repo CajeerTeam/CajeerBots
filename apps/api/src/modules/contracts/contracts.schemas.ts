@@ -57,5 +57,5 @@ export const upsertDeprecationSchema = z.object({
   replacement: z.string().max(200).optional().nullable(),
   deprecatedSince: z.string().max(50).optional().nullable(),
   removeAfter: z.string().max(50).optional().nullable(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });

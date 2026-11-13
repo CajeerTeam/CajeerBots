@@ -12,7 +12,7 @@ export const upsertFreezeSchema = z.object({
   channel: z.enum(['alpha', 'beta', 'rc', 'stable', 'lts', 'security']).default('stable'),
   status: z.enum(['open', 'locked', 'released', 'cancelled']).default('locked'),
   reason: z.string().max(2000).optional().nullable(),
-  scope: z.record(z.unknown()).default({ features: 'frozen', allowedChanges: ['bugfix', 'test', 'docs', 'security'] }),
+  scope: z.record(z.string(), z.unknown()).default({ features: 'frozen', allowedChanges: ['bugfix', 'test', 'docs', 'security'] }),
 });
 
 export const listQualityGatesQuerySchema = z.object({
@@ -27,7 +27,7 @@ export const upsertQualityGateSchema = z.object({
   category: z.string().min(1).max(80),
   severity: z.enum(['info', 'warning', 'error', 'blocker']).default('error'),
   isEnabled: z.boolean().default(true),
-  config: z.record(z.unknown()).default({}),
+  config: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const runGatesSchema = z.object({

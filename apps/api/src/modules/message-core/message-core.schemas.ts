@@ -7,7 +7,7 @@ const buttonSchema = z.object({
   label: z.string().min(1).max(80),
   action: z.string().min(1).max(160),
   url: z.string().url().optional(),
-  payload: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const buttonRowsSchema = z.array(z.array(buttonSchema).min(1).max(5)).min(1).max(12);
@@ -16,7 +16,7 @@ export const upsertCatalogSchema = z.object({
   namespace: z.string().min(1).max(80).default('default'),
   locale: z.string().min(2).max(12).default('ru'),
   fallbackLocale: z.string().min(2).max(12).optional().nullable(),
-  messages: z.record(z.string().max(8000)),
+  messages: z.record(z.string(), z.string().max(8000)),
 });
 
 export const upsertButtonLayoutSchema = z.object({
@@ -57,7 +57,7 @@ export const upsertFormSchema = z.object({
 export const submitFormSchema = z.object({
   provider: providerSchema.optional().nullable(),
   userExternalId: z.string().max(160).optional().nullable(),
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
 });
 
 export const renderMessageSchema = z.object({
@@ -67,7 +67,7 @@ export const renderMessageSchema = z.object({
   catalogKey: z.string().min(1).max(160).optional(),
   namespace: z.string().min(1).max(80).default('default'),
   text: z.string().min(1).max(8000).optional(),
-  variables: z.record(z.union([z.string(), z.number(), z.boolean(), z.null(), z.record(z.unknown()), z.array(z.unknown())])).default({}),
+  variables: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null(), z.record(z.string(), z.unknown()), z.array(z.unknown())])).default({}),
   buttonLayoutCode: z.string().min(1).max(120).optional(),
   buttons: z.unknown().optional(),
   parseMode: z.enum(['plain', 'markdown', 'html']).default('plain'),

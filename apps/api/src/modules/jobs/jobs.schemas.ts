@@ -7,7 +7,7 @@ export const upsertScheduledJobSchema = z.object({
   handler: z.string().min(2).max(160).optional(),
   schedule: z.string().min(1).max(120).default('manual'),
   timezone: z.string().min(2).max(80).default('UTC'),
-  payload: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
   isEnabled: z.boolean().default(true),
   maxAttempts: z.number().int().min(1).max(25).default(3),
   timeoutSeconds: z.number().int().min(5).max(3600).default(300),
@@ -28,7 +28,7 @@ export const listRunsQuerySchema = z.object({
 
 export const runNowSchema = z.object({
   resetLock: z.boolean().default(false),
-  payloadPatch: z.record(z.unknown()).optional(),
+  payloadPatch: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const maintenanceSnapshotQuerySchema = z.object({

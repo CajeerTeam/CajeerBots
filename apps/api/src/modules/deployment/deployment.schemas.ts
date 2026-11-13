@@ -15,7 +15,7 @@ export const upsertDeploymentTargetSchema = z.object({
   baseUrl: z.string().url().optional().nullable(),
   composeFiles: z.array(z.string().min(1)).default(['docker-compose.prod.yml']),
   envFile: z.string().optional().nullable(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const runDeploymentCheckSchema = z.object({
@@ -35,14 +35,14 @@ export const createDeploymentRunSchema = z.object({
   action: z.string().min(1).max(120),
   status: z.string().min(1).max(50).default('running'),
   logs: z.array(z.unknown()).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const finishDeploymentRunSchema = z.object({
   status: z.enum(['success', 'failed', 'cancelled']),
   error: z.string().optional().nullable(),
   logs: z.array(z.unknown()).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const renderEnvSchema = z.object({

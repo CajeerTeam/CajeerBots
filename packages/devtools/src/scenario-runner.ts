@@ -10,7 +10,7 @@ export const scenarioStepSchema = z.object({
   formCode: z.string().optional(),
   userExternalId: z.string().optional(),
   chatExternalId: z.string().optional(),
-  payload: z.record(z.unknown()).optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
   waitMs: z.number().int().min(0).max(30_000).optional(),
   expectOutboundTextContains: z.string().optional(),
 });
@@ -20,7 +20,7 @@ export const botScenarioDefinitionSchema = z.object({
   accountId: z.string().optional(),
   defaultUserExternalId: z.string().default('dev-user'),
   defaultChatExternalId: z.string().optional(),
-  variables: z.record(z.unknown()).optional(),
+  variables: z.record(z.string(), z.unknown()).optional(),
   steps: z.array(scenarioStepSchema).min(1),
 });
 

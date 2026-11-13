@@ -18,7 +18,14 @@ export const createInteractionCommandSchema = z.object({
   metadata: jsonRecordSchema.optional(),
 });
 
-export const updateInteractionCommandSchema = createInteractionCommandSchema.partial();
+export const updateInteractionCommandSchema = createInteractionCommandSchema.partial().extend({
+  type: createInteractionCommandSchema.shape.type.unwrap().optional(),
+  aliases: createInteractionCommandSchema.shape.aliases.unwrap().optional(),
+  scopes: createInteractionCommandSchema.shape.scopes.unwrap().optional(),
+  handler: createInteractionCommandSchema.shape.handler.unwrap().optional(),
+  cooldownSeconds: createInteractionCommandSchema.shape.cooldownSeconds.unwrap().optional(),
+  isEnabled: createInteractionCommandSchema.shape.isEnabled.unwrap().optional(),
+});
 
 export const createInteractionMenuSchema = z.object({
   code: z.string().min(1).max(120).regex(/^[a-z0-9_\-:.]+$/i),
@@ -34,7 +41,11 @@ export const createInteractionMenuSchema = z.object({
   isActive: z.boolean().default(true),
 });
 
-export const updateInteractionMenuSchema = createInteractionMenuSchema.partial();
+export const updateInteractionMenuSchema = createInteractionMenuSchema.partial().extend({
+  locale: createInteractionMenuSchema.shape.locale.unwrap().optional(),
+  buttons: createInteractionMenuSchema.shape.buttons.unwrap().optional(),
+  isActive: createInteractionMenuSchema.shape.isActive.unwrap().optional(),
+});
 
 export const createCallbackActionSchema = z.object({
   code: z.string().min(1).max(64).regex(/^[a-z0-9_\-:.]+$/i).refine((code) => !code.startsWith('rc4:'), 'Reserved callback prefix'),
@@ -45,7 +56,11 @@ export const createCallbackActionSchema = z.object({
   isActive: z.boolean().default(true),
 });
 
-export const updateCallbackActionSchema = createCallbackActionSchema.partial();
+export const updateCallbackActionSchema = createCallbackActionSchema.partial().extend({
+  handler: createCallbackActionSchema.shape.handler.unwrap().optional(),
+  scopes: createCallbackActionSchema.shape.scopes.unwrap().optional(),
+  isActive: createCallbackActionSchema.shape.isActive.unwrap().optional(),
+});
 
 export const conversationStepSchema = z.object({
   id: z.string().min(1).max(120),
@@ -74,7 +89,9 @@ export const createConversationFlowSchema = z.object({
   isActive: z.boolean().default(true),
 });
 
-export const updateConversationFlowSchema = createConversationFlowSchema.partial();
+export const updateConversationFlowSchema = createConversationFlowSchema.partial().extend({
+  isActive: createConversationFlowSchema.shape.isActive.unwrap().optional(),
+});
 
 export const recordInteractionEventSchema = z.object({
   accountId: z.string().min(1).optional().nullable(),
