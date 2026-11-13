@@ -22,6 +22,12 @@ const { dispatchProductInteraction, validateConversationAnswer, parseAnswer } = 
 const { verifyArtifactIntegrity } = await compile('packages/registry/src/integrity.ts','integrity');
 const { resolveExecutable, resolveExtensionEntry } = await compile('packages/extension-runtime/src/executable.ts','executable');
 const { CajeerClient } = await compile('packages/sdk/src/client.ts','sdk');
+// Load the real runtime with its unrelated manifest parser stubbed for this storage-only test.
+await compile('packages/extension-runtime/src/runtime-events.ts','runtime-events');
+await writeFile(join(dir,'storage-test-sdk.mjs'), 'export const extensionManifestSchema = { parse() { throw new Error("unexpected manifest parse"); } };');
+const { DbExtensionRuntime } = await compile('packages/extension-runtime/src/runtime.ts','extension-runtime',{
+  './executable.js':'./executable.mjs', './runtime-events.js':'./runtime-events.mjs', '@cajeerbots/extension-sdk':'./storage-test-sdk.mjs'
+});
 const account = { id:'bot1', communityId:'c1', provider:'telegram' };
 const cmd = { id:'cmd', communityId:'c1', name:'form', handler:'form.start', metadata:{code:'survey'}, scopes:[], cooldownSeconds:0, isEnabled:true };
 const form = { id:'f1', code:'survey', communityId:'c1', updatedAt:new Date('2026-01-01'), fields:[{name:'age',label:'Возраст',type:'number',required:true,min:18},{name:'agree',label:'Согласие',type:'boolean',required:true}], isActive:true };
@@ -43,3 +49,33 @@ test('Discord answer extracts actual slash option',()=>assert.equal(parseAnswer(
 test('Ed25519 integrity rejects modified bytes and incorrect keys',()=>{const {privateKey,publicKey}=generateKeyPairSync('ed25519');const bytes=Buffer.from('bundle');const input={bytes,sha256:createHash('sha256').update(bytes).digest('hex'),signature:sign(null,bytes,privateKey).toString('base64'),signatureAlgorithm:'ed25519',publicKey:publicKey.export({type:'spki',format:'pem'})};assert.equal(verifyArtifactIntegrity(input).ok,true);assert.equal(verifyArtifactIntegrity({...input,bytes:Buffer.from('tampered')}).ok,false);assert.equal(verifyArtifactIntegrity({...input,publicKey:'not a key'}).ok,false);});
 test('verified executable runs actual ESM and rejects corrupted code',async()=>{const source='export default { handleEvent: async () => 42 }';const artifactCodeSha256=createHash('sha256').update(source).digest('hex');const manifest={name:'example',entry:'./index.js'};const url=await resolveExecutable({artifactSource:source,artifactCodeSha256},manifest);assert.equal(await (await import(url)).default.handleEvent(),42);await assert.rejects(resolveExecutable({artifactSource:source+' ',artifactCodeSha256},manifest),/integrity/);assert.throws(()=>resolveExtensionEntry('/tmp',{name:'example',entry:'../../bad.js'}),/Unsafe/);});
 test('SDK rollback makes authenticated API call with explicit discard policy',async()=>{const server=createServer(async(req,res)=>{let body='';for await(const c of req)body+=c;assert.equal(req.url,'/api/updates/plans/p1/rollback');assert.equal(req.headers['x-api-key'],'token');assert.deepEqual(JSON.parse(body),{discardPending:true});res.setHeader('content-type','application/json');res.end('{"status":"rolled_back"}');});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));try{const c=new CajeerClient({baseUrl:`http://127.0.0.1:${server.address().port}`,apiKey:'token'});assert.equal((await c.rollbackUpdatePlan('p1',true)).status,'rolled_back');}finally{await new Promise(resolve=>server.close(resolve));}});
+
+test('extension storage reads typed JSON without losing null or falsy values and scopes keys', async () => {
+  const values = new Map();
+  const id = (key) => JSON.stringify(key);
+  const prisma = { extensionStorageItem: {
+    findUnique: async ({where}) => values.get(id(where.extensionId_namespace_key)) ?? null,
+    upsert: async ({where,create,update}) => {
+      const key = id(where.extensionId_namespace_key);
+      values.set(key, values.has(key) ? {...values.get(key), ...update} : create);
+    },
+    deleteMany: async ({where}) => values.delete(id(where)),
+  }};
+  const runtime = new DbExtensionRuntime(prisma);
+  const first = runtime.createContext('extension-a', {name:'a'}).storage;
+  const second = runtime.createContext('extension-b', {name:'b'}).storage;
+  assert.equal(await first.get('settings','missing'), undefined);
+  for (const [key,value] of Object.entries({zero:0, disabled:false, empty:'', object:{enabled:true}, array:[1,2]})) {
+    await first.set('settings',key,value);
+    assert.deepEqual(await first.get('settings',key),value);
+    assert.equal(await second.get('settings',key),undefined);
+    assert.equal(await first.get('other',key),undefined);
+  }
+  // Prisma reads a stored JSON null as null; it is distinct from a missing row.
+  values.set(id({extensionId:'extension-a', namespace:'settings', key:'nullable'}), {value:null});
+  assert.equal(await first.get('settings','nullable'),null);
+  await first.set('settings','zero',42);
+  assert.equal(await first.get('settings','zero'),42);
+  await first.delete('settings','zero');
+  assert.equal(await first.get('settings','zero'),undefined);
+});

@@ -187,9 +187,10 @@ export class DbExtensionRuntime {
         },
       },
       storage: {
-        get: async (namespace, key) => {
+        get: async <T = unknown>(namespace: string, key: string): Promise<T | undefined> => {
           const item = await this.prisma.extensionStorageItem.findUnique({ where: { extensionId_namespace_key: { extensionId, namespace, key } } });
-          return item?.value;
+          // T describes the caller's stored JSON shape; only a missing row maps to undefined.
+          return item ? item.value as T : undefined;
         },
         set: async (namespace, key, value) => {
           await this.prisma.extensionStorageItem.upsert({
