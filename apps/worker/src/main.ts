@@ -22,7 +22,6 @@ async function main(): Promise<void> {
     if (ok) { try { await prisma.health(); } catch { ok = false; } }
     res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json' }).end(JSON.stringify({ ok, workers: workers.length }));
   });
-  let startup: Promise<void> | undefined;
   let shutdown: Promise<void> | undefined;
   const stop = (): Promise<void> => {
     if (shutdown) return shutdown;
@@ -30,7 +29,7 @@ async function main(): Promise<void> {
     shutdown = (async () => {
       const deadline = setTimeout(() => process.exit(1), 30_000).unref();
       try {
-        await startup?.catch(() => undefined);
+        await startup.catch(() => undefined);
         await Promise.allSettled(workers.map((worker) => worker.stop()));
         await new Promise<void>((resolve) => server.close(() => resolve()));
         await prisma.close();
@@ -40,7 +39,7 @@ async function main(): Promise<void> {
   };
   const onSignal = () => { void stop().catch(() => { process.exitCode = 1; }); };
   process.once('SIGTERM', onSignal); process.once('SIGINT', onSignal);
-  startup = (async () => {
+  const startup = (async () => {
     await prisma.connect();
     for (const worker of workers) {
       if (stopping) return;

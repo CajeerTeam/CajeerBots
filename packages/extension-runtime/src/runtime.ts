@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { resolveExecutable } from './executable.js';
 export { resolveExecutable, resolveExtensionEntry } from './executable.js';
-import { PrismaService } from '@cajeerbots/db';
+import { Prisma, type PrismaService } from '@cajeerbots/db';
 import { extensionManifestSchema, type CajeerExtension, type ExtensionContext, type ExtensionEventEnvelope, type ExtensionManifest } from '@cajeerbots/extension-sdk';
 import { hookMatches, missingPermissions, normalizeHookList } from './runtime-events.js';
 
@@ -60,7 +60,7 @@ export class DbExtensionRuntime {
       await tx.$queryRaw`SELECT id FROM extensions WHERE id = ${extension.id} FOR UPDATE`;
       const current = await tx.extension.findUnique({ where: { id: extension.id } });
       if (current?.status !== 'enabled' || current.version !== extension.version) return false;
-      const data = { extensionId: extension.id, hook, payload: input.payload as never, status: 'pending' };
+      const data = { extensionId: extension.id, hook, payload: input.payload === null ? Prisma.JsonNull : input.payload as Prisma.InputJsonValue, status: 'pending' };
       if (input.idempotencyKey) {
         const id = `hook-${createHash('sha256').update(JSON.stringify([extension.id, hook, input.idempotencyKey])).digest('hex')}`;
         await tx.extensionRuntimeEvent.upsert({ where: { id }, create: { id, ...data }, update: {} });
@@ -187,15 +187,16 @@ export class DbExtensionRuntime {
         },
       },
       storage: {
-        get: async (namespace, key) => {
+        get: async <T = unknown>(namespace: string, key: string): Promise<T | undefined> => {
           const item = await this.prisma.extensionStorageItem.findUnique({ where: { extensionId_namespace_key: { extensionId, namespace, key } } });
-          return item?.value;
+          // T describes the caller's stored JSON shape; only a missing row maps to undefined.
+          return item ? item.value as T : undefined;
         },
         set: async (namespace, key, value) => {
           await this.prisma.extensionStorageItem.upsert({
             where: { extensionId_namespace_key: { extensionId, namespace, key } },
-            create: { extensionId, namespace, key, value: value as never },
-            update: { value: value as never },
+            create: { extensionId, namespace, key, value: value === null ? Prisma.JsonNull : value as Prisma.InputJsonValue },
+            update: { value: value === null ? Prisma.JsonNull : value as Prisma.InputJsonValue },
           });
         },
         delete: async (namespace, key) => {

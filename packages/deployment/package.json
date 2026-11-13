@@ -8,5 +8,7 @@
     "test": "vitest run src/**/*.spec.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts"
 }

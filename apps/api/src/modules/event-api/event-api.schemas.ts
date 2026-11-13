@@ -1,10 +1,10 @@
 import { z } from 'zod';
+import { jsonRecordSchema, jsonValueSchema } from '../shared/json.schemas.js';
 
-const jsonRecord = z.record(z.string(), z.unknown());
 
 export const upsertEventTopicSchema = z.object({
   description: z.string().max(500).optional(),
-  schema: jsonRecord.optional(),
+  schema: jsonRecordSchema.optional(),
   isActive: z.boolean().optional(),
   retentionDays: z.coerce.number().int().min(1).max(3650).optional(),
 });
@@ -17,9 +17,9 @@ export const publishEventSchema = z.object({
   communityId: z.string().min(1).optional(),
   aggregateType: z.string().min(1).max(120).optional(),
   aggregateId: z.string().min(1).max(200).optional(),
-  payload: z.unknown(),
-  metadata: jsonRecord.optional(),
-  headers: jsonRecord.optional(),
+  payload: jsonValueSchema,
+  metadata: jsonRecordSchema.optional(),
+  headers: jsonRecordSchema.optional(),
   fanoutToOutbox: z.boolean().default(false),
 });
 
@@ -28,7 +28,7 @@ export const createEventSubscriptionSchema = z.object({
   topicPattern: z.string().min(1).max(180),
   targetType: z.enum(['outbox', 'webhook_endpoint', 'extension_hook', 'log']),
   targetRef: z.string().min(1).max(300),
-  filters: jsonRecord.optional(),
+  filters: jsonRecordSchema.optional(),
   isActive: z.boolean().optional(),
   maxAttempts: z.coerce.number().int().min(1).max(50).optional(),
 });

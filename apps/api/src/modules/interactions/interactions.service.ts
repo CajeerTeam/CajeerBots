@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '@cajeerbots/db';
+import { Prisma, PrismaService } from '@cajeerbots/db';
 import type { Principal } from '@cajeerbots/security';
 import { DbExtensionRuntime } from '@cajeerbots/extension-runtime';
 import type { z } from 'zod';
@@ -50,7 +50,7 @@ export class InteractionsService {
     const duplicate = await this.prisma.interactionCommand.findFirst({ where: { communityId, name: input.name, provider: input.provider ?? null } });
     if (duplicate) throw new ConflictException('Команда с таким name/provider уже существует');
     try {
-      const command = await this.prisma.interactionCommand.create({ data: { communityId, ...toPrisma(input) } });
+      const command = await this.prisma.interactionCommand.create({ data: { communityId, ...input } });
       await this.audit(actor, 'interaction.command.create', 'interaction_command', command.id, { communityId, name: command.name });
       return command;
     } catch (error) {
@@ -61,7 +61,7 @@ export class InteractionsService {
 
   async updateCommand(communityId: string, id: string, input: UpdateCommand, actor: Principal) {
     await this.getCommand(communityId, id);
-    const command = await this.prisma.interactionCommand.update({ where: { id }, data: toPrisma(input) });
+    const command = await this.prisma.interactionCommand.update({ where: { id }, data: input });
     await this.audit(actor, 'interaction.command.update', 'interaction_command', id, { communityId, fields: Object.keys(input) });
     return command;
   }
@@ -78,7 +78,7 @@ export class InteractionsService {
 
   async createMenu(communityId: string, input: CreateMenu, actor: Principal) {
     try {
-      const menu = await this.prisma.interactionMenu.create({ data: { communityId, ...toPrisma(input), buttons: input.buttons as never } });
+      const menu = await this.prisma.interactionMenu.create({ data: { communityId, ...input } });
       await this.audit(actor, 'interaction.menu.create', 'interaction_menu', menu.id, { communityId, code: menu.code, locale: menu.locale });
       return menu;
     } catch (error) {
@@ -89,7 +89,7 @@ export class InteractionsService {
 
   async updateMenu(communityId: string, id: string, input: UpdateMenu, actor: Principal) {
     await this.getMenu(communityId, id);
-    const menu = await this.prisma.interactionMenu.update({ where: { id }, data: { ...toPrisma(input), ...(input.buttons ? { buttons: input.buttons as never } : {}) } });
+    const menu = await this.prisma.interactionMenu.update({ where: { id }, data: input });
     await this.audit(actor, 'interaction.menu.update', 'interaction_menu', id, { communityId, fields: Object.keys(input) });
     return menu;
   }
@@ -106,7 +106,7 @@ export class InteractionsService {
 
   async createCallback(communityId: string, input: CreateCallback, actor: Principal) {
     try {
-      const action = await this.prisma.interactionCallbackAction.create({ data: { communityId, ...toPrisma(input), ...(input.payload ? { payload: input.payload as never } : {}) } });
+      const action = await this.prisma.interactionCallbackAction.create({ data: { communityId, ...input } });
       await this.audit(actor, 'interaction.callback.create', 'interaction_callback_action', action.id, { communityId, code: action.code });
       return action;
     } catch (error) {
@@ -117,7 +117,7 @@ export class InteractionsService {
 
   async updateCallback(communityId: string, id: string, input: UpdateCallback, actor: Principal) {
     await this.getCallback(communityId, id);
-    const action = await this.prisma.interactionCallbackAction.update({ where: { id }, data: { ...toPrisma(input), ...(input.payload ? { payload: input.payload as never } : {}) } });
+    const action = await this.prisma.interactionCallbackAction.update({ where: { id }, data: input });
     await this.audit(actor, 'interaction.callback.update', 'interaction_callback_action', id, { communityId, fields: Object.keys(input) });
     return action;
   }
@@ -134,7 +134,7 @@ export class InteractionsService {
 
   async createConversation(communityId: string, input: CreateFlow, actor: Principal) {
     try {
-      const flow = await this.prisma.conversationFlow.create({ data: { communityId, ...toPrisma(input), steps: input.steps as never } });
+      const flow = await this.prisma.conversationFlow.create({ data: { communityId, ...input } });
       await this.audit(actor, 'interaction.conversation.create', 'conversation_flow', flow.id, { communityId, code: flow.code });
       return flow;
     } catch (error) {
@@ -145,7 +145,7 @@ export class InteractionsService {
 
   async updateConversation(communityId: string, id: string, input: UpdateFlow, actor: Principal) {
     await this.getConversation(communityId, id);
-    const flow = await this.prisma.conversationFlow.update({ where: { id }, data: { ...toPrisma(input), ...(input.steps ? { steps: input.steps as never } : {}) } });
+    const flow = await this.prisma.conversationFlow.update({ where: { id }, data: input });
     await this.audit(actor, 'interaction.conversation.update', 'conversation_flow', id, { communityId, fields: Object.keys(input) });
     return flow;
   }
@@ -166,8 +166,8 @@ export class InteractionsService {
         name: input.name ?? null,
         userExternalId: input.userExternalId,
         status: input.status,
-        payload: input.payload as never,
-        response: input.response as never,
+        payload: input.payload === null ? Prisma.JsonNull : input.payload,
+        response: input.response === null ? Prisma.JsonNull : input.response,
         error: input.error ?? null,
       },
     });
@@ -178,10 +178,6 @@ export class InteractionsService {
   private audit(actor: Principal, action: string, resource: string, resourceId: string, metadata: Record<string, unknown>) {
     return this.prisma.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action, resource, resourceId, metadata: metadata as never } });
   }
-}
-
-function toPrisma<T extends Record<string, unknown>>(input: T): T {
-  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as T;
 }
 
 function isUniqueError(error: unknown): boolean {

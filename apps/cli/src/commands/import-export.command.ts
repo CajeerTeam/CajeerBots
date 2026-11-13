@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { Command } from 'commander';
-import { PrismaService } from '@cajeerbots/db';
+import { Prisma, PrismaService, upsertInteractionCommand } from '@cajeerbots/db';
 
 export function importExportCommand(): Command {
   const command = new Command('community').description('Import/export данных community');
@@ -73,7 +73,9 @@ export function importExportCommand(): Command {
       }
 
       for (const item of data.interactionCommands ?? []) {
-        await prisma.interactionCommand.upsert({ where: { communityId_provider_name: { communityId: options.community, provider: item.provider ?? null, name: item.name } }, create: { communityId: options.community, name: item.name, description: item.description, provider: item.provider ?? null, type: item.type ?? 'command', aliases: item.aliases ?? [], scopes: item.scopes ?? [], handler: item.handler ?? 'template', templateKey: item.templateKey, conversationCode: item.conversationCode, cooldownSeconds: item.cooldownSeconds ?? 0, isEnabled: item.isEnabled ?? true, metadata: item.metadata as never }, update: { description: item.description, type: item.type ?? 'command', aliases: item.aliases ?? [], scopes: item.scopes ?? [], handler: item.handler ?? 'template', templateKey: item.templateKey, conversationCode: item.conversationCode, cooldownSeconds: item.cooldownSeconds ?? 0, isEnabled: item.isEnabled ?? true, metadata: item.metadata as never } });
+        const values = { description: item.description, type: item.type ?? 'command', aliases: item.aliases ?? [], scopes: item.scopes ?? [], handler: item.handler ?? 'template', templateKey: item.templateKey, conversationCode: item.conversationCode, cooldownSeconds: item.cooldownSeconds ?? 0, isEnabled: item.isEnabled ?? true, metadata: item.metadata === null ? Prisma.DbNull : item.metadata as never };
+        await prisma.$transaction((tx) => upsertInteractionCommand(tx,
+          { communityId: options.community, name: item.name, provider: item.provider ?? null, ...values }, values));
       }
       for (const item of data.interactionMenus ?? []) {
         await prisma.interactionMenu.upsert({ where: { communityId_code_locale: { communityId: options.community, code: item.code, locale: item.locale ?? 'ru' } }, create: { communityId: options.community, code: item.code, title: item.title, locale: item.locale ?? 'ru', templateKey: item.templateKey, buttons: item.buttons as never, isActive: item.isActive ?? true }, update: { title: item.title, templateKey: item.templateKey, buttons: item.buttons as never, isActive: item.isActive ?? true } });

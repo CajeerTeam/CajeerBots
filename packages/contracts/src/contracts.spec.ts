@@ -32,7 +32,7 @@ describe('contracts', () => {
 
   it('detects breaking removed operation', () => {
     const before = buildOpenApiSnapshot(openApi);
-    const after = buildOpenApiSnapshot(openApi.replace(/  \/api\/health:[\s\S]*?  \/api\/contracts/, '  /api/contracts'));
+    const after = buildOpenApiSnapshot(openApi.replace(/ {2}\/api\/health:[\s\S]*? {2}\/api\/contracts/, '  /api/contracts'));
     expect(diffSnapshots(before, after).summary.breaking).toBe(1);
   });
 

@@ -3,11 +3,14 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import { Redis } from 'ioredis';
+import RedisModule from 'ioredis';
 import { loadConfigOrThrow } from '@cajeerbots/config';
 import { PrismaService } from '@cajeerbots/db';
 import { startTracing } from '@cajeerbots/observability';
 import { AppModule } from './modules/app.module.js';
+
+// ioredis 5.0.0 exposes the constructor as its CommonJS default export.
+const Redis = RedisModule.default;
 
 async function bootstrap(): Promise<void> {
   const config = loadConfigOrThrow();

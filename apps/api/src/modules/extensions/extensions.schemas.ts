@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { jsonRecordSchema, jsonValueSchema } from '../shared/json.schemas.js';
 import { extensionManifestSchema } from '@cajeerbots/extension-sdk';
 
 const permissionSchema = z.string().min(1).max(160);
@@ -17,15 +18,15 @@ export const grantExtensionPermissionsSchema = z.object({
 export const revokeExtensionPermissionsSchema = grantExtensionPermissionsSchema;
 
 export const updateExtensionConfigSchema = z.object({
-  value: z.record(z.unknown()).default({}),
+  value: jsonRecordSchema.default({}),
   reason: z.string().max(500).optional(),
 });
 
 export const enqueueExtensionEventSchema = z.object({
   hook: z.string().min(1).max(160),
-  payload: z.unknown().default({}),
+  payload: jsonValueSchema.default({}),
 });
 
 export const setExtensionStorageSchema = z.object({
-  value: z.unknown(),
+  value: jsonValueSchema,
 });

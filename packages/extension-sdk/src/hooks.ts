@@ -26,6 +26,7 @@ export interface ExtensionContext {
     enqueueHook(hook: string, payload: unknown): Promise<void>;
   };
   storage: {
+    /** Read stored JSON. T is a caller-supplied type, not runtime validation; missing keys return undefined. */
     get<T = unknown>(namespace: string, key: string): Promise<T | undefined>;
     set(namespace: string, key: string, value: unknown): Promise<void>;
     delete(namespace: string, key: string): Promise<void>;
