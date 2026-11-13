@@ -16,7 +16,7 @@ const count = Number(countArg), concurrency = Number(concurrencyArg);
 assert(Number.isInteger(count) && count >= 1 && count <= 10000 && Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 64);
 const reportPath = resolve(reportArg); mkdirSync(dirname(reportPath), { recursive: true });
 const dir = mkdtempSync(join(tmpdir(), 'cajeer-rehearsal-'));
-const source = `cajeer-stable-${randomUUID().slice(0, 8)}`, restored = `${source}-restore`, clean = `${source}-clean`;
+const source = `cajeer-stable-${randomUUID().slice(0, 8)}`, restored = `${source}-restore`, clean = `${source}-clean`, stableRestored = `${source}-stable-restore`;
 const envFile = join(dir, 'env.production'), backup = join(dir, 'backup');
 const password = randomBytes(32).toString('base64url');
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -91,10 +91,17 @@ try {
   phase('restore-original-into-fresh-project', () => ops('restore', restored, backup));
   phase('start-restored-rc6', () => ops('start', restored, join(backup, 'env.production'), baselineImage, '1.0.0-rc.6'));
   phase('verify-restored-data', () => { installWorkload(restored, baselineImage); return workload(restored, baselineImage, 'verify', state); });
+  phase('stable-instance-backup-restore', () => {
+    const stableBackup = join(dir, 'stable-backup');
+    ops('backup', source, envFile, targetImage, stableBackup);
+    ops('restore', stableRestored, stableBackup);
+    ops('start', stableRestored, join(stableBackup, 'env.production'), targetImage, '1.0.0');
+    return workload(stableRestored, targetImage, 'verify', after);
+  });
   report.passed = true;
 } catch (error) { console.error(error.message); process.exitCode = 1; }
 finally {
-  for (const [project, image] of [[source, targetImage], [restored, baselineImage], [clean, targetImage]]) {
+  for (const [project, image] of [[source, targetImage], [restored, baselineImage], [clean, targetImage], [stableRestored, targetImage]]) {
     try { compose(project, image, ['down', '-v', '--remove-orphans']); }
     catch (error) { report.passed = false; report.phases.push({ name: `cleanup-${project}`, passed: false, error: error.message }); process.exitCode = 1; }
   }

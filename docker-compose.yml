@@ -44,7 +44,7 @@ services:
       retries: 20
   migrate:
     <<: *app
-    command: ["sh", "-ec", "if [ -f prisma/seed.js ]; then node node_modules/prisma/build/index.js migrate deploy && node prisma/seed.js; else pnpm prisma:deploy && pnpm prisma:seed; fi"]
+    command: ["node","-e","const fs=require('node:fs');const {spawnSync}=require('node:child_process');const run=(cmd,args)=>{const r=spawnSync(cmd,args,{stdio:'inherit'});if(r.error)throw r.error;if(r.status!==0)process.exit(r.status??1)};const version=fs.readFileSync('VERSION','utf8').trim();if(version==='1.0.0-rc.6'){run('pnpm',['prisma:deploy']);if(process.argv[1]==='seed')run('pnpm',['prisma:seed'])}else{if(!fs.existsSync('prisma/seed.js'))throw Error('Compiled seed missing');run(process.execPath,['node_modules/prisma/build/index.js','migrate','deploy']);if(process.argv[1]==='seed')run(process.execPath,['prisma/seed.js'])}","seed"]
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}

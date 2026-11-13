@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 export const stableVersion = '1.0.0';
 export const stablePrefix = `cajeerbots-${stableVersion}`;
 export const stableSuffixes = ['.zip', '.image.tar.gz', '.sbom.cdx.json', '.audit.json', '.rehearsal.json', '.container-audit.json'];
-const requiredPhases = ['clean-install-stable','pilot-capacity-enforcement','clean-install-rc6','rc6-community-backup-and-sentinels','worker-unavailable','http-load-durable-backlog','worker-restart','queue-drain','upgrade-rc6-to-stable','verify-upgraded-data','stable-community-backup-restore','stable-stop-worker','create-discord-fixture','reload-bot-runtime','signed-discord-form-e2e','stable-http-load','stable-restart-worker','stable-queue-drain','restore-original-into-fresh-project','start-restored-rc6','verify-restored-data'];
+const requiredPhases = ['clean-install-stable','pilot-capacity-enforcement','clean-install-rc6','rc6-community-backup-and-sentinels','worker-unavailable','http-load-durable-backlog','worker-restart','queue-drain','upgrade-rc6-to-stable','verify-upgraded-data','stable-community-backup-restore','stable-stop-worker','create-discord-fixture','reload-bot-runtime','signed-discord-form-e2e','stable-http-load','stable-restart-worker','stable-queue-drain','restore-original-into-fresh-project','start-restored-rc6','verify-restored-data','stable-instance-backup-restore'];
 const imageId = value => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value);
 const check = (condition, message) => { if (!condition) throw Error(message); };
 export function validateStableEvidence({ report, audit, sbom, containerAudit, commit }) {
@@ -29,6 +29,9 @@ export function validateStableEvidence({ report, audit, sbom, containerAudit, co
     const result=report.phases.find(p=>p.name===name).result;
     check(typeof baseline.id==='string' && baseline.id.length>0 && result?.id===baseline.id && result.count===report.count && result.communityId===baseline.communityId, `Data verification mismatch: ${name}`);
   }
+  const stable = report.phases.find(p=>p.name==='stable-queue-drain').result;
+  const stableRestore = report.phases.find(p=>p.name==='stable-instance-backup-restore').result;
+  check(typeof stable.id==='string' && stable.id.length>0 && stableRestore?.id===stable.id && stableRestore.count===report.count && stableRestore.communityId===stable.communityId, 'Stable instance restore data mismatch');
   const vulnerabilities = audit?.metadata?.vulnerabilities;
   check(vulnerabilities && Number.isInteger(vulnerabilities.high) && Number.isInteger(vulnerabilities.critical) && vulnerabilities.high === 0 && vulnerabilities.critical === 0 && !audit.error, 'npm audit missing or high/critical findings');
   check(sbom?.bomFormat === 'CycloneDX' && sbom.specVersion === '1.5' && sbom.metadata?.component?.version === stableVersion && sbom.components?.some(c => c.name === 'nodejs') && sbom.components?.some(c => c.purl?.startsWith('pkg:deb/')), 'Incomplete stable SBOM');

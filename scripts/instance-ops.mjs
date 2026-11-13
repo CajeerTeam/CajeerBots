@@ -99,10 +99,29 @@ function quiesce(c) {
   const redisId = c(['ps', '-aq', 'redis'], { capture: true });
   assert(JSON.parse(run(['inspect', redisId], { capture: true }))[0].State.ExitCode === 0, 'Redis did not shut down cleanly');
 }
-function volume(c, name, dir, file, restore = false) {
-  const args = ['run', '--rm', '--no-deps', '-T', '--user', '0', '--entrypoint', 'tar', name];
-  if (restore) c([...args, '--numeric-owner', '-xpf', '-', '-C', dir], { input: file });
-  else c([...args, '-cpf', '-', '-C', dir, '.'], { output: file });
+// Use the existing PostgreSQL image's GNU tar, never the application image.
+// The helper has no network, no database credentials, and only the selected volume.
+export function volumeTarArgs(image, volume, restore = false) {
+  assert(/^sha256:[a-f0-9]{64}$/.test(image), 'Invalid archive helper image ID');
+  assert(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(volume), 'Invalid archive volume name');
+  return ['run', '--rm', '-i', '--network', 'none', '--read-only', '--user', '0',
+    '--cap-drop', 'ALL', '--cap-add', 'CHOWN', '--cap-add', 'DAC_OVERRIDE', '--cap-add', 'FOWNER', '--cap-add', 'FSETID',
+    '--security-opt', 'no-new-privileges',
+    '--mount', `type=volume,source=${volume},target=/backup-volume,volume-nocopy${restore ? '' : ',readonly'}`,
+    '--entrypoint', 'tar', image,
+    ...(restore ? ['--numeric-owner', '-xpf', '-', '-C', '/backup-volume'] : ['-cpf', '-', '-C', '/backup-volume', '.'])];
+}
+function volume(c, cfg, name, dir, file, restore = false) {
+  const mount = cfg.services[name].volumes?.find(v => v.type === 'volume' && v.target === dir);
+  const volume = mount && cfg.volumes?.[mount.source]?.name;
+  assert(volume && /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(volume), 'Missing named Compose volume');
+  const info = JSON.parse(run(['volume', 'inspect', volume], { capture: true }))[0];
+  assert(info.Name === volume && info.Labels?.['com.docker.compose.project'] === cfg.name && info.Labels?.['com.docker.compose.volume'] === mount.source, 'Volume does not belong to this Compose project');
+  const pg = c(['ps', '-q', 'postgres'], { capture: true });
+  assert(/^[a-f0-9]{12,64}$/.test(pg), 'Expected one running PostgreSQL container');
+  const image = JSON.parse(run(['inspect', pg], { capture: true }))[0].Image;
+  assert(image === imageId(cfg.services.postgres.image), 'Archive helper image differs from running PostgreSQL');
+  run(volumeTarArgs(image, volume, restore), restore ? { input: file } : { output: file });
 }
 function fsync(path) { const fd = openSync(path, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); } }
 async function backup(c, project, envFile, destination) {
@@ -118,9 +137,9 @@ async function backup(c, project, envFile, destination) {
     c(['exec', '-T', 'postgres', 'sh', '-ec', 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --no-owner --no-acl'], { output: join(staging, 'database.dump') });
     // Read the dump catalog with the same PostgreSQL toolchain before publishing.
     c(['exec', '-T', 'postgres', 'pg_restore', '--list'], { input: join(staging, 'database.dump'), capture: true });
-    volume(c, 'redis', '/data', join(staging, 'redis.tar'));
-    volume(c, 'api', '/var/lib/cajeerbots/storage', join(staging, 'storage.tar'));
-    volume(c, 'api', '/var/lib/cajeerbots/extensions', join(staging, 'extensions.tar'));
+    volume(c, cfg, 'redis', '/data', join(staging, 'redis.tar'));
+    volume(c, cfg, 'api', '/var/lib/cajeerbots/storage', join(staging, 'storage.tar'));
+    volume(c, cfg, 'api', '/var/lib/cajeerbots/extensions', join(staging, 'extensions.tar'));
     const manifest = { format: 'cajeerbots.instance-backup.v1', createdAt: new Date().toISOString(), project, ...identity, files: {} };
     for (const name of files) { fsync(join(staging, name)); manifest.files[name] = await fingerprint(join(staging, name)); }
     writeFileSync(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
@@ -143,25 +162,28 @@ async function restore(project, dir) {
   assert(project !== manifest.project, 'Restore must use a different project');
   assert(imageId(manifest.image) === manifest.imageId, 'Original application image is not available or changed');
   const c = compose(project, join(dir, 'env.production'), manifest.image);
-  config(c); assertFresh(c, project);
+  const cfg = config(c); assertFresh(c, project);
   // No application services or migration/seed run until the entire restore succeeds.
   c(['up', '-d', '--wait', '--wait-timeout', '120', 'postgres']);
   const tables = c(['exec', '-T', 'postgres', 'sh', '-ec', `exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')"`], { capture: true });
   assert(tables === '0', 'Restore target database is not empty');
   c(['exec', '-T', 'postgres', 'sh', '-ec', 'exec pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --exit-on-error --single-transaction --no-owner --no-acl'], { input: join(dir, 'database.dump') });
-  volume(c, 'redis', '/data', join(dir, 'redis.tar'), true);
-  volume(c, 'api', '/var/lib/cajeerbots/storage', join(dir, 'storage.tar'), true);
-  volume(c, 'api', '/var/lib/cajeerbots/extensions', join(dir, 'extensions.tar'), true);
+  // Create the target containers and their volumes without starting any writers.
+  c(['up', '--no-start', '--no-build', '--no-deps', 'api', 'redis']);
+  volume(c, cfg, 'redis', '/data', join(dir, 'redis.tar'), true);
+  volume(c, cfg, 'api', '/var/lib/cajeerbots/storage', join(dir, 'storage.tar'), true);
+  volume(c, cfg, 'api', '/var/lib/cajeerbots/extensions', join(dir, 'extensions.tar'), true);
   c(['up', '-d', '--wait', '--wait-timeout', '120', 'redis']);
   console.log(JSON.stringify({ restored: true, project, version: manifest.version, applicationStopped: true }));
 }
+export function migrationCommand(seed) { return ['node', '-e', "const fs=require('node:fs');const {spawnSync}=require('node:child_process');const run=(cmd,args)=>{const r=spawnSync(cmd,args,{stdio:'inherit'});if(r.error)throw r.error;if(r.status!==0)process.exit(r.status??1)};const version=fs.readFileSync('VERSION','utf8').trim();if(version==='1.0.0-rc.6'){run('pnpm',['prisma:deploy']);if(process.argv[1]==='seed')run('pnpm',['prisma:seed'])}else{if(!fs.existsSync('prisma/seed.js'))throw Error('Compiled seed missing');run(process.execPath,['node_modules/prisma/build/index.js','migrate','deploy']);if(process.argv[1]==='seed')run(process.execPath,['prisma/seed.js'])}", seed ? 'seed' : 'migrate']; }
 function start(c, version, beforeStart = () => {}) {
   assert(!c(['ps', '-q', '--status', 'running', ...services], { capture: true }), 'Stop application writers before migrations');
   const imageVersion = c(['run', '--rm', '--no-deps', '-T', '--entrypoint', 'node', 'api', '-p', "require('fs').readFileSync('VERSION','utf8').trim()"], { capture: true });
   assert(imageVersion === version, 'Unexpected application image version');
   // Run schema migrations explicitly; do not seed during update/restore.
   c(['up', '-d', '--wait', '--wait-timeout', '120', 'postgres', 'redis']);
-  c(['run', '--rm', '--no-deps', '-T', 'migrate', 'sh', '-ec', 'if [ -f prisma/seed.js ]; then node node_modules/prisma/build/index.js migrate deploy; else pnpm prisma:deploy; fi']);
+  c(['run', '--rm', '--no-deps', '-T', 'migrate', ...migrationCommand(false)]);
   beforeStart();
   c(['up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '240', 'api', 'bot-runtime', 'worker']);
   const report = c(['exec', '-T', 'api', 'node', '-e', `fetch('http://127.0.0.1:3000/api/system/report',{headers:{'x-api-key':process.env.CAJEER_ADMIN_TOKEN},signal:AbortSignal.timeout(5000)}).then(async r=>{if(!r.ok)throw Error('report '+r.status);console.log((await r.json()).version)}).catch(()=>process.exit(1))`], { capture: true });
@@ -210,7 +232,7 @@ async function deployPilot(project, envFile, bundle, publicKeyFile, communities,
       if (upgrade) start(c,stableVersion,setCapacity);
       else {
         c(['up','-d','--wait','--wait-timeout','120','postgres','redis']);
-        c(['run','--rm','--no-deps','-T','migrate','sh','-ec','if [ -f prisma/seed.js ]; then node node_modules/prisma/build/index.js migrate deploy && node prisma/seed.js; else pnpm prisma:deploy && pnpm prisma:seed; fi']);
+        c(['run','--rm','--no-deps','-T','migrate',...migrationCommand(true)]);
         setCapacity();
         c(['up','-d','--no-deps','--no-build','--pull','never','--wait','--wait-timeout','240','api','bot-runtime','worker']);
       }

@@ -7,7 +7,7 @@ import { mkdtemp, writeFile, rm, symlink, readFile, mkdir } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { fingerprint, verifyBackup } from './instance-ops.mjs';
+import { fingerprint, verifyBackup, volumeTarArgs, migrationCommand } from './instance-ops.mjs';
 import { runLoad } from './rehearsal-load.mjs';
 
 async function fixture(t) {
@@ -101,4 +101,23 @@ test('workload ESM imports resolve with the installed dependencies without conne
   });
   assert.notEqual(denied.status, 0);
   assert.match(denied.stderr, /Only disposable rehearsal instances/);
+});
+
+test('volume archive helper is isolated and mounts only the intended volume', () => {
+  const image = 'sha256:' + 'a'.repeat(64);
+  const backup = volumeTarArgs(image, 'project_cajeer_storage');
+  const restore = volumeTarArgs(image, 'project_cajeer_storage', true);
+  assert.deepEqual(backup.slice(-6), [image,'-cpf','-','-C','/backup-volume','.']);
+  assert(backup.includes('type=volume,source=project_cajeer_storage,target=/backup-volume,volume-nocopy,readonly'));
+  assert(restore.includes('type=volume,source=project_cajeer_storage,target=/backup-volume,volume-nocopy'));
+  assert.deepEqual(restore.slice(-5), ['--numeric-owner','-xpf','-','-C','/backup-volume']);
+  assert(backup.includes('none') && backup.includes('--read-only') && backup.includes('no-new-privileges'));
+  assert.throws(() => volumeTarArgs('postgres:latest','project_cajeer_storage'), /image ID/);
+  assert.throws(() => volumeTarArgs(image,'bad,readonly'), /volume name/);
+});
+test('migration command is shell-free and uses the same code for seed and migrate', () => {
+  assert.deepEqual(migrationCommand(true).slice(0,3), migrationCommand(false).slice(0,3));
+  assert.equal(migrationCommand(true).at(-1),'seed');
+  assert.equal(migrationCommand(false).at(-1),'migrate');
+  assert.deepEqual(migrationCommand(false).slice(0,2),['node','-e']);
 });
