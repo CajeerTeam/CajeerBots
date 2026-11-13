@@ -2,8 +2,11 @@ import { access, mkdir, writeFile, rm } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { Redis } from 'ioredis';
+import RedisModule from 'ioredis';
 import type { HealthStatus } from './health.js';
+
+// ioredis 5.0.0 exposes the constructor as its CommonJS default export.
+const Redis = RedisModule.default;
 
 export interface DiagnosticCheck {
   status: HealthStatus;
