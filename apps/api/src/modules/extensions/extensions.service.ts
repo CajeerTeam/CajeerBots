@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '@cajeerbots/db';
+import { Prisma, PrismaService } from '@cajeerbots/db';
+import type { JsonValue } from '../shared/json.schemas.js';
 import { DbExtensionRuntime, missingPermissions, parseManifest, resolveExecutable } from '@cajeerbots/extension-runtime';
 import { checkEngineCompatibility, type ExtensionManifest } from '@cajeerbots/extension-sdk';
 import { hasScope, permissions, type Principal } from '@cajeerbots/security';
@@ -155,12 +156,12 @@ export class ExtensionsService {
     return this.prisma.extensionStorageItem.findMany({ where: { extensionId: id, namespace }, orderBy: { key: 'asc' } });
   }
 
-  async setStorage(id: string, namespace: string, key: string, input: { value: unknown }) {
+  async setStorage(id: string, namespace: string, key: string, input: { value: JsonValue }) {
     await this.assertExists(id);
     return this.prisma.extensionStorageItem.upsert({
       where: { extensionId_namespace_key: { extensionId: id, namespace, key } },
-      create: { extensionId: id, namespace, key, value: input.value as never },
-      update: { value: input.value as never },
+      create: { extensionId: id, namespace, key, value: input.value === null ? Prisma.JsonNull : input.value },
+      update: { value: input.value === null ? Prisma.JsonNull : input.value },
     });
   }
 

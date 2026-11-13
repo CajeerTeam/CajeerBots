@@ -1,7 +1,7 @@
 import { z } from 'zod';
+import { jsonRecordSchema, jsonValueSchema } from '../shared/json.schemas.js';
 
 const providerSchema = z.enum(['telegram', 'vk', 'discord']);
-const jsonRecordSchema = z.record(z.unknown());
 
 export const createInteractionCommandSchema = z.object({
   name: z.string().min(1).max(80).regex(/^[a-z0-9_\-:.]+$/i),
@@ -83,7 +83,7 @@ export const recordInteractionEventSchema = z.object({
   name: z.string().min(1).max(120).optional().nullable(),
   userExternalId: z.string().min(1).max(240),
   status: z.string().min(1).max(80).default('handled'),
-  payload: z.unknown().optional(),
-  response: z.unknown().optional(),
+  payload: jsonValueSchema.optional(),
+  response: jsonValueSchema.optional(),
   error: z.string().max(4000).optional().nullable(),
 });

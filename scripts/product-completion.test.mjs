@@ -24,9 +24,10 @@ const { resolveExecutable, resolveExtensionEntry } = await compile('packages/ext
 const { CajeerClient } = await compile('packages/sdk/src/client.ts','sdk');
 // Load the real runtime with its unrelated manifest parser stubbed for this storage-only test.
 await compile('packages/extension-runtime/src/runtime-events.ts','runtime-events');
+await writeFile(join(dir,'storage-test-db.mjs'), 'export const Prisma = { JsonNull: Symbol.for("Prisma.JsonNull") };');
 await writeFile(join(dir,'storage-test-sdk.mjs'), 'export const extensionManifestSchema = { parse() { throw new Error("unexpected manifest parse"); } };');
 const { DbExtensionRuntime } = await compile('packages/extension-runtime/src/runtime.ts','extension-runtime',{
-  './executable.js':'./executable.mjs', './runtime-events.js':'./runtime-events.mjs', '@cajeerbots/extension-sdk':'./storage-test-sdk.mjs'
+  './executable.js':'./executable.mjs', './runtime-events.js':'./runtime-events.mjs', '@cajeerbots/extension-sdk':'./storage-test-sdk.mjs', '@cajeerbots/db':'./storage-test-db.mjs'
 });
 const account = { id:'bot1', communityId:'c1', provider:'telegram' };
 const cmd = { id:'cmd', communityId:'c1', name:'form', handler:'form.start', metadata:{code:'survey'}, scopes:[], cooldownSeconds:0, isEnabled:true };
@@ -57,7 +58,8 @@ test('extension storage reads typed JSON without losing null or falsy values and
     findUnique: async ({where}) => values.get(id(where.extensionId_namespace_key)) ?? null,
     upsert: async ({where,create,update}) => {
       const key = id(where.extensionId_namespace_key);
-      values.set(key, values.has(key) ? {...values.get(key), ...update} : create);
+      const row = values.has(key) ? {...values.get(key), ...update} : create;
+      values.set(key, {...row, value: row.value === Symbol.for('Prisma.JsonNull') ? null : row.value});
     },
     deleteMany: async ({where}) => values.delete(id(where)),
   }};
@@ -72,7 +74,7 @@ test('extension storage reads typed JSON without losing null or falsy values and
     assert.equal(await first.get('other',key),undefined);
   }
   // Prisma reads a stored JSON null as null; it is distinct from a missing row.
-  values.set(id({extensionId:'extension-a', namespace:'settings', key:'nullable'}), {value:null});
+  await first.set('settings','nullable',null);
   assert.equal(await first.get('settings','nullable'),null);
   await first.set('settings','zero',42);
   assert.equal(await first.get('settings','zero'),42);
