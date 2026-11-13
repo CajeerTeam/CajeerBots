@@ -8,6 +8,14 @@ on:
       - 'pnpm-workspace.yaml'
       - '**/package.json'
       - '.npmrc'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-hardening.yml'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '**/package.json'
+      - '.npmrc'
   workflow_dispatch:
     inputs:
       baseline_ref:
@@ -37,7 +45,7 @@ jobs:
           test -s pnpm-lock.yaml
           status=0
           pnpm audit --audit-level high --json > "$RUNNER_TEMP/audit.json" || status=$?
-          node --input-type=module - "$RUNNER_TEMP/audit.json" <<'NODE'
+          node --input-type=module - "$RUNNER_TEMP/audit.json" "$status" <<'NODE'
           import { readFileSync } from 'node:fs';
           let report;
           try { report = JSON.parse(readFileSync(process.argv[2], 'utf8')); }
@@ -47,6 +55,20 @@ jobs:
             process.exit(1);
           }
           const counts = report.metadata?.vulnerabilities;
+          const levels = ['info', 'low', 'moderate', 'high', 'critical'];
+          if (!counts || !levels.every(level => Number.isInteger(counts[level]) && counts[level] >= 0)
+              || !Number.isInteger(report.metadata.totalDependencies) || report.metadata.totalDependencies <= 0
+              || !report.advisories || typeof report.advisories !== 'object' || Array.isArray(report.advisories)) {
+            console.error('Incomplete audit report; refusing release.');
+            process.exit(1);
+          }
+          // pnpm 9.15.9 JSON mode returns 1 for ANY advisory, regardless of --audit-level.
+          // Require its exact documented JSON-mode exit code and enforce the HIGH/CRITICAL policy independently.
+          const total = levels.reduce((sum, level) => sum + counts[level], 0);
+          if (Number(process.argv[3]) !== (total > 0 ? 1 : 0)) {
+            console.error('Unexpected pnpm audit exit code:', process.argv[3]);
+            process.exit(1);
+          }
           console.log('Audit severity counts:', JSON.stringify(counts ?? null));
           for (const advisory of Object.values(report.advisories ?? {})) {
             if (['high', 'critical'].includes(advisory.severity)) console.log(JSON.stringify({ package: advisory.module_name, severity: advisory.severity, title: advisory.title, vulnerable: advisory.vulnerable_versions, patched: advisory.patched_versions, url: advisory.url, paths: advisory.findings?.flatMap(f => f.paths ?? []) }));
@@ -54,9 +76,8 @@ jobs:
           for (const [name, vulnerability] of Object.entries(report.vulnerabilities ?? {})) {
             if (['high', 'critical'].includes(vulnerability.severity)) console.log(JSON.stringify({ package: name, severity: vulnerability.severity, range: vulnerability.range, fixAvailable: vulnerability.fixAvailable, via: vulnerability.via }));
           }
-          if (!counts || !Number.isInteger(counts.high) || !Number.isInteger(counts.critical) || counts.high !== 0 || counts.critical !== 0) process.exit(1);
+          if (counts.high !== 0 || counts.critical !== 0 || Object.values(report.advisories).some(a => ['high', 'critical'].includes(a.severity))) process.exit(1);
           NODE
-          exit "$status"
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
