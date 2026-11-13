@@ -161,12 +161,30 @@ jobs:
           test -f .tmp/rc6/pnpm-lock.yaml
           docker build -f .tmp/rc6/docker/api.Dockerfile -t cajeerbots:rehearsal-rc6 .tmp/rc6
           docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:1.0.0 .
+      - name: Preflight rehearsal workload in both immutable images
+        run: |
+          set -euo pipefail
+          for image in cajeerbots:rehearsal-rc6 cajeerbots:1.0.0; do
+            docker run --rm --network none --entrypoint node \
+              --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/rehearsal-workload.mjs,dst=/app/scripts/rehearsal-workload.mjs,readonly" \
+              --mount "type=bind,src=$GITHUB_WORKSPACE/scripts/rehearsal-load.mjs,dst=/app/scripts/rehearsal-load.mjs,readonly" \
+              "$image" scripts/rehearsal-workload.mjs --check-imports
+          done
       - name: Full production rehearsal
+        id: rehearsal
         env:
           CAJEER_REHEARSAL_ISOLATED: '1'
           REHEARSAL_EVENTS: ${{ inputs.events }}
           REHEARSAL_MIN_RPS: '10'
         run: node scripts/production-rehearsal.mjs cajeerbots:rehearsal-rc6 cajeerbots:1.0.0 "$RUNNER_TEMP/rehearsal.json" "$REHEARSAL_EVENTS" 16
+      - name: Save production rehearsal report
+        if: ${{ always() && (steps.rehearsal.outcome == 'success' || steps.rehearsal.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-rehearsal-report
+          path: ${{ runner.temp }}/rehearsal.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Generate CycloneDX inventory from installed dependencies and tested image
         run: |
           set -euo pipefail

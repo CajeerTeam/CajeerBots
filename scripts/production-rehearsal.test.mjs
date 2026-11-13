@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { mkdtemp, writeFile, rm, symlink, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -81,4 +83,22 @@ test('local storage atomically writes and rejects traversal and symlink objects'
   await assert.rejects(driver.get('backup/symlink'), /Unsafe/);
   await driver.delete('backup/test.json'); await driver.delete('backup/test.json');
   await assert.rejects(driver.get('backup/test.json'), /ENOENT/);
+});
+
+test('workload ESM imports resolve with the installed dependencies without connecting to services', () => {
+  const script = fileURLToPath(new URL('./rehearsal-workload.mjs', import.meta.url));
+  const result = spawnSync(process.execPath, [script, '--check-imports'], {
+    encoding: 'utf8',
+    timeout: 10000,
+    env: { ...process.env, CAJEER_REHEARSAL_ISOLATED: '0', DATABASE_URL: '', REDIS_URL: '', CAJEER_ADMIN_TOKEN: '' },
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Rehearsal workload imports OK/);
+  const denied = spawnSync(process.execPath, [script, 'prepare'], {
+    encoding: 'utf8', timeout: 10000,
+    env: { ...process.env, CAJEER_REHEARSAL_ISOLATED: '0' },
+  });
+  assert.notEqual(denied.status, 0);
+  assert.match(denied.stderr, /Only disposable rehearsal instances/);
 });

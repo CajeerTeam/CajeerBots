@@ -5,9 +5,20 @@ import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { PrismaClient } from '../prisma/generated/client/index.js';
-import { Redis } from 'ioredis';
+import RedisModule from 'ioredis';
 import { spawnSync } from 'node:child_process';
 import { runLoad } from './rehearsal-load.mjs';
+
+// ioredis 5.0.0 is CommonJS and does not expose a named ESM Redis export.
+const Redis = RedisModule.default;
+// Import-only preflight: no database client, Redis connection or HTTP requests.
+if (process.argv[2] === '--check-imports') {
+  assert.equal(typeof Redis, 'function');
+  assert.equal(typeof PrismaClient, 'function');
+  assert.equal(typeof runLoad, 'function');
+  console.log('Rehearsal workload imports OK');
+  process.exit(0);
+}
 
 assert.equal(process.env.CAJEER_REHEARSAL_ISOLATED, '1', 'Only disposable rehearsal instances');
 const db = new PrismaClient();
