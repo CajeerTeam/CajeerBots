@@ -1,3 +1,12 @@
+## 1.0.2 — Stable Core Acceptance
+
+- Synchronize workspace, API/CLI, runtime and deployment versions; retain the existing dependency lockfile and database schema; migrate stock maintenance-job release targets without reseeding.
+- Exercise upgrade from exact 1.0.1 source, backup/restore, queued events and post-upgrade writes in the mandatory release rehearsal; retain RC6 and signed 1.0.0 baseline gates.
+- Permit a verified pilot upgrade from 1.0.1; preserve limits and fail-closed startup.
+- Make community creation/update atomic with audit logging; map missing records and duplicate slugs to 404/409.
+- Reject unhealthy HTTP 200 readiness responses and detect process startup failures; enforce acceptance regressions in CI.
+- Limited Production remains conditional on successful CI, rehearsal and signed bundle verification; no GA claim.
+
 ## 1.0.1 — Stable / Limited Production
 
 - Resume a paused pilot from the same verified signed bundle without reseeding or changing capacity limits; reject image/configuration drift and failed readiness checks.

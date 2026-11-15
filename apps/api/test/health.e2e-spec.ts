@@ -113,3 +113,26 @@ describe('community-scoped event publication', () => {
     }
   });
 });
+
+describe('Stable Core Acceptance: community mutations', () => {
+  it('commits mutations and audit together, maps duplicate slugs and missing records', async () => {
+    const prisma = app.get(PrismaService);
+    const token = process.env.CAJEER_ADMIN_TOKEN!;
+    const slug = `acceptance-${randomUUID()}`;
+    const create = () => request(app.getHttpServer()).post('/api/communities').set('x-api-key', token).send({ slug, title: 'Acceptance' });
+    const responses = await Promise.all([create(), create()]);
+    expect(responses.map(r => r.status).sort()).toEqual([201,409]);
+    const id = responses.find(r => r.status === 201)!.body.id as string;
+    try {
+      expect(await prisma.community.count({ where: { slug } })).toBe(1);
+      expect(await prisma.auditLog.count({ where: { resourceId: id, action: 'community.create' } })).toBe(1);
+      await request(app.getHttpServer()).patch(`/api/communities/${id}`).set('x-api-key', token).send({ title: 'Updated' }).expect(200);
+      expect((await prisma.community.findUniqueOrThrow({ where: { id } })).title).toBe('Updated');
+      expect(await prisma.auditLog.count({ where: { resourceId: id, action: 'community.update' } })).toBe(1);
+      await request(app.getHttpServer()).patch(`/api/communities/${randomUUID()}`).set('x-api-key', token).send({ title: 'Missing' }).expect(404);
+    } finally {
+      await prisma.auditLog.deleteMany({ where: { resourceId: id } });
+      await prisma.community.delete({ where: { id } });
+    }
+  });
+});

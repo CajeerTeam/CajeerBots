@@ -1,6 +1,6 @@
-# CajeerBots — 1.0.1
+# CajeerBots — 1.0.2
 
-Русскоязычная self-hosted платформа TypeScript для Telegram, VK и Discord. Stable / Limited Production: подписанный выпуск, строгий release gate, ограниченный pilot с лимитами PostgreSQL, проверкой состояния и безопасной остановкой. Функции RC сохраняются. Публикация и pilot разрешены после полного CI и rehearsal. См. [ROADMAP](ROADMAP.md) и [отчёт проверки](RELEASE_VALIDATION_1.0.1.md).
+Русскоязычная self-hosted платформа TypeScript для Telegram, VK и Discord. Stable Core Acceptance / Limited Production: подписанный выпуск, строгий release gate, ограниченный pilot с лимитами PostgreSQL, проверкой состояния и безопасной остановкой. Функции RC сохраняются. Публикация и pilot разрешены после полного CI и rehearsal. См. [ROADMAP](ROADMAP.md) и [отчёт проверки](RELEASE_VALIDATION_1.0.2.md).
 
 ## Обязательный lockfile
 
@@ -44,7 +44,7 @@ Smoke поднимает отдельные процессы API, bot-runtime и
 
 ## Ограниченный production pilot
 
-Для production используйте подписанные артефакты и `pnpm pilot:deploy` или `pnpm pilot:upgrade`, а не сборку из произвольной рабочей директории. См. [порядок допуска, мониторинга и восстановления](RELEASE_VALIDATION_1.0.1.md).
+Для production используйте подписанные артефакты и `pnpm pilot:deploy` или `pnpm pilot:upgrade`, а не сборку из произвольной рабочей директории. См. [порядок допуска, мониторинга и восстановления](RELEASE_VALIDATION_1.0.2.md).
 
 Остановить pilot можно через `pnpm pilot:pause PROJECT ENV IMAGE`. Возобновление — `pnpm pilot:resume PROJECT ENV BUNDLE PUBLIC_KEY`; команда повторно проверяет подписанный комплект, установленный образ, конфигурацию, лимиты и состояние сервисов. При ошибке writers остаются остановленными.
 
@@ -58,7 +58,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml build
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --wait
 ```
 
-Сервисы используют один образ `cajeerbots:1.0.1`. Сначала запускаются PostgreSQL и Redis, затем `migrate` выполняет `prisma migrate deploy` и идемпотентный seed. После успешной миграции запускается API, затем bot-runtime и worker. API и bot-runtime публикуются только на localhost. Worker health доступен внутри сети Compose.
+Сервисы используют один образ `cajeerbots:1.0.2`. Сначала запускаются PostgreSQL и Redis, затем `migrate` выполняет `prisma migrate deploy` и идемпотентный seed. После успешной миграции запускается API, затем bot-runtime и worker. API и bot-runtime публикуются только на localhost. Worker health доступен внутри сети Compose.
 
 ```bash
 curl --fail http://127.0.0.1:3000/api/health
@@ -71,7 +71,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api
 
 ## Ограничения Stable / Limited Production
 
-- Настройте уникальные webhook credentials, HTTPS и проведите полный прогон Stable перед публикацией. См. [порядок обновления и проверки](RELEASE_VALIDATION_1.0.1.md).
+- Настройте уникальные webhook credentials, HTTPS и проведите полный прогон Stable перед публикацией. См. [порядок обновления и проверки](RELEASE_VALIDATION_1.0.2.md).
 - Полный build, Prisma migrate deploy, E2E и Compose ещё требуют прогона с установленными зависимостями; выпуск не подтверждён как production-ready.
 - Для production поддерживается PostgreSQL, Redis и локальное хранилище как базовый профиль проверки. Альтернативные драйверы и масштабирование не подтверждены этим релизом.
 
@@ -79,4 +79,4 @@ docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api
 
 ## Production rehearsal
 
-`pnpm rehearsal:production BASELINE_IMAGE TARGET_IMAGE REPORT [COUNT] [CONCURRENCY] PATCH_BASELINE_IMAGE` запускает отдельные Compose-проекты, проверяет фактический upgrade rc.6 → 1.0.1 и восстановление данных. Требуется `CAJEER_REHEARSAL_ISOLATED=1`. Операции полного backup/restore: `pnpm instance:backup`, `instance:verify`, `instance:restore`, `instance:start`, `instance:upgrade`. См. [руководство](RELEASE_VALIDATION_1.0.1.md).
+`pnpm rehearsal:production BASELINE_IMAGE TARGET_IMAGE REPORT [COUNT] [CONCURRENCY] PATCH_BASELINE_IMAGE PREVIOUS_101_IMAGE` запускает отдельные Compose-проекты, проверяет фактический upgrade RC6, 1.0.0 и 1.0.1 → 1.0.2, восстановление данных и новые записи после обновления. Требуется `CAJEER_REHEARSAL_ISOLATED=1`. Операции полного backup/restore: `pnpm instance:backup`, `instance:verify`, `instance:restore`, `instance:start`, `instance:upgrade`. См. [руководство](RELEASE_VALIDATION_1.0.2.md).

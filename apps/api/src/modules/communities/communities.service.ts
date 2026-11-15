@@ -12,9 +12,11 @@ export class CommunitiesService {
 
   async create(data: { slug: string; title: string; language: string }, actor: Principal) {
     try {
-      const community = await this.prisma.community.create({ data });
-      await this.prisma.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action: 'community.create', resource: 'community', resourceId: community.id, metadata: data as never } });
-      return community;
+      return await this.prisma.$transaction(async (tx) => {
+        const community = await tx.community.create({ data });
+        await tx.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action: 'community.create', resource: 'community', resourceId: community.id, metadata: data as never } });
+        return community;
+      });
     } catch (error) {
       if (isUniqueError(error)) throw new ConflictException(`Community со slug ${data.slug} уже существует`);
       throw error;
@@ -28,13 +30,24 @@ export class CommunitiesService {
   }
 
   async update(id: string, data: Partial<{ slug: string; title: string; language: string }>, actor: Principal) {
-    await this.get(id);
-    const community = await this.prisma.community.update({ where: { id }, data });
-    await this.prisma.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action: 'community.update', resource: 'community', resourceId: id, metadata: data as never } });
-    return community;
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const community = await tx.community.update({ where: { id }, data });
+        await tx.auditLog.create({ data: { actorId: actor.id, actorType: actor.type, action: 'community.update', resource: 'community', resourceId: id, metadata: data as never } });
+        return community;
+      });
+    } catch (error) {
+      if (isPrismaError(error, 'P2025')) throw new NotFoundException('Community не найдена');
+      if (isUniqueError(error)) throw new ConflictException(`Community со slug ${data.slug} уже существует`);
+      throw error;
+    }
   }
 }
 
 function isUniqueError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'P2002';
+  return isPrismaError(error, 'P2002');
+}
+
+function isPrismaError(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === code;
 }

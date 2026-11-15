@@ -21,7 +21,7 @@ prisma/generated
 
 # Operator state and release outputs
 dist-release/
-storage/
-backups/
+/storage/
+/backups/
 *.pem
 *.key

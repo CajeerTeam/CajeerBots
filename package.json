@@ -1,6 +1,6 @@
 {
   "name": "cajeerbots",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Русскоязычная TypeScript-first платформа для расширения, автоматизации и управления сообществами через Telegram, VK и Discord.",
   "license": "Apache-2.0",
@@ -46,6 +46,7 @@
     "rehearsal:production": "node scripts/production-rehearsal.mjs",
     "release:verify": "node scripts/release-verify.mjs",
     "test:release-hardening": "node --test scripts/release-hardening.test.mjs",
+    "test:core-acceptance": "node --test scripts/core-acceptance.test.mjs",
     "test:stable": "node --test scripts/stable.test.mjs",
     "pilot:deploy": "node scripts/instance-ops.mjs pilot-deploy",
     "pilot:status": "node scripts/instance-ops.mjs pilot-status",

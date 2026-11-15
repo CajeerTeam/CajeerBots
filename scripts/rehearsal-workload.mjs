@@ -50,7 +50,7 @@ async function prepare() {
   assert.equal((await request('POST', `/backups/${backup.id}/verify`, {})).valid, true);
   const version = (await request('GET', '/system/report')).version;
   // RC4 is the historical baseline; exercise the hardened merge path on RC5.
-  if (['1.0.0-rc.5', '1.0.0-rc.6', '1.0.0', '1.0.1'].includes(version)) {
+  if (['1.0.0-rc.5', '1.0.0-rc.6', '1.0.0', '1.0.1', '1.0.2'].includes(version)) {
   await request('PATCH', `/communities/${community.id}`, { title: 'Changed before restore' });
   assert.equal((await request('POST', `/backups/${backup.id}/restore`, { apply: false })).status, 'completed');
   assert.equal((await request('GET', `/communities/${community.id}`)).title, 'Changed before restore');
@@ -82,7 +82,7 @@ function event(i) { return { id: `${state.id}-${i}`, type: state.topic, communit
 async function publish() {
   const count = Number(countArg ?? 100); const concurrency = Number(concurrencyArg ?? 8);
   const system = await request('GET', '/system/report');
-  if (['1.0.0-rc.5', '1.0.0-rc.6', '1.0.0', '1.0.1'].includes(system.version)) {
+  if (['1.0.0-rc.5', '1.0.0-rc.6', '1.0.0', '1.0.1', '1.0.2'].includes(system.version)) {
     const first = await Promise.all(Array.from({ length: 4 }, () => request('POST', '/events/publish', event(0))));
     assert.equal(new Set(first.map(r => r.event.id)).size, 1);
   }
@@ -127,6 +127,14 @@ async function verify() {
   assert.equal(rows.length, state.count); assert(rows.every(row => row.status === 'delivered' && row.attempts === 1));
   return state;
 }
+// Inspect the migrated stock jobs; schedule/enable flags and all other payload keys
+// must survive the upgrade. This action is used only in the direct patch rehearsal.
+async function maintenanceJobs() {
+  const codes=['maintenance.release_gates','maintenance.integration_smoke','maintenance.security_audit','maintenance.rc_readiness'];
+  const jobs=await db.scheduledJob.findMany({where:{code:{in:codes}},orderBy:{code:'asc'},select:{id:true,code:true,handler:true,type:true,schedule:true,timezone:true,isEnabled:true,payload:true}});
+  assert.equal(jobs.length,codes.length);
+  return jobs;
+}
 async function botSetup() {
   const communityId = state.communityId;
   await db.botAccount.create({ data: { id: 'rehearsal-discord', communityId, provider: 'discord', mode: 'webhook', externalId: 'fixture', tokenRef: 'env:DISCORD_BOT_TOKEN_REHEARSAL' } });
@@ -163,7 +171,7 @@ async function botTest() {
   return { signedWebhook: true, invalidSignatureRejected: true, submissions: 1, normalized: { age: 25 } };
 }
 try {
-  const operations = { prepare, publish, drain, verify, botSetup, botTest };
+  const operations = { prepare, publish, drain, verify, botSetup, botTest, maintenanceJobs };
   assert(operations[action], 'Unknown workload action');
   console.log(JSON.stringify(await operations[action]()));
 } finally { await db.$disconnect(); redis.disconnect(); }

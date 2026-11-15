@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-export const stableVersion = '1.0.1';
+export const stableVersion = '1.0.2';
 export const isStableVersion = value => typeof value === 'string' && /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(value);
 export const stablePrefix = `cajeerbots-${stableVersion}`;
 export const stableSuffixes = ['.zip', '.image.tar.gz', '.sbom.cdx.json', '.audit.json', '.rehearsal.json', '.container-audit.json'];
@@ -12,7 +12,7 @@ const imageId = value => typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.te
 const check = (condition, message) => { if (!condition) throw Error(message); };
 export function validateStableEvidence({ report, audit, sbom, containerAudit, commit }, version = stableVersion) {
   check(isStableVersion(version), 'Invalid stable version');
-  const phases = version === '1.0.0' ? requiredPhases : [...requiredPhases,'stable-patch-upgrade-restore'];
+  const phases = version === '1.0.0' ? requiredPhases : [...requiredPhases,'stable-patch-upgrade-restore', ...(version === '1.0.2' ? ['previous-patch-upgrade-restore'] : [])];
   check(/^[a-f0-9]{40}$/.test(commit), 'Invalid commit');
   check(report?.format === 'cajeerbots.rehearsal.v1' && report.passed === true && report.commit === commit && report.baselineVersion === '1.0.0-rc.6' && report.targetVersion === version, 'Wrong or failed rehearsal');
   check(imageId(report.targetImageId) && imageId(report.baselineImageId) && report.targetImageId !== report.baselineImageId, 'Missing immutable rehearsal image IDs');
@@ -38,6 +38,11 @@ export function validateStableEvidence({ report, audit, sbom, containerAudit, co
   if (version !== '1.0.0') {
     const patch = report.phases.find(p=>p.name==='stable-patch-upgrade-restore').result;
     check(patch?.baselineVersion==='1.0.0' && patch.baselineImageId==='sha256:442e91aa9fe026983fce4e024f0152300c828bc0e22cfbf30599efe0dcd91618' && patch.targetVersion===version && patch.count===report.count && patch.upgraded===true && patch.restored===true && typeof patch.id==='string' && patch.id.length>0 && patch.load?.passed===true && patch.load.failed===0 && Array.isArray(patch.load.errors) && patch.load.errors.length===0 && patch.load.succeeded===report.count && patch.load.rps>=10 && patch.load.p95Ms<=1500 && Number.isFinite(patch.drainMs) && patch.drainMs>=0 && patch.drainMs<=180000, 'Stable patch upgrade/restore evidence missing or failed');
+  }
+  if (version === '1.0.2') {
+    const previous = report.phases.find(p=>p.name==='previous-patch-upgrade-restore').result;
+    const validWork = work => typeof work?.id==='string' && work.id.length>0 && typeof work.communityId==='string' && work.communityId.length>0 && work.count===report.count && work.load?.passed===true && work.load.failed===0 && Array.isArray(work.load.errors) && work.load.errors.length===0 && work.load.succeeded===report.count && Number.isFinite(work.load.rps) && work.load.rps>=10 && Number.isFinite(work.load.p95Ms) && work.load.p95Ms>=0 && work.load.p95Ms<=1500 && Number.isFinite(work.drainMs) && work.drainMs>=0 && work.drainMs<=180000;
+    check(previous?.baselineVersion==='1.0.1' && previous.baselineCommit==='b535b328bb633b1a495697fa3c15e171375b31ea' && imageId(previous.baselineImageId) && previous.baselineImageId!==report.targetImageId && previous.targetVersion===version && previous.upgraded===true && previous.restored===true && previous.maintenanceJobsMigrated===true && validWork(previous) && validWork(previous.postUpgrade) && previous.postUpgrade.id!==previous.id && previous.postUpgrade.communityId!==previous.communityId, 'Previous patch acceptance evidence missing or failed');
   }
   const vulnerabilities = audit?.metadata?.vulnerabilities;
   check(vulnerabilities && Number.isInteger(vulnerabilities.high) && Number.isInteger(vulnerabilities.critical) && vulnerabilities.high === 0 && vulnerabilities.critical === 0 && !audit.error, 'npm audit missing or high/critical findings');

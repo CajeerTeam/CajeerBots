@@ -5,14 +5,16 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 export function startService(name, env = process.env, watch = false) {
   const child = spawn(process.execPath, [...(watch ? ['--watch'] : []), `apps/${name}/dist/main.js`], { cwd: root, env, stdio: 'inherit' });
-  const exited = new Promise((resolve) => {
-    child.once('exit', (code, signal) => resolve({ code, signal }));
-    child.once('error', (error) => resolve({ code: 1, error: error.message }));
+  const service = { name, child, exited: undefined, result: undefined };
+  service.exited = new Promise((resolve) => {
+    const finish = result => { service.result = result; resolve(result); };
+    child.once('exit', (code, signal) => finish({ code, signal }));
+    child.once('error', (error) => finish({ code: 1, error: error.message }));
   });
-  return { name, child, exited };
+  return service;
 }
 export async function stopServices(services) {
-  for (const { child } of services) if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+  for (const { child, result } of services) if (!result && child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
   await Promise.all(services.map(async ({ child, exited, name }) => {
     let timer;
     try {
@@ -25,10 +27,13 @@ export async function stopServices(services) {
 export async function waitHealth(service, url, timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (service.child.exitCode !== null || service.child.signalCode !== null) throw new Error(`${service.name} exited before readiness`);
+    if (service.result || service.child.exitCode !== null || service.child.signalCode !== null) throw new Error(`${service.name} exited before readiness`);
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
-      if (response.ok) return await response.json();
+      if (response.ok) {
+        const body = await response.json();
+        if (!service.result && service.child.exitCode === null && service.child.signalCode === null && (body?.status === 'ok' || body?.ok === true)) return body;
+      }
     } catch { /* retry until deadline */ }
     if (Date.now() >= deadline) throw new Error(`${service.name} did not become ready: ${url}`);
     await delay(500);
