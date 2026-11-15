@@ -46,6 +46,8 @@ Smoke поднимает отдельные процессы API, bot-runtime и
 
 Для production используйте подписанные артефакты и `pnpm pilot:deploy` или `pnpm pilot:upgrade`, а не сборку из произвольной рабочей директории. См. [порядок допуска, мониторинга и восстановления](RELEASE_VALIDATION_1.0.1.md).
 
+Остановить pilot можно через `pnpm pilot:pause PROJECT ENV IMAGE`. Возобновление — `pnpm pilot:resume PROJECT ENV BUNDLE PUBLIC_KEY`; команда повторно проверяет подписанный комплект, установленный образ, конфигурацию, лимиты и состояние сервисов. При ошибке writers остаются остановленными.
+
 ## Docker Compose — тестовый стенд production
 
 ```bash
@@ -67,7 +69,7 @@ docker compose --env-file .env.production -f docker-compose.prod.yml exec -T api
 
 При обновлении существующей инсталляции не создавайте новые секреты и не удаляйте volumes. Сохраните рабочие `DATABASE_URL`, `SECRETS_ENCRYPTION_KEY`, пароли и все ключи из прежнего `.env.production`. Сделайте резервную копию перед запуском миграций. Если использовались порт 3001 и старые имена переменных, приведите их к текущему конфигу; проверьте nginx. Исторические SQL-миграции не изменены.
 
-## Ограничения RC4
+## Ограничения Stable / Limited Production
 
 - Настройте уникальные webhook credentials, HTTPS и проведите полный прогон Stable перед публикацией. См. [порядок обновления и проверки](RELEASE_VALIDATION_1.0.1.md).
 - Полный build, Prisma migrate deploy, E2E и Compose ещё требуют прогона с установленными зависимостями; выпуск не подтверждён как production-ready.

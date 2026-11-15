@@ -50,6 +50,7 @@
     "pilot:deploy": "node scripts/instance-ops.mjs pilot-deploy",
     "pilot:status": "node scripts/instance-ops.mjs pilot-status",
     "pilot:pause": "node scripts/instance-ops.mjs pilot-pause",
+    "pilot:resume": "node scripts/instance-ops.mjs pilot-resume",
     "pilot:upgrade": "node scripts/instance-ops.mjs pilot-upgrade"
   },
   "dependencies": {

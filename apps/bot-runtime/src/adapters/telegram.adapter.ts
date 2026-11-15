@@ -21,6 +21,8 @@ export class TelegramAdapter implements BotAdapter {
     return Boolean(this.options.account.token);
   }
 
+  isHealthy(): boolean { return this.bot?.isRunning() === true && !this.stopping; }
+
   async start(): Promise<void> {
     const { account, prisma } = this.options;
     if (!account.token) return;
@@ -76,15 +78,19 @@ export class TelegramAdapter implements BotAdapter {
       if (this.stopping) return;
       // grammY start resolves only when polling stops; readiness comes from onStart.
       await new Promise<void>((resolve, reject) => {
-        this.polling = bot.start({ onStart: () => resolve() });
-        void this.polling?.catch((error: unknown) => {
-          reject(error);
-          if (!this.stopping) {
+        let started = false;
+        const finished = (error?: unknown) => {
+          if (!started) {
+            reject(error ?? new Error('Telegram polling ended before readiness'));
+          } else if (!this.stopping) {
+            // A normally resolved polling promise is also a failure unless we stopped it.
             console.error('[bot-runtime] Telegram polling stopped unexpectedly');
-            process.kill(process.pid, 'SIGTERM');
             process.exitCode = 1;
+            process.kill(process.pid, 'SIGTERM');
           }
-        });
+        };
+        this.polling = bot.start({ onStart: () => { started = true; resolve(); } });
+        void this.polling.then(() => finished(), finished);
       });
     }
   }

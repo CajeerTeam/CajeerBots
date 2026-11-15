@@ -16,7 +16,12 @@ on:
       - 'scripts/container-audit-diagnostics.mjs'
       - 'scripts/runtime-os-inventory.mjs'
       - 'scripts/runtime-image-preflight.mjs'
-      - 'scripts/instance-ops.mjs'
+      - 'apps/**'
+      - 'packages/**'
+      - 'prisma/**'
+      - 'scripts/**'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/production-rehearsal.yml'
       - 'docker-compose*.yml'
   pull_request:
     branches: [main]
@@ -34,7 +39,12 @@ on:
       - 'scripts/container-audit-diagnostics.mjs'
       - 'scripts/runtime-os-inventory.mjs'
       - 'scripts/runtime-image-preflight.mjs'
-      - 'scripts/instance-ops.mjs'
+      - 'apps/**'
+      - 'packages/**'
+      - 'prisma/**'
+      - 'scripts/**'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/production-rehearsal.yml'
       - 'docker-compose*.yml'
   workflow_dispatch:
     inputs:

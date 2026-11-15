@@ -1,4 +1,8 @@
-## 1.0.1 — Stable patch
+## 1.0.1 — Stable / Limited Production
+
+- Resume a paused pilot from the same verified signed bundle without reseeding or changing capacity limits; reject image/configuration drift and failed readiness checks.
+- Apply capacity limits atomically to existing pilots during upgrade; reject invalid metrics, stale runtime rows and disconnected polling clients.
+- Require the committed target lockfile in CI and rehearsal, and run release gates on application, package, migration and operational script changes.
 
 - Align application, workspace, deployment and release metadata to 1.0.1; retain extension API and backup schema compatibility.
 - Require signed evidence for stable versions, including actual upgrade and restore from the previously verified 1.0.0 image.

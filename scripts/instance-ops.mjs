@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 
 import { verifyReleaseFiles } from './release-artifacts.mjs';
 import { requireStableManifest, readStableEvidence, verifyImageArchive, stablePrefix, stableVersion, stableSuffixes } from './stable-evidence.mjs';
-import { capacitySql, pilotLimits } from './pilot-policy.mjs';
+import { capacitySql, pilotLimits, verifyCapacitySql, evaluatePilot, waitForPilot } from './pilot-policy.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const files = ['database.dump', 'redis.tar', 'storage.tar', 'extensions.tar', 'env.production'];
 const services = ['api', 'bot-runtime', 'worker', 'migrate'];
@@ -69,18 +69,21 @@ function config(c) {
   return cfg;
 }
 function imageId(image) { return run(['image', 'inspect', '--format', '{{.Id}}', image], { capture: true }); }
-function currentImage(c, cfg) {
-  const id = c(['ps', '-q', 'api'], { capture: true });
+function currentImage(c, cfg, paused = false) {
+  const id = c(['ps', paused ? '-aq' : '-q', 'api'], { capture: true });
   assert(id && !id.includes('\n'), 'Expected one running API container');
   const actual = JSON.parse(run(['inspect', id], { capture: true }))[0];
   assert(actual.Image === imageId(cfg.services.api.image), 'Running API image differs from configured image');
-  const version = c(['exec', '-T', 'api', 'node', '-p', "require('fs').readFileSync('VERSION','utf8').trim()"], { capture: true });
+  const version = paused ? null : c(['exec', '-T', 'api', 'node', '-p', "require('fs').readFileSync('VERSION','utf8').trim()"], { capture: true });
   // The environment file must match the currently running configuration, especially encryption keys.
   for (const name of ['api', 'bot-runtime', 'worker', 'postgres', 'redis']) {
-    const container = c(['ps', '-q', name], { capture: true });
+    const container = c(['ps', paused ? '-aq' : '-q', name], { capture: true });
     assert(container && !container.includes('\n'), `Expected one running ${name} container`);
     const inspected = JSON.parse(run(['inspect', container], { capture: true }))[0];
-    if (services.includes(name)) assert(inspected.Image === actual.Image, 'Mixed application versions');
+    if (services.includes(name)) {
+      assert(inspected.Image === actual.Image, 'Mixed application versions');
+      if (paused) assert(!inspected.State.Running, 'Pilot must be paused before resuming');
+    }
     const current = Object.fromEntries(inspected.Config.Env.map((entry) => [entry.slice(0, entry.indexOf('=')), entry.slice(entry.indexOf('=') + 1)]));
     for (const [key, value] of Object.entries(cfg.services[name].environment ?? {})) assert(current[key] === String(value), `Configuration drift: ${name}.${key}`);
   }
@@ -193,8 +196,8 @@ function safeDestination(path) {
   const rel = relative(root, path);
   assert((rel === '..' || rel.startsWith('../')) && !isAbsolute(rel), 'Backup must be outside the repository/build context');
 }
-async function deployPilot(project, envFile, bundle, publicKeyFile, communities, bots, upgrade) {
-  const limits = pilotLimits(communities,bots);
+async function deployPilot(project, envFile, bundle, publicKeyFile, communities, bots, upgrade, resume = false) {
+  const limits = resume ? undefined : pilotLimits(communities,bots);
   const envStat = lstatSync(envFile);
   assert(envStat.isFile() && (envStat.mode & 0o077) === 0, 'Pilot env must be a regular private file (0600)');
   const staging = mkdtempSync(join(tmpdir(), 'cajeer-verified-release-'));
@@ -218,9 +221,13 @@ async function deployPilot(project, envFile, bundle, publicKeyFile, communities,
       assert(['1.0.0-rc.6','1.0.0'].includes(currentImage(old,config(old)).version),'Pilot upgrade requires a running RC6 or 1.0.0 instance');
       const count = old(['exec','-T','postgres','sh','-ec','exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "$1"','pilot',`SELECT (SELECT count(*) FROM communities)::text || ',' || (SELECT count(*) FROM bot_accounts)::text`],{capture:true}).split(',').map(Number);
       assert(count.length===2 && count.every(Number.isSafeInteger) && count[0]<=limits.maxCommunities && count[1]<=limits.maxBotAccounts,'Current instance exceeds pilot limits');
+    } else if (resume) {
+      // The signed release must match the previously installed, stopped containers.
+      assert(currentImage(c,cfg,true).imageId===id,'Paused pilot image differs from verified release');
     } else assertFresh(c,project);
     assert(cfg.services.api.ports?.every(p=>p.host_ip==='127.0.0.1') && cfg.services['bot-runtime'].ports?.every(p=>p.host_ip==='127.0.0.1'), 'Pilot ports must be loopback only');
-    run(['load','--input',archive]); assert(imageId(id) === id,'Loaded image ID mismatch'); run(['tag',id,image]);
+    if (!resume) { run(['load','--input',archive]); assert(imageId(id) === id,'Loaded image ID mismatch'); run(['tag',id,image]); }
+    else assert(imageId(image)===id,'Installed pilot image differs from verified release');
     const actualVersion = c(['run','--rm','--no-deps','-T','--entrypoint','node','api','-p',"require('fs').readFileSync('VERSION','utf8').trim()"],{capture:true});
     assert(actualVersion===stableVersion,'Wrong image version');
     if (upgrade) await backup(old,project,envFile,upgrade.destination);
@@ -229,7 +236,17 @@ async function deployPilot(project, envFile, bundle, publicKeyFile, communities,
       c(['exec','-T','postgres','sh','-ec','exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "$1"','pilot',capacitySql(communities,bots)]);
     };
     try {
-      if (upgrade) start(c,stableVersion,setCapacity);
+      if (resume) {
+        const checkCapacity = () => {
+          assert(imageId(image)===id,'Pilot image tag changed');
+          const result=c(['exec','-T','postgres','sh','-ec','exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "$1"','pilot',verifyCapacitySql],{capture:true});
+          assert(result==='ok','Pilot capacity missing or inconsistent; refusing resume');
+        };
+        // Validate existing data before migration and again immediately before writers start.
+        c(['up','-d','--wait','--wait-timeout','120','postgres','redis']);
+        checkCapacity();
+        start(c,stableVersion,checkCapacity);
+      } else if (upgrade) start(c,stableVersion,setCapacity);
       else {
         c(['up','-d','--wait','--wait-timeout','120','postgres','redis']);
         c(['run','--rm','--no-deps','-T','migrate',...migrationCommand(true)]);
@@ -237,26 +254,32 @@ async function deployPilot(project, envFile, bundle, publicKeyFile, communities,
         c(['up','-d','--no-deps','--no-build','--pull','never','--wait','--wait-timeout','240','api','bot-runtime','worker']);
       }
       assert(currentImage(c,cfg).imageId===id,'Running pilot image differs');
-      const status = JSON.parse(c(['exec','-T','api','node','scripts/pilot-probe.mjs'],{capture:true}));
-      assert(status.passed===true,'Pilot health/capacity gate failed');
-      console.log(JSON.stringify({deployed:true,project,image,imageId:id,commit:manifest.commit,status,...(upgrade?{backup:upgrade.destination}: {})}));
+      const status = await waitForPilot(() => readPilotStatus(c));
+      assert(status.passed===true,`Pilot health/capacity gate failed: ${status.failures.join(', ')}`);
+      console.log(JSON.stringify({deployed:true,resumed:resume,project,image,imageId:id,commit:manifest.commit,status,...(upgrade?{backup:upgrade.destination}: {})}));
     } catch(error) { c(['stop','-t','40',...services]); throw error; }
   } finally { rmSync(staging,{recursive:true,force:true}); }
+}
+function readPilotStatus(c) {
+  const snapshot = JSON.parse(c(['exec','-T','api','node','scripts/pilot-probe.mjs'],{capture:true}));
+  // Re-evaluate instead of trusting a serialized success flag.
+  return {...snapshot,...evaluatePilot(snapshot)};
 }
 export async function main(argv) {
   const [action, project, envArg, image, arg, targetVersion] = argv;
   if (action === 'verify' && project && argv.length === 2) { console.log(JSON.stringify(await verifyBackup(resolve(project)), null, 2)); return; }
-  assert(['backup', 'restore', 'start', 'upgrade', 'pilot-deploy', 'pilot-upgrade', 'pilot-status', 'pilot-pause'].includes(action) && project && /^[a-z0-9][a-z0-9_-]*$/.test(project), 'Usage: instance-ops.mjs backup PROJECT ENV IMAGE DEST | restore PROJECT BACKUP | start PROJECT ENV IMAGE VERSION | upgrade PROJECT ENV OLD_IMAGE DEST NEW_IMAGE VERSION | verify BACKUP | pilot-deploy PROJECT ENV BUNDLE PUBLIC_KEY MAX_COMMUNITIES MAX_BOTS | pilot-upgrade PROJECT ENV OLD_IMAGE BACKUP BUNDLE PUBLIC_KEY MAX_COMMUNITIES MAX_BOTS | pilot-status/pilot-pause PROJECT ENV IMAGE');
+  assert(['backup', 'restore', 'start', 'upgrade', 'pilot-deploy', 'pilot-upgrade', 'pilot-status', 'pilot-pause', 'pilot-resume'].includes(action) && project && /^[a-z0-9][a-z0-9_-]*$/.test(project), 'Usage: instance-ops.mjs backup PROJECT ENV IMAGE DEST | restore PROJECT BACKUP | start PROJECT ENV IMAGE VERSION | upgrade PROJECT ENV OLD_IMAGE DEST NEW_IMAGE VERSION | verify BACKUP | pilot-deploy PROJECT ENV BUNDLE PUBLIC_KEY MAX_COMMUNITIES MAX_BOTS | pilot-upgrade PROJECT ENV OLD_IMAGE BACKUP BUNDLE PUBLIC_KEY MAX_COMMUNITIES MAX_BOTS | pilot-status/pilot-pause PROJECT ENV IMAGE | pilot-resume PROJECT ENV BUNDLE PUBLIC_KEY');
   const lock = join(tmpdir(), `cajeerbots-instance-${process.getuid?.() ?? 'user'}-${project}.lock`);
   mkdirSync(lock, { mode: 0o700 });
   try {
+    if (action === 'pilot-resume') { assert(argv.length===5,'pilot-resume PROJECT ENV BUNDLE PUBLIC_KEY'); await deployPilot(project,resolve(envArg),resolve(image),resolve(arg),undefined,undefined,undefined,true); return; }
     if (action === 'pilot-upgrade') { assert(argv.length===9,'pilot-upgrade PROJECT ENV OLD_IMAGE BACKUP BUNDLE PUBLIC_KEY MAX_COMMUNITIES MAX_BOTS'); await deployPilot(project,resolve(envArg),resolve(targetVersion),resolve(argv[6]),argv[7],argv[8],{oldImage:image,destination:resolve(arg)}); return; }
     if (action === 'pilot-deploy') { assert(argv.length === 7,'pilot-deploy PROJECT ENV BUNDLE PUBLIC_KEY MAX_COMMUNITIES MAX_BOTS'); await deployPilot(project,resolve(envArg),resolve(image),resolve(arg),targetVersion,argv[6]); return; }
     if (action === 'pilot-status' || action === 'pilot-pause') {
       assert(argv.length === 4,'pilot-status/pilot-pause PROJECT ENV IMAGE'); const c=compose(project,resolve(envArg),image); const cfg=config(c);
-      if(action==='pilot-pause') { c(['stop','-t','40',...services]); console.log(JSON.stringify({paused:true,project})); return; }
+      if(action==='pilot-pause') { c(['stop','-t','40',...services]); assert(!c(['ps','-q','--status','running',...services],{capture:true}),'Application writers are still running'); console.log(JSON.stringify({paused:true,project})); return; }
       assert(currentImage(c,cfg).version===stableVersion,'Pilot running version mismatch');
-      const status=JSON.parse(c(['exec','-T','api','node','scripts/pilot-probe.mjs'],{capture:true})); console.log(JSON.stringify(status)); if(!status.passed) throw Error('Pilot gate failed'); return;
+      const status=readPilotStatus(c); console.log(JSON.stringify(status)); if(!status.passed) throw Error('Pilot gate failed'); return;
     }
     if (action === 'restore') { assert(argv.length === 3, 'restore PROJECT BACKUP'); await restore(project, resolve(envArg)); return; }
     assert(envArg && image && arg, 'Missing environment/image/argument');

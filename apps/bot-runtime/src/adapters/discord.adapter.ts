@@ -19,11 +19,16 @@ export class DiscordAdapter implements BotAdapter {
     return Boolean(this.options.account.token);
   }
 
+  isHealthy(): boolean { return this.client?.isReady() === true; }
+
   async start(): Promise<void> {
     const { account, prisma } = this.options;
     if (!account.token) return;
 
     this.client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+    // Avoid an unhandled EventEmitter error crashing all accounts. Gateway readiness
+    // is reported independently by the runtime heartbeat.
+    this.client.on('error', (error) => console.error('[discord] client error', error.name));
     this.client.on('interactionCreate', async (interaction) => {
       try {
       if (interaction.isChatInputCommand()) {

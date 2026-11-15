@@ -8,7 +8,7 @@ on:
       events:
         description: 'Events per load phase (1–10000)'
         required: true
-        default: '100'
+        default: '1000'
       concurrency:
         description: 'HTTP concurrency (1–64)'
         required: true
@@ -36,8 +36,10 @@ jobs:
           set -eu
           test "$(cat .tmp/rc6/VERSION)" = 1.0.0-rc.6
           test "$(cat VERSION)" = 1.0.1
-          # Rehearsal can bootstrap a missing lock; release CI still requires a committed one.
-          if [ ! -f pnpm-lock.yaml ]; then pnpm deps:lock; fi
+          # Never change the target dependency set in a release rehearsal.
+          git ls-files --error-unmatch pnpm-lock.yaml >/dev/null
+          test -s pnpm-lock.yaml
+          # Historical RC6 source may predate a committed lockfile.
           if [ ! -f .tmp/rc6/pnpm-lock.yaml ]; then (cd .tmp/rc6 && pnpm deps:lock); fi
           docker build -f .tmp/rc6/docker/api.Dockerfile -t cajeerbots:rehearsal-rc6 .tmp/rc6
           docker build --label "org.opencontainers.image.revision=$GITHUB_SHA" -f docker/api.Dockerfile -t cajeerbots:rehearsal-stable .

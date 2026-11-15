@@ -29,3 +29,53 @@ test('patch gate rejects absent or false upgrade evidence, and validates histori
   e.audit.metadata.vulnerabilities.high=1;
   assert.throws(()=>validateStableEvidence(e,'1.0.0'),/audit/);
 });
+
+test('pilot rejects negative counts, future/invalid ages and impossible bot totals',()=>{
+  for(const patch of [{backlog:-1},{dead:-1},{oldestDueMs:-1},{oldestDueMs:Infinity},{activeBots:-1,healthyBots:-1},{activeBots:3,healthyBots:3},{healthyBots:2.5},{health:{api:true,runtime:true,worker:1}}]) assert.equal(evaluatePilot({...snapshot,...patch}).passed,false);
+  assert.equal(evaluatePilot(null).passed,false);
+});
+
+test('pilot waits for transient readiness, but never waives hard failures or an exhausted gate',async()=>{
+  const {waitForPilot}=await import('./pilot-policy.mjs');
+  let calls=0, waits=0;
+  const options={attempts:3,pause:async()=>{waits++;}};
+  assert.equal((await waitForPilot(()=>({...snapshot,healthyBots:++calls===3?2:0,passed:true}),options)).passed,true);
+  assert.equal(calls,3); assert.equal(waits,2);
+  calls=0; waits=0;
+  assert.equal((await waitForPilot(()=>{calls++;return {...snapshot,dead:1,passed:true};},options)).passed,false);
+  assert.equal(calls,1); assert.equal(waits,0);
+  assert.equal((await waitForPilot(()=>({...snapshot,healthyBots:0}),options)).passed,false);
+  await assert.rejects(waitForPilot(()=>snapshot,{attempts:0}),/Invalid/);
+});
+
+test('runtime heartbeat follows connection readiness and refuses stale account configuration',async t=>{
+  // CI uses the real built module. A dependency-free local check can transpile the
+  // type-only imports using the same TypeScript compiler as the existing source tests.
+  let startRuntimeStatus;
+  if(process.env.TS_COMPILER_PATH){
+    const {pathToFileURL}=await import('node:url');
+    const {readFile}=await import('node:fs/promises');
+    const ts=(await import(pathToFileURL(process.env.TS_COMPILER_PATH).href)).default;
+    const dir=await mkdtemp(join(tmpdir(),'pilot-runtime-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+    const source=await readFile(new URL('../apps/bot-runtime/src/runtime/runtime-records.ts',import.meta.url),'utf8');
+    const path=join(dir,'runtime-records.mjs');await writeFile(path,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText);
+    ({startRuntimeStatus}=await import(pathToFileURL(path).href));
+  }else ({startRuntimeStatus}=await import('../apps/bot-runtime/dist/runtime/runtime-records.js'));
+  const account={id:'bot1',communityId:'c1',provider:'telegram',mode:'polling',tokenRef:'env:TELEGRAM_BOT_TOKEN',token:'not-logged'};
+  let current={...account,isActive:true}, row;
+  const prisma={botRuntimeStatus:{
+    create:async({data})=>(row={id:'status1',...data}),
+    updateMany:async({where,data})=>{
+      if(!row||where.id!==row.id)return {count:0};
+      if(where.account&&!Object.entries(where.account.is).every(([key,value])=>current?.[key]===value))return {count:0};
+      Object.assign(row,data);return {count:1};
+    }
+  }};
+  const handle=await startRuntimeStatus(prisma,account);
+  await handle.beat(false);assert.equal(row.status,'failed');assert.equal(row.error,'Provider connection not ready');
+  await handle.beat(true);assert.equal(row.status,'running');assert.equal(row.stoppedAt,null);
+  current={...current,tokenRef:'env:TELEGRAM_BOT_TOKEN_SECOND'};
+  await handle.beat();assert.equal(row.status,'stopped');assert(row.stoppedAt instanceof Date);
+  assert(!JSON.stringify(row).includes(account.token));
+  row=undefined;await handle.beat();await handle.stop();
+});

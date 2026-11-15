@@ -19,19 +19,19 @@ export async function createRuntime(options: BotRuntimeOptions): Promise<{ start
     const router = new InteractionRouter();
     await configureRouterFromDatabase(prisma, router);
     const accounts = await loadRuntimeBotAccounts(prisma, options.mode);
-    const adapters: BotAdapter[] = accounts.filter((a) => a.mode === 'polling').map((account) => {
+    const adapters = new Map<string, BotAdapter>(accounts.filter((a) => a.mode === 'polling').map((account): [string, BotAdapter] => {
       const adapterOptions = { ...options, account, prisma };
-      if (account.provider === 'telegram') return new TelegramAdapter(router, adapterOptions);
-      if (account.provider === 'vk') return new VkAdapter(router, adapterOptions);
-      return new DiscordAdapter(router, adapterOptions);
-    });
+      if (account.provider === 'telegram') return [account.id, new TelegramAdapter(router, adapterOptions)];
+      if (account.provider === 'vk') return [account.id, new VkAdapter(router, adapterOptions)];
+      return [account.id, new DiscordAdapter(router, adapterOptions)];
+    }));
     let ready = false;
     let stopped = false;
-    const statuses: RuntimeStatusHandle[] = [];
+    const statuses: { account: typeof accounts[number]; handle: RuntimeStatusHandle }[] = [];
     const started: BotAdapter[] = [];
     const server = new BotWebhookServer(prisma, router, accounts.filter((account) => account.mode === 'webhook'), () => ready, options.mode);
     const heartbeat = new SerialPoller(Number(process.env.BOT_RUNTIME_HEARTBEAT_MS ?? 15_000), async () => {
-      await Promise.all(statuses.map((status) => status.beat()));
+      await Promise.all(statuses.map(({ account, handle }) => handle.beat(adapters.get(account.id)?.isHealthy?.() ?? true)));
     }, (error) => console.error('[bot-runtime] heartbeat failed:', error instanceof Error ? error.name : 'unknown'));
     const stop = async () => {
       if (stopped) return;
@@ -39,21 +39,21 @@ export async function createRuntime(options: BotRuntimeOptions): Promise<{ start
       await heartbeat.stop();
       await server.stop();
       await Promise.allSettled(started.map((adapter) => adapter.stop()));
-      await Promise.allSettled(statuses.map((status) => status.stop()));
+      await Promise.allSettled(statuses.map(({ handle }) => handle.stop()));
       await prisma.close();
     };
     return {
       async start() {
         try {
           await server.start();
-          for (const adapter of adapters) {
+          for (const adapter of adapters.values()) {
             if (stopped) return;
             if (!adapter.isConfigured()) continue;
             started.push(adapter);
             await adapter.start();
           }
           if (stopped) return;
-          for (const account of accounts) statuses.push(await startRuntimeStatus(prisma, account));
+          for (const account of accounts) statuses.push({ account, handle: await startRuntimeStatus(prisma, account) });
           await heartbeat.start();
           ready = true;
         } catch (error) { await stop(); throw error; }

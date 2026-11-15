@@ -3,7 +3,7 @@ import type { RuntimeBotAccount } from './load-bot-accounts.js';
 
 export interface RuntimeStatusHandle {
   id: string;
-  beat(): Promise<void>;
+  beat(healthy?: boolean): Promise<void>;
   stop(error?: unknown): Promise<void>;
 }
 
@@ -26,12 +26,20 @@ export async function startRuntimeStatus(prisma: PrismaService, account: Runtime
 
   return {
     id: row.id,
-    async beat() {
-      await prisma.botRuntimeStatus.update({ where: { id: row.id }, data: { status: 'running', lastBeatAt: new Date(), error: null } });
+    async beat(healthy = true) {
+      const now = new Date();
+      // Only the currently configured account may publish a live heartbeat.
+      // A disabled/deleted account or a changed mode/token reference must not
+      // be advertised as running by an old runtime process.
+      const updated = await prisma.botRuntimeStatus.updateMany({
+        where: { id: row.id, account: { is: { id: account.id, communityId: account.communityId, provider: account.provider, mode: account.mode, isActive: true, tokenRef: account.tokenRef ?? null } } },
+        data: { status: healthy ? 'running' : 'failed', lastBeatAt: now, stoppedAt: null, error: healthy ? null : 'Provider connection not ready' },
+      });
+      if (!updated.count) await prisma.botRuntimeStatus.updateMany({ where: { id: row.id }, data: { status: 'stopped', stoppedAt: now, error: 'Account configuration changed' } });
     },
     async stop(error?: unknown) {
       const message = error instanceof Error ? error.message : error ? String(error) : null;
-      await prisma.botRuntimeStatus.update({ where: { id: row.id }, data: { status: message ? 'failed' : 'stopped', stoppedAt: new Date(), error: message } });
+      await prisma.botRuntimeStatus.updateMany({ where: { id: row.id }, data: { status: message ? 'failed' : 'stopped', stoppedAt: new Date(), error: message } });
     },
   };
 }
