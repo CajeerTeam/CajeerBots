@@ -19,6 +19,7 @@ export const permissions = {
 
   botRuntimeRead: 'bot_runtime:read',
   botRuntimeWrite: 'bot_runtime:write',
+  workspaceMessages: 'workspace:messages',
 
   messagesRead: 'messages:read',
   messagesWrite: 'messages:write',
@@ -141,6 +142,7 @@ export const permissionDescriptions: Record<PermissionScope, string> = {
   [permissions.botAccountsWrite]: 'Создание и изменение bot accounts.',
   [permissions.botRuntimeRead]: 'Чтение runtime status, inbound updates и outbound messages ботов.',
   [permissions.botRuntimeWrite]: 'Повторная отправка outbound messages и runtime-действия bot-runtime.',
+  [permissions.workspaceMessages]: 'Изолированная очередь Workspace; требуется конкретный community grant и разрешённая цель.',
   [permissions.messagesRead]: 'Чтение message templates.',
   [permissions.messagesWrite]: 'Создание, изменение и рендер message templates.',
   [permissions.messageCoreRead]: 'Чтение catalog localization, button layouts, forms, render logs и Message Core preview.',

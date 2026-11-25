@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { renderProviderButtons } from '@cajeerbots/message-core';
 import { SerialPoller } from '@cajeerbots/core';
-import { PrismaService } from '@cajeerbots/db';
+import { PrismaService, workspacePrefix, workspaceTarget, workspaceMarker, workspaceKeyAllowed, workspaceText } from '@cajeerbots/db';
 import { decryptSecret, assertBotTokenRef } from '@cajeerbots/security';
 
 export interface BotOutboundWorkerOptions {
@@ -36,7 +36,7 @@ export class BotOutboundWorker {
     this.running = true;
     try {
       const rows = await this.prisma.botOutboundMessage.findMany({
-        where: { status: { in: ['pending', 'failed', 'sending'] }, availableAt: { lte: new Date() } },
+        where: { OR: [{ id: { startsWith: workspacePrefix }, status: 'pending' }, { NOT: { id: { startsWith: workspacePrefix } }, status: { in: ['pending', 'failed', 'sending'] } }], availableAt: { lte: new Date() } },
         orderBy: { createdAt: 'asc' },
         take: this.options.batchSize ?? 25,
         include: { account: true },
@@ -48,6 +48,7 @@ export class BotOutboundWorker {
   }
 
   private async deliver(id: string): Promise<void> {
+    if (id.startsWith(workspacePrefix)) { await this.deliverWorkspace(id); return; }
     const maxAttempts = this.options.maxAttempts ?? 8;
     const claim = await this.prisma.botOutboundMessage.updateMany({ where: { id, status: { in: ['pending', 'failed', 'sending'] }, availableAt: { lte: new Date() } }, data: { status: 'sending', attempts: { increment: 1 }, availableAt: new Date(Date.now() + 300_000) } });
     if (!claim.count) return;
@@ -76,6 +77,33 @@ export class BotOutboundWorker {
           availableAt: new Date(Date.now() + Math.min(300_000, 2 ** attempts * 1000)),
         },
       });
+    }
+  }
+
+
+  private async deliverWorkspace(id: string): Promise<void> {
+    const claim = await this.prisma.botOutboundMessage.updateMany({ where: { id, status: 'pending', availableAt: { lte: new Date() } }, data: { status: 'sending', attempts: { increment: 1 }, availableAt: new Date(Date.now() + 300_000) } });
+    if (!claim.count) return;
+    const row = await this.prisma.botOutboundMessage.findUniqueOrThrow({ where: { id }, include: { account: true } });
+    const where = { id, status: 'sending' as const, attempts: row.attempts };
+    let token: string;
+    try {
+      const key = row.targetType.split(':')[1] ?? '';
+      const target = workspaceTarget(key, row.communityId);
+      const apiKey = await this.prisma.apiKey.findFirst({ where: { id: key, revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } });
+      if (!apiKey || !workspaceKeyAllowed(apiKey.scopes, row.communityId) || !target || target.accountId !== row.accountId || target.channelId !== row.targetId || target.provider !== row.provider || row.account.communityId !== row.communityId || row.account.provider !== row.provider || !row.account.isActive || row.targetType !== workspaceMarker(key, row.account.updatedAt.toISOString()) || !workspaceText(row.text) || row.attempts > 8) throw new Error('Workspace preflight failed');
+      token = await this.resolveToken(row.account.tokenRef, row.account.provider, row.account.communityId);
+    } catch {
+      await this.prisma.botOutboundMessage.updateMany({ where, data: { status: 'dead', lastError: 'workspace_preflight' } });
+      return;
+    }
+    // Once a provider request starts, an error or process crash is ambiguous. Never auto-retry.
+    try {
+      const providerMessageId = await sendText(row.provider, token, row.targetId, row.text, undefined, id);
+      if (!providerMessageId) throw new Error('Missing receipt');
+      await this.prisma.botOutboundMessage.updateMany({ where, data: { status: 'sent', providerMessageId, sentAt: new Date(), lastError: null } });
+    } catch {
+      await this.prisma.botOutboundMessage.updateMany({ where, data: { status: 'dead', lastError: 'workspace_uncertain' } });
     }
   }
 

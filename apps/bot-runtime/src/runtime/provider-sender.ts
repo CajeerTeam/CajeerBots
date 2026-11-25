@@ -12,6 +12,7 @@ export async function sendProviderText(
   if (!message.targetId) return;
   if (!account.id.startsWith('env:') && !await prisma.botAccount.findFirst({ where: { id: account.id, communityId: account.communityId, provider: account.provider, isActive: true, tokenRef: account.tokenRef } })) return;
   const id = message.outboundMessageId;
+  if (id?.startsWith('workspace-')) throw new Error('Workspace delivery requires dedicated worker');
   if (!id) { await sendText(account, message.targetId, message.text, message.buttons); return; }
   const claim = await prisma.botOutboundMessage.updateMany({ where: { id, accountId: account.id, communityId: account.communityId, status: { in: ['pending', 'failed'] }, availableAt: { lte: new Date() } }, data: { status: 'sending', attempts: { increment: 1 }, availableAt: new Date(Date.now() + 300_000) } });
   if (!claim.count) return;
@@ -27,6 +28,7 @@ export async function sendProviderText(
 }
 
 export async function retryOutboundMessage(prisma: PrismaService, messageId: string): Promise<{ sent: boolean; id: string }> {
+  if (messageId.startsWith('workspace-')) throw new Error('Workspace delivery requires dedicated worker');
   const message = await prisma.botOutboundMessage.findUnique({ where: { id: messageId }, include: { account: true } });
   if (!message) throw new Error(`Bot outbound message не найден: ${messageId}`);
   const account: RuntimeBotAccount = {

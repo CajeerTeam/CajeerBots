@@ -71,7 +71,7 @@ async function executeBuiltIn(context: JobExecutionContext): Promise<JobExecutio
       const olderThan = new Date(now.getTime() - Number(context.job.payload?.olderThanSeconds ?? 900) * 1000);
       const webhookDeliveries = await prisma.webhookDelivery.updateMany({ where: { status: 'processing', updatedAt: { lt: olderThan } }, data: { status: 'failed', lastError: 'stale_processing_requeued_by_scheduler', availableAt: now } });
       const eventDeliveries = await prisma.eventSubscriptionDelivery.updateMany({ where: { status: 'processing', updatedAt: { lt: olderThan } }, data: { status: 'failed', lockedAt: null, lastError: 'stale_processing_requeued_by_scheduler', availableAt: now } });
-      const botMessages = await prisma.botOutboundMessage.updateMany({ where: { status: 'sending', updatedAt: { lt: olderThan } }, data: { status: 'failed', lastError: 'stale_sending_requeued_by_scheduler', availableAt: now } });
+      const botMessages = await prisma.botOutboundMessage.updateMany({ where: { status: 'sending', NOT: { id: { startsWith: 'workspace-' } }, updatedAt: { lt: olderThan } }, data: { status: 'failed', lastError: 'stale_sending_requeued_by_scheduler', availableAt: now } });
       return { status: 'succeeded', result: { webhookDeliveries: webhookDeliveries.count, eventDeliveries: eventDeliveries.count, botMessages: botMessages.count }, logs };
     }
     case 'maintenance.diagnostics_snapshot': {
